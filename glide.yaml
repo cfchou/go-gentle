@@ -1,0 +1,53 @@
+package: github.com/cfchou/porter
+import:
+- package: github.com/cihub/seelog
+  version: v2.6
+- package: github.com/facebookgo/inject
+- package: github.com/aws/aws-sdk-go
+  version: ^1.6.12
+- package: github.com/codegangsta/inject
+  version: v1.0-rc1
+- package: github.com/Sirupsen/logrus
+  version: ^0.11.0
+- package: github.com/stretchr/testify
+  version: ^1.1.4
+- package: github.com/mitchellh/mapstructure
+- package: google.golang.org/api
+  subpackages:
+  - gmail/v1
+- package: golang.org/x/oauth2
+  subpackages:
+  - '...'
+- package: github.com/goinaction/code
+- package: github.com/adonovan/gopl.io
+- package: github.com/golang/mock
+- package: golang.org/x/net
+  subpackages:
+  - internal/nettest
+- package: golang.org/x/text
+- package: gopkg.in/eapache/go-resiliency.v1
+  version: ^1.0.0
+- package: github.com/uber-go/ratelimit
+- package: github.com/uber-go/tally
+- package: github.com/juju/ratelimit
+- package: github.com/sony/gobreaker
+- package: github.com/afex/hystrix-go
+  subpackages:
+  - hystrix
+- package: github.com/spf13/viper
+- package: github.com/heirko/go-contrib
+  subpackages:
+  - logrusHelper
+- package: github.com/gogap/logrus_mate
+- package: github.com/hashicorp/golang-lru
+- package: github.com/lunixbochs/struc
+- package: github.com/imdario/mergo
+- package: golang.org/x/time
+  subpackages:
+  - rate
+- package: github.com/cactus/go-statsd-client
+  version: ^3.1.0
+  subpackages:
+  - statsd
+- package: github.com/davecgh/go-spew
+  version: ^1.1.0
