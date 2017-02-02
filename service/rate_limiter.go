@@ -28,7 +28,6 @@ type RateLimiter struct {
 // Create a RateLimiter. If RateLimiterConfig.RequestsInterval == 0, then an
 // unlimited one is returned.
 func (rc *RateLimitConfig) NewRateLimit() *RateLimiter {
-	a := 10
 	if rc.RequestsInterval > 0 {
 		return &RateLimiter{
 			bucket: ratelimit.NewBucket(
