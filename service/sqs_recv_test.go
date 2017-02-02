@@ -190,8 +190,14 @@ func TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(1)
+	name := fmt.Sprintf("RunWithBackPressure_%d", rand.Int63n(time.Now().Unix()))
 	fake_bpconf := BackPressureConf{
-
+		Name: fmt.Sprintf("%s_bp", name),
+		// keep the circuit closed
+		Timeout: 10000,
+		RequestVolumeThreshold: 1000,
+		ErrorPercentThreshold: 100,
+		SleepWindow: 10,
 	}
 
 	mspec := &MockSpec{}
@@ -207,8 +213,6 @@ func TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
 		}).
 		Return(fake_output, nil)
 
-	// Must give a different name across all tests to prevent clashes of the circuit breakers.
-	name := fmt.Sprintf("RunWithBackPressure_%d", rand.Int63n(time.Now().UnixNano()))
 	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
 	assert.Nil(t, err)
 

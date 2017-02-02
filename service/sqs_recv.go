@@ -160,7 +160,7 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 	for {
 		// Every Run() starts a fresh counter.
 		err := retry.Run(func() error {
-			log.Printf("[%s] Run %d at %v ", q.Name, count, time.Now())
+			log.Printf("[%s] Run %d at %v", q.Name, count, time.Now())
 			count++
 			// The circuit protects reads from the upstream(sqs).
 			err := hystrix.Do(q.Name, func() error {
@@ -215,20 +215,24 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 type MessageHandler func(*sqs.Message) error
 
 func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler MessageHandler) {
+	// Spawn no more than q.Conf.MaxWaitingMessages goroutines
 	semaphore := make(chan *struct{}, q.Conf.MaxWaitingMessages)
 	for {
+		log.Printf("[%s] Dequeuing at %v", q.Name, time.Now())
 		m := <- q.queue
-		// Spawn no more than q.Conf.MaxWaitingMessages goroutines
 		semaphore <- &struct{}{}
+		log.Printf("[%s] Handling message at %v, sem=%d", q.Name, time.Now(), len(semaphore))
 		hystrix.Go(bp.Name, func() error {
 			err := handler(m)
 			if err != nil {
-				// log
+				log.Printf("[%s] Handler err: %v", q.Name, err)
 				return err
 			}
+			log.Printf("[%s] Handler ok", q.Name)
 			<- semaphore
 			return nil
 		}, func(err error) error {
+			log.Printf("[%s] Handler fallback because of: %v", q.Name, err)
 			<- semaphore
 			return err
 		})
