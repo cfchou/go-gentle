@@ -241,7 +241,7 @@ func _TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
 func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 	fake_url := "http://some.endpoint"
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
-	fake_conf.MaxWaitingMessages = 1
+	fake_conf.MaxWaitingMessages = 3
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(1)
 	//name := fmt.Sprintf("RunWithBackPressure_%d", rand.Int63n(time.Now().Unix()))
@@ -253,9 +253,10 @@ func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 		// make the circuit open
 		RequestVolumeThreshold: 1,
 		ErrorPercentThreshold: 1,
-		SleepWindow: 5000,
-		BackoffExpInit: time.Second,
+		SleepWindow: 3000,
+		BackoffExpInit: 1000,
 		BackoffExpSteps: 3,
+		BackoffConstSleepWindow: 5000,
 		BackoffConstSteps: 3,
 	}
 

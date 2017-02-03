@@ -107,8 +107,12 @@ type BackPressureConf struct {
 
 	// The retry(backoff) pattern firstly grows exponential and then
 	// remains constant.
+
+	// In millisecond
+	BackoffExpInit int
 	BackoffExpSteps int
-	BackoffExpInit time.Duration
+	// In millisecond
+	BackoffConstSleepWindow int
 	BackoffConstSteps int
 }
 
@@ -162,8 +166,11 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 	// The circuit whose state is controlled by the result of the downstream
 	// service.
 	cb, _, _ := hystrix.GetCircuit(bp.Name)
-	retry := retrier.New(retrier.ExponentialBackoff(bp.BackoffExpSteps,
-		bp.BackoffExpInit), nil)
+	expBackoff := retrier.ExponentialBackoff(bp.BackoffExpSteps,
+		time.Duration(bp.BackoffExpInit) * time.Millisecond)
+	constBackoff := retrier.ConstantBackoff(bp.BackoffConstSteps,
+		time.Duration(bp.BackoffConstSleepWindow)*time.Millisecond)
+	retry := retrier.New(expBackoff, nil)
 	retry_count := 0
 	q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
 	for {
@@ -214,15 +221,11 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 			// upstream or downstream) hasn't been restored.
 			// Replace ExponentialBackoff or prolong ConstantBackoff.
 			q.log.Warn("[run] Extending backoff")
-			retry = retrier.New(
-				retrier.ConstantBackoff(bp.BackoffConstSteps,
-					time.Duration(bp.SleepWindow)*time.Millisecond),
-				nil)
+			retry = retrier.New(constBackoff, nil)
 		} else {
 			// A success would restore to ExponentialBackpoff again.
 			q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
-			retry = retrier.New(retrier.ExponentialBackoff(bp.BackoffExpSteps,
-				bp.BackoffExpInit), nil)
+			retry = retrier.New(expBackoff, nil)
 			retry_count = 0
 		}
 	}
@@ -265,6 +268,14 @@ func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler Message
 
 func (q *SqsReceiveService) RunWithBackPressure(bp BackPressureConf, handler MessageHandler) {
 	q.once.Do(func() {
+		// SleepWindow should be less than BackoffConstSleepWindow
+		sleepWindow := func() int {
+			if bp.SleepWindow > bp.BackoffConstSleepWindow {
+				q.log.Warn("[run] adjust SleepWindow")
+				return bp.BackoffConstSleepWindow
+			}
+			return bp.SleepWindow
+		}()
 		q.log.Info("RunWithBackPressure() called")
 		q.state = running_backpressured
 		hystrix.ConfigureCommand(bp.Name, hystrix.CommandConfig{
@@ -272,7 +283,8 @@ func (q *SqsReceiveService) RunWithBackPressure(bp BackPressureConf, handler Mes
 			Timeout: bp.Timeout,
 			RequestVolumeThreshold: bp.RequestVolumeThreshold,
 			ErrorPercentThreshold: bp.ErrorPercentThreshold,
-			SleepWindow: bp.SleepWindow,
+			// adjusted SleepWindow
+			SleepWindow: sleepWindow,
 		})
 		go q.backPressuredRun(&bp)
 		go q.handleMessages(&bp, handler)
