@@ -10,9 +10,21 @@ import (
 	"fmt"
 	"math/rand"
 	"time"
-	"log"
+	"github.com/inconshreveable/log15"
+	"flag"
+	"errors"
 )
 
+func TestMain(m *testing.M) {
+	flag.Parse()
+	//h := log15.LvlFilterHandler(log15.LvlDebug, log15.CallerFuncHandler(log15.StdoutHandler))
+	h := log15.LvlFilterHandler(log15.LvlDebug,
+			log15.MultiHandler(
+				log15.StdoutHandler,
+				log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
+	Log.SetHandler(h)
+	m.Run()
+}
 
 type MockClient struct {
 	mock.Mock
@@ -58,7 +70,7 @@ func fakeReceiveMessageOutput(n int) (*sqs.ReceiveMessageOutput) {
 	return ret
 }
 
-func TestSqsReceiveService_WaitMessage_One(t *testing.T) {
+func _TestSqsReceiveService_WaitMessage_One(t *testing.T) {
 	fake_url := "http://some.endpoint"
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
 	fake_input := sqs.ReceiveMessageInput{}
@@ -78,7 +90,7 @@ func TestSqsReceiveService_WaitMessage_One(t *testing.T) {
 		Return(fake_output, nil)
 
 	// Must give a different name across all tests to prevent clashes of the circuit breakers.
-	name := fmt.Sprintf("WaitMessage_One_%d", rand.Int63n(time.Now().UnixNano()))
+	name := fmt.Sprintf("WaitMessage_One_%d", rand.Int63n(time.Now().Unix()))
 	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
 	assert.Nil(t, err)
 	svc.Run()
@@ -86,7 +98,7 @@ func TestSqsReceiveService_WaitMessage_One(t *testing.T) {
 	assert.EqualValues(t, *msg, *fake_output.Messages[0])
 }
 
-func TestSqsReceiveService_WaitMessage_OneMulti(t *testing.T) {
+func _TestSqsReceiveService_WaitMessage_OneMulti(t *testing.T) {
 	count := 5
 	fake_url := "http://some.endpoint"
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
@@ -107,19 +119,19 @@ func TestSqsReceiveService_WaitMessage_OneMulti(t *testing.T) {
 		Return(fake_output, nil)
 
 	// Must give a different name across all tests to prevent clashes of the circuit breakers.
-	name := fmt.Sprintf("WaitMessage_OneMulti_%d", rand.Int63n(time.Now().UnixNano()))
+	name := fmt.Sprintf("WaitMessage_OneMulti_%d", rand.Int63n(time.Now().Unix()))
 	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
 	assert.Nil(t, err)
 	svc.Run()
 
 	for i := 1; i <= count; i++ {
-		log.Printf("[%s] count: %d out %d", name, i, count)
+		Log.Debug("[test]", "service", name, "num", i, "count", count)
 		msg, _ := svc.WaitMessage(0)
 		assert.EqualValues(t, *msg, *fake_output.Messages[0])
 	}
 }
 
-func TestSqsReceiveService_WaitMessage_Many(t *testing.T) {
+func _TestSqsReceiveService_WaitMessage_Many(t *testing.T) {
 	many := 10
 	fake_url := "http://some.endpoint"
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
@@ -138,8 +150,7 @@ func TestSqsReceiveService_WaitMessage_Many(t *testing.T) {
 		}).
 		Return(fake_output, nil)
 
-	name := fmt.Sprintf("WaitMessage_Many_%d", rand.Int63n(time.Now().UnixNano()))
-	//t.Logf("Testing %s......", name)
+	name := fmt.Sprintf("WaitMessage_Many_%d", rand.Int63n(time.Now().Unix()))
 	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
 	assert.Nil(t, err)
 	svc.Run()
@@ -150,7 +161,7 @@ func TestSqsReceiveService_WaitMessage_Many(t *testing.T) {
 	}
 }
 
-func TestSqsReceiveService_WaitMessage_ManyMulti(t *testing.T) {
+func _TestSqsReceiveService_WaitMessage_ManyMulti(t *testing.T) {
 	count := 5
 	many := 5
 	fake_url := "http://some.endpoint"
@@ -170,14 +181,14 @@ func TestSqsReceiveService_WaitMessage_ManyMulti(t *testing.T) {
 		}).
 		Return(fake_output, nil)
 
-	name := fmt.Sprintf("WaitMessage_ManyMulti_%d", rand.Int63n(time.Now().UnixNano()))
+	name := fmt.Sprintf("WaitMessage_ManyMulti_%d", rand.Int63n(time.Now().Unix()))
 	//t.Logf("Testing %s......", name)
 	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
 	assert.Nil(t, err)
 	svc.Run()
 
 	for i := 1; i <= count; i++ {
-		log.Printf("[%s] count: %d out %d", name, i, count)
+		Log.Debug("[test]", "service", name, "num", i, "count", count)
 		for j := 0; j < many; j++ {
 			msg, _ := svc.WaitMessage(0)
 			assert.EqualValues(t, *msg, *fake_output.Messages[j])
@@ -185,7 +196,8 @@ func TestSqsReceiveService_WaitMessage_ManyMulti(t *testing.T) {
 	}
 }
 
-func TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
+// Normal flow
+func _TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
 	fake_url := "http://some.endpoint"
 	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
 	fake_input := sqs.ReceiveMessageInput{}
@@ -224,4 +236,60 @@ func TestSqsReceiveService_RunWithBackPressure(t *testing.T) {
 	}
 	svc.RunWithBackPressure(fake_bpconf, handler)
 	<- handle_done
+}
+
+func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
+	fake_url := "http://some.endpoint"
+	fake_conf := fakeSqsReceiveServiceConfig(fake_url)
+	fake_conf.MaxWaitingMessages = 1
+	fake_input := sqs.ReceiveMessageInput{}
+	fake_output := fakeReceiveMessageOutput(1)
+	//name := fmt.Sprintf("RunWithBackPressure_%d", rand.Int63n(time.Now().Unix()))
+	name := ""
+	fake_bpconf := BackPressureConf{
+		Name: fmt.Sprintf("%s_bp", name),
+		// allow a slow(bounded by 100sec) handler
+		Timeout: 100000,
+		// make the circuit open
+		RequestVolumeThreshold: 1,
+		ErrorPercentThreshold: 1,
+		SleepWindow: 10000,
+		BackoffExpInit: time.Second,
+		BackoffExpUnit: 4,
+		BackoffConstInterval: time.Duration(3) * time.Second,
+		BackoffConstUnit: 3,
+	}
+
+	mspec := &MockSpec{}
+	mspec.On("ToReceiveMessageInput", fake_url).
+		Return(&fake_input, nil)
+
+	//done := make(chan *struct{}, 1)
+	run_times := 0
+	mc := &MockClient{}
+	mc.On("ReceiveMessage", &fake_input).
+		Run(func(args mock.Arguments) {
+			//done <- &struct {}{}
+			run_times++
+		}).
+		Return(fake_output, nil)
+
+	svc, err := fake_conf.NewSqsReceiveService(name, mc, mspec)
+	assert.Nil(t, err)
+
+	handle_done := make(chan *struct{}, 1)
+	handle_times := 0
+	handler := func (msg *sqs.Message) error {
+		assert.EqualValues(t, *msg, *fake_output.Messages[0])
+		handle_times++
+		time.Sleep(time.Duration(2) * time.Second)
+		if handle_times > 5 {
+			handle_done <- &struct{}{}
+		}
+		return errors.New("Test handler fail")
+	}
+	svc.RunWithBackPressure(fake_bpconf, handler)
+	<- handle_done
+	Log.Debug("[test]", "service", name, "run_times", run_times, "handle_times", handle_times)
+
 }

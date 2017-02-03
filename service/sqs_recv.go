@@ -10,11 +10,17 @@ import (
 	"errors"
 	"github.com/aws/aws-sdk-go/aws"
 	"gopkg.in/eapache/go-resiliency.v1/retrier"
-	"log"
+	"github.com/inconshreveable/log15"
 )
 
 var ErrQueueTimeout = errors.New("See no message until timeout")
 var ErrBackoff = errors.New("Should back off for a while")
+
+var Log = log15.New()
+
+func init()  {
+	Log.SetHandler(log15.DiscardHandler())
+}
 
 const (
 	created = iota
@@ -26,6 +32,7 @@ type SqsReceiveService struct {
 	Name string
 	Conf SqsReceiveServiceConfig
 
+	log log15.Logger
 	client sqsiface.SQSAPI
 	queue chan *sqs.Message
 	msg_input *sqs.ReceiveMessageInput
@@ -84,6 +91,7 @@ func (spec *ReceiveSpec) ToReceiveMessageInput(url string) (*sqs.ReceiveMessageI
 	}
 	err := input.Validate()
 	if err != nil {
+		Log.Error("Validate failed", "err", err)
 		return nil, err
 	}
 	return input, nil
@@ -134,6 +142,7 @@ func (conf *SqsReceiveServiceConfig) NewSqsReceiveService(name string, client sq
 	return &SqsReceiveService {
 		Name: name,
 		Conf: *conf,
+		log: Log.New("service", name),
 		client: client,
 		queue: make(chan *sqs.Message, conf.MaxWaitingMessages),
 		msg_input: input,
@@ -156,20 +165,21 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 	cb, _, _ := hystrix.GetCircuit(bp.Name)
 	retry := retrier.New(retrier.ExponentialBackoff(bp.BackoffExpUnit,
 		bp.BackoffExpInit), nil)
-	count := 1
+	retry_count := 0
+	q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
 	for {
 		// Every Run() starts a fresh counter.
 		err := retry.Run(func() error {
-			log.Printf("[%s] Run %d at %v", q.Name, count, time.Now())
-			count++
+			retry_count++
+			q.log.Debug("[run] ReceiveMessage", "retry_count", retry_count)
 			// The circuit protects reads from the upstream(sqs).
 			err := hystrix.Do(q.Name, func() error {
 				resp, err := q.client.ReceiveMessage(q.msg_input)
 				if err != nil {
-					log.Printf("[%s] ReceiveMessage err: %v", q.Name, err)
+					q.log.Error("[run] ReceiveMessage err", "err", err)
 					return err
 				}
-				log.Printf("[%s] Receive %d messages", q.Name, len(resp.Messages))
+				q.log.Debug("[run] ReceiveMessage ok", "len", len(resp.Messages))
 				for _, msg := range resp.Messages {
 					// enqueuing might block
 					q.queue <- msg
@@ -180,7 +190,7 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 				// Could be the circuit is still opened or
 				// sqs.ReceiveMessage() failed. Will be
 				// retried later.
-				log.Printf("[%s] Retry because of: %v", q.Name, err)
+				q.log.Warn("[run] Retry due to err", "err", err)
 				return err
 			}
 
@@ -188,7 +198,7 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 			// downstream service might be calling for backing off.
 			// This behaviour is in essence back pressure.
 			if !cb.AllowRequest() {
-				log.Printf("[%s] Retry caused by backoff", q.Name)
+				q.log.Warn("[run] Backoff")
 				return ErrBackoff
 			}
 			return nil
@@ -198,50 +208,53 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 			// Failed every retry, a circuit breaker(either for
 			// upstream or downstream) hasn't been restored.
 			// Replace ExponentialBackoff or prolong ConstantBackoff.
-			log.Printf("[%s] Contant backoff and retry: %v", q.Name, err)
+			q.log.Warn("[run] Extending backoff")
 			retry = retrier.New(retrier.ConstantBackoff(
 				bp.BackoffConstUnit,
 				bp.BackoffConstInterval), nil)
 		} else {
 			// A success would restore to ExponentialBackpoff again.
-			log.Printf("[%s] Restore backoff", q.Name)
+			q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
 			retry = retrier.New(retrier.ExponentialBackoff(8, 2),
 				nil)
-			count = 1
+			retry_count = 0
 		}
 	}
 }
 
 type MessageHandler func(*sqs.Message) error
 
+
 func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler MessageHandler) {
 	// Spawn no more than q.Conf.MaxWaitingMessages goroutines
 	semaphore := make(chan *struct{}, q.Conf.MaxWaitingMessages)
 	for {
-		log.Printf("[%s] Dequeuing at %v", q.Name, time.Now())
+		q.log.Debug("[handler] Dequeuing")
 		m := <- q.queue
 		semaphore <- &struct{}{}
-		log.Printf("[%s] Handling message at %v, sem=%d", q.Name, time.Now(), len(semaphore))
-		hystrix.Go(bp.Name, func() error {
+		q.log.Debug("[handler] Semophore got", "sem_len", len(semaphore))
+		errChan := hystrix.Go(bp.Name, func() error {
 			err := handler(m)
 			if err != nil {
-				log.Printf("[%s] Handler err: %v", q.Name, err)
+				q.log.Error("[handler] err", "err", err)
 				return err
 			}
-			log.Printf("[%s] Handler ok", q.Name)
-			<- semaphore
+			q.log.Debug("[handler] ok")
 			return nil
 		}, func(err error) error {
-			log.Printf("[%s] Handler fallback because of: %v", q.Name, err)
-			<- semaphore
-			return err
+			q.log.Warn("[handler] fallback", "err", err)
+			return ErrBackoff
 		})
+		go func() {
+			<- errChan
+			<- semaphore
+		}()
 	}
 }
 
 func (q *SqsReceiveService) RunWithBackPressure(bp BackPressureConf, handler MessageHandler) {
 	q.once.Do(func() {
-		log.Printf("[%s] Once...", q.Name)
+		q.log.Info("RunWithBackPressure() called")
 		q.state = running_backpressured
 		hystrix.ConfigureCommand(bp.Name, hystrix.CommandConfig{
 			MaxConcurrentRequests: q.Conf.MaxWaitingMessages,
@@ -257,18 +270,18 @@ func (q *SqsReceiveService) RunWithBackPressure(bp BackPressureConf, handler Mes
 
 func (q *SqsReceiveService) Run() {
 	q.once.Do(func() {
-		log.Printf("[%s] Once...", q.Name)
+		q.log.Info("Run() called")
 		q.state = running
 		go func () {
 			for {
-				log.Printf("[%s] Run ...", q.Name)
-				err := hystrix.Do(q.Name, func() error {
+				q.log.Debug("Try ReceiveMessage")
+				hystrix.Do(q.Name, func() error {
 					resp, err := q.client.ReceiveMessage(q.msg_input)
 					if err != nil {
-						log.Printf("[%s] ReceiveMessage err: %v", q.Name, err)
+						q.log.Error("ReceiveMessage", "err", err)
 						return err
 					}
-					log.Printf("[%s] Receive %d messages", q.Name, len(resp.Messages))
+					q.log.Debug("ReceiveMessage", "len", len(resp.Messages))
 					for _, msg := range resp.Messages {
 						// enqueuing might block
 						q.queue <- msg
@@ -277,10 +290,10 @@ func (q *SqsReceiveService) Run() {
 				}, func (err error) error {
 					// Could be the circuit is still opened
 					// or sqs.ReceiveMessage() failed.
-					log.Printf("[%s] Fallback because of: %v", q.Name, err)
+					q.log.Warn("Fallback of ReceiveMessage", "err", err)
 					return err
 				})
-				log.Printf("[%s] Done with %v", q.Name, err)
+				q.log.Debug("Done")
 			}
 		}()
 	})
