@@ -253,11 +253,10 @@ func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 		// make the circuit open
 		RequestVolumeThreshold: 1,
 		ErrorPercentThreshold: 1,
-		SleepWindow: 10000,
+		SleepWindow: 5000,
 		BackoffExpInit: time.Second,
-		BackoffExpUnit: 4,
-		BackoffConstInterval: time.Duration(3) * time.Second,
-		BackoffConstUnit: 3,
+		BackoffExpSteps: 3,
+		BackoffConstSteps: 3,
 	}
 
 	mspec := &MockSpec{}
@@ -271,6 +270,7 @@ func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 		Run(func(args mock.Arguments) {
 			//done <- &struct {}{}
 			run_times++
+			Log.Debug("[test] message", "run_times", run_times)
 		}).
 		Return(fake_output, nil)
 
@@ -281,10 +281,14 @@ func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 	handle_times := 0
 	handler := func (msg *sqs.Message) error {
 		assert.EqualValues(t, *msg, *fake_output.Messages[0])
-		handle_times++
 		time.Sleep(time.Duration(2) * time.Second)
+		handle_times++
+		Log.Debug("[test] handler", "handle_times", handle_times)
 		if handle_times > 5 {
-			handle_done <- &struct{}{}
+			if handle_times > 20 {
+				handle_done <- &struct{}{}
+			}
+			return nil
 		}
 		return errors.New("Test handler fail")
 	}
