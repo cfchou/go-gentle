@@ -14,13 +14,13 @@ var ErrRateLimited = errors.New("Rate limit reached")
 
 type SqsSendService struct {
 	Name string
-	Conf SqsSendServiceConfig
+	Conf SqsSendServiceConf
 
 	client sqsiface.SQSAPI
 	limiter *RateLimiter
 }
 
-type SqsSendServiceConfig struct {
+type SqsSendServiceConf struct {
 	Url                    string `json:"url"`
 
 	// Timeout is how long to wait for sqs.SendMessage() to complete,
@@ -69,7 +69,7 @@ type attrSpec struct {
 	BinaryValue []byte
 }
 
-func (conf *SqsSendServiceConfig) createSendMessageInput(spec *SendSpec) (*sqs.SendMessageInput, error) {
+func (conf *SqsSendServiceConf) createSendMessageInput(spec *SendSpec) (*sqs.SendMessageInput, error) {
 	var attrs map[string]*sqs.MessageAttributeValue
 	for k, v := range spec.MessageAttributes {
 		attrs[k] = &sqs.MessageAttributeValue{
@@ -94,7 +94,7 @@ func (conf *SqsSendServiceConfig) createSendMessageInput(spec *SendSpec) (*sqs.S
 	return input, nil
 }
 
-func (conf *SqsSendServiceConfig) NewSqsSendService(name string, client sqsiface.SQSAPI) *SqsSendService {
+func (conf *SqsSendServiceConf) NewSqsSendService(name string, client sqsiface.SQSAPI) *SqsSendService {
 	// A circuit breaker for sqs.SendMessage()
 	hystrix.ConfigureCommand(name, hystrix.CommandConfig{
 		Timeout: conf.Timeout,
