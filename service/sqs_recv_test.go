@@ -256,8 +256,7 @@ func TestSqsReceiveService_RunWithBackPressure_1(t *testing.T) {
 		SleepWindow: 3000,
 		BackoffExpInit: 1000,
 		BackoffExpSteps: 3,
-		BackoffConstSleepWindow: 5000,
-		BackoffConstSteps: 3,
+		BackoffConstWindow: 5000,
 	}
 
 	mspec := &MockSpec{}

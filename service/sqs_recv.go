@@ -18,15 +18,15 @@ var ErrBackoff = errors.New("Should back off for a while")
 
 var Log = log15.New()
 
-func init()  {
-	Log.SetHandler(log15.DiscardHandler())
-}
-
 const (
 	created = iota
 	running = iota
 	running_backpressured = iota
 )
+
+func init()  {
+	Log.SetHandler(log15.DiscardHandler())
+}
 
 type SqsReceiveService struct {
 	Name string
@@ -99,21 +99,28 @@ func (spec *ReceiveSpec) ToReceiveMessageInput(url string) (*sqs.ReceiveMessageI
 
 
 type BackPressureConf struct {
+	// Downstream(handleMessages) circuit breaker
 	Name string
 	Timeout                int `mapstructure:"timeout", json:"timeout"`
 	RequestVolumeThreshold int `mapstructure:"request_volume_threshold", json:"request_volume_threshold"`
 	ErrorPercentThreshold  int `mapstructure:"error_percent_threshold", json:"error_percent_threshold"`
+	// SleepWindow will be adjusted to min(SleepWindow, BackoffConstWindow)
 	SleepWindow            int `mapstructure:"sleep_window", json:"sleep_window"`
 
-	// The retry(backoff) pattern firstly grows exponential and then
-	// remains constant.
-
-	// In millisecond
+	// Upstream(SqsReceiveService) back-off pattern, which firstly grows
+	// exponentially and then remains constant. BackoffExpInit and
+	// BackoffConstWindow are in millisecond.
+	// With values:
+	// {
+	// 	BackoffExpInit: 500
+	// 	BackoffExpSteps: 5
+	// 	BackoffConstWindow: 10000
+	// }
+	// SqsReceiveService will back off after these intervals in milliseconds:
+	// 500, 1000, 2000, 4000, 8000, 10000, 10000, 10000, ...
 	BackoffExpInit int
 	BackoffExpSteps int
-	// In millisecond
-	BackoffConstSleepWindow int
-	BackoffConstSteps int
+	BackoffConstWindow int
 }
 
 func (conf *SqsReceiveServiceConfig) createReceiveMessageInput(spec RSpec) (*sqs.ReceiveMessageInput, error) {
@@ -153,37 +160,55 @@ func (conf *SqsReceiveServiceConfig) NewSqsReceiveService(name string, client sq
 	}, nil
 }
 
-// Two circuit breakers are set up for back pressure:
-// 1. Upstream breaker could be opened by the event that the number of failed
-//    sqs.ReceiveMessage() passed a threshold.
+type BackOff interface {
+	Run(work func() error) error
+}
+
+type BackoffImpl struct {
+	expBackoff []time.Duration
+	constBackoff []time.Duration
+}
+
+func NewBackoff(expInit int, expSteps int, constWindow int) BackOff {
+	return &BackoffImpl{
+		expBackoff: retrier.ExponentialBackoff(expSteps,
+			time.Duration(expInit)*time.Millisecond),
+		constBackoff: retrier.ConstantBackoff(1024,
+			time.Duration(constWindow)*time.Millisecond),
+	}
+}
+
+func (b *BackoffImpl) Run(work func() error) error {
+	retryExp := retrier.New(b.expBackoff, nil)
+	if err := retryExp.Run(work); err == nil {
+		return nil
+	}
+	for {
+		retryConst := retrier.New(b.constBackoff, nil)
+		if err := retryConst.Run(work); err == nil {
+			break
+		}
+	}
+	return nil
+}
+
+// Two circuit breakers are there for back pressure:
+// 1. Upstream(SqsReceiveService) breaker could be opened by the event that the
+//    number of failed sqs.ReceiveMessage() passed a threshold.
 // 2. Downstream breaker could be opened by the event that the number of failed
 //    commands issued by downstream services passed a threshold.
-// Either one of the breakers become open can trigger retry.
-// The retry pattern firstly grows exponential and then remains constant.
-// Whenever a retry succeeded, which implies two breakers are both closed, the
-// pattern is restored.
-func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
-	// The circuit whose state is controlled by the result of the downstream
-	// service.
-	cb, _, _ := hystrix.GetCircuit(bp.Name)
-	expBackoff := retrier.ExponentialBackoff(bp.BackoffExpSteps,
-		time.Duration(bp.BackoffExpInit) * time.Millisecond)
-	constBackoff := retrier.ConstantBackoff(bp.BackoffConstSteps,
-		time.Duration(bp.BackoffConstSleepWindow)*time.Millisecond)
-	retry := retrier.New(expBackoff, nil)
-	retry_count := 0
-	q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
+// Either one of the breakers become open can trigger backoff of upstream.
+// Whenever a backoff.Run() succeeded, which implies two breakers are both
+// closed, the backoffCount is restored.
+func (q *SqsReceiveService) backPressuredRun(downstreamCircuit *hystrix.CircuitBreaker, backoff BackOff) {
 	for {
-		// Every Run() starts a fresh counter.
-		err := retry.Run(func() error {
-			//for i := 1; i <= 3; i++ {
-			//	j := retry.CalcSleep(i)
-			//	q.log.Debug("[run]", "sleep", j)
-			//}
-			retry_count++
-			q.log.Debug("[run] ReceiveMessage", "retry_count", retry_count)
-			// The circuit protects reads from the upstream(sqs).
+		backoffCount := 0
+		q.log.Debug("[*run*] BackOff restored", "backoffCount", backoffCount)
+		backoff.Run(func() error {
+			backoffCount++
+			q.log.Debug("[run] ReceiveMessage", "backoffCount", backoffCount)
 			var msgs []*sqs.Message
+			// The circuit protects reads from the upstream(sqs).
 			err := hystrix.Do(q.Name, func() error {
 				resp, err := q.client.ReceiveMessage(q.msg_input)
 				if err != nil {
@@ -195,46 +220,32 @@ func (q *SqsReceiveService) backPressuredRun(bp *BackPressureConf) {
 				return nil
 			}, nil)
 			for _, msg := range msgs {
-				// enqueuing might block
+				// Enqueuing might block
 				q.queue <- msg
 			}
 			if err != nil {
 				// Could be the circuit is still opened or
 				// sqs.ReceiveMessage() failed. Will be
-				// retried later.
+				// retried at a backoff period.
 				q.log.Warn("[run] Retry due to err", "err", err)
 				return err
 			}
+			// The circuit for upstream at this point is ok.
 
-			// The circuit for upstream is ok. But the
-			// downstream service might be calling for backing off.
-			// This behaviour is in essence back pressure.
-			if cb.IsOpen() {
-				q.log.Warn("[run] Backoff")
+			// However, the circuit for downstream service might
+			// be calling for backing off.
+			if downstreamCircuit.IsOpen() {
+				q.log.Warn("[run] BackOff")
 				return ErrBackoff
 			}
 			return nil
 		})
-
-		if err != nil {
-			// Failed every retry, a circuit breaker(either for
-			// upstream or downstream) hasn't been restored.
-			// Replace ExponentialBackoff or prolong ConstantBackoff.
-			q.log.Warn("[run] Extending backoff")
-			retry = retrier.New(constBackoff, nil)
-		} else {
-			// A success would restore to ExponentialBackpoff again.
-			q.log.Debug("[*run*] Retrier restored", "retry_count", retry_count)
-			retry = retrier.New(expBackoff, nil)
-			retry_count = 0
-		}
 	}
 }
 
 type MessageHandler func(*sqs.Message) error
 
-
-func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler MessageHandler) {
+func (q *SqsReceiveService) handleMessages(downstreamName string, handler MessageHandler) {
 	// Spawn no more than q.Conf.MaxWaitingMessages goroutines
 	semaphore := make(chan *struct{}, q.Conf.MaxWaitingMessages)
 	for {
@@ -243,7 +254,7 @@ func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler Message
 		semaphore <- &struct{}{}
 		q.log.Debug("[handler] Semophore got", "sem_len", len(semaphore))
 		done := make(chan *struct{}, 1)
-		errChan := hystrix.Go(bp.Name, func() error {
+		errChan := hystrix.Go(downstreamName, func() error {
 			err := handler(m)
 			if err != nil {
 				q.log.Error("[handler] err", "err", err)
@@ -268,26 +279,31 @@ func (q *SqsReceiveService) handleMessages(bp *BackPressureConf, handler Message
 
 func (q *SqsReceiveService) RunWithBackPressure(bp BackPressureConf, handler MessageHandler) {
 	q.once.Do(func() {
-		// SleepWindow should be less than BackoffConstSleepWindow
+		q.log.Info("RunWithBackPressure() called")
+		q.state = running_backpressured
+
+		// SleepWindow should be less than BackoffConstWindow
 		sleepWindow := func() int {
-			if bp.SleepWindow > bp.BackoffConstSleepWindow {
-				q.log.Warn("[run] adjust SleepWindow")
-				return bp.BackoffConstSleepWindow
+			if bp.SleepWindow > bp.BackoffConstWindow {
+				q.log.Warn("[run] bp.SleepWindow adjusted to be bp.BackoffConstWindow")
+				return bp.BackoffConstWindow
 			}
 			return bp.SleepWindow
 		}()
-		q.log.Info("RunWithBackPressure() called")
-		q.state = running_backpressured
+		// circuit for downstream
 		hystrix.ConfigureCommand(bp.Name, hystrix.CommandConfig{
 			MaxConcurrentRequests: q.Conf.MaxWaitingMessages,
 			Timeout: bp.Timeout,
 			RequestVolumeThreshold: bp.RequestVolumeThreshold,
 			ErrorPercentThreshold: bp.ErrorPercentThreshold,
-			// adjusted SleepWindow
 			SleepWindow: sleepWindow,
 		})
-		go q.backPressuredRun(&bp)
-		go q.handleMessages(&bp, handler)
+		cb, _, _ := hystrix.GetCircuit(bp.Name)
+		backoff := NewBackoff(bp.BackoffExpInit, bp.BackoffExpSteps,
+			bp.BackoffConstWindow)
+
+		go q.backPressuredRun(cb, backoff)
+		go q.handleMessages(bp.Name, handler)
 	})
 }
 
