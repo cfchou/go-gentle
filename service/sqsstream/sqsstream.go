@@ -1,10 +1,9 @@
 // vim:fileencoding=utf-8
 package service
 
-import "github.com/inconshreveable/log15"
+import (
+	"github.com/cfchou/porter/service"
+)
 
-var Log = log15.New()
+var Log = service.Log.New()
 
-func init()  {
-	Log.SetHandler(log15.DiscardHandler())
-}

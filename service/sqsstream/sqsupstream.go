@@ -11,6 +11,7 @@ import (
 	"errors"
 	"gopkg.in/eapache/go-resiliency.v1/retrier"
 	"github.com/cfchou/porter/service"
+	"fmt"
 )
 
 var ErrQueueTimeout = errors.New("See no message until timeout")
@@ -193,8 +194,10 @@ func (up *SqsUpStream) backPressuredRun(monitor service.DownStreamMonitor, backO
 				msgs = resp.Messages
 				return nil
 			}, nil)
-			for _, msg := range msgs {
+			for i, msg := range msgs {
 				// Enqueuing might block
+				nth := fmt.Sprintf("%d/%d", i+1, len(msgs))
+				up.log.Debug("[Up] Enqueuing...", "nth/total", nth)
 				up.queue <- msg
 			}
 			if err != nil {
@@ -209,7 +212,7 @@ func (up *SqsUpStream) backPressuredRun(monitor service.DownStreamMonitor, backO
 			// However, the circuit for downstream service might
 			// be calling for backing off.
 			if monitor.NeedBackOff() {
-				up.log.Warn("[Up] BackOff")
+				up.log.Warn("[Up] BackOff needed")
 				return ErrBackOff
 			}
 			return nil

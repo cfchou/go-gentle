@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"github.com/stretchr/testify/assert"
 	"sync/atomic"
+	"github.com/cfchou/porter/service"
 )
 
 func TestMain(m *testing.M) {
@@ -22,7 +23,7 @@ func TestMain(m *testing.M) {
 		log15.MultiHandler(
 			log15.StdoutHandler,
 			log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
-	Log.SetHandler(h)
+	service.Log.SetHandler(h)
 	m.Run()
 }
 
@@ -204,6 +205,7 @@ func _TestSqsDownStream_Run(t *testing.T) {
 	mc := &MockClient{}
 	recv_times := 0
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
+		// blocked here when recv_times == count
 		up_done <- &struct{}{}
 		recv_times++
 		Log.Info("[Test] Up message", "recv_times", recv_times)
@@ -214,7 +216,7 @@ func _TestSqsDownStream_Run(t *testing.T) {
 	assert.Nil(t, err)
 	go up.Run()
 
-	fake_down_conf := SqsDownStreamConf{
+	fake_down_conf := service.DefaultDownStreamConf{
 		// Allow the handler to run slowly(up to 10 secs)
 		Timeout: 10000,
 		ConcurrentHandlers:3,
@@ -222,7 +224,7 @@ func _TestSqsDownStream_Run(t *testing.T) {
 		RequestVolumeThreshold:1,
 		SleepWindow:1000,
 	}
-	down := NewSqsDownStream(fmt.Sprintf("Down_%d", tm), fake_down_conf)
+	down := service.NewDefaultDownStream(fmt.Sprintf("Down_%d", tm), fake_down_conf)
 	total := 0
 	down_done := make(chan *struct{})
 	go down.Run(up, func(msg interface{}) error {
@@ -239,18 +241,21 @@ func _TestSqsDownStream_Run(t *testing.T) {
 func TestSqsUpStream_Run_Back_Pressured(t *testing.T) {
 	count := 5
 	many := 5
-	fake_conf := fakeSqsUpStreamConf()
+	fake_conf := &SqsUpStreamConf{
+		MaxWaitingMessages: 3,
+		RequestVolumeThreshold: 1,
+		ErrorPercentThreshold: 1,
+		SleepWindow: 1000,
+	}
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(many)
 
 	mspec := &MockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
-	up_done := make(chan *struct{}, count)
 	mc := &MockClient{}
 	recv_times := 0
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
-		up_done <- &struct{}{}
 		recv_times++
 		Log.Info("[Test] Up message", "recv_times", recv_times)
 	}).Return(fake_output, nil)
@@ -258,29 +263,25 @@ func TestSqsUpStream_Run_Back_Pressured(t *testing.T) {
 	tm := rand.Int63n(time.Now().Unix())
 	up, err := NewSqsUpStream(fmt.Sprintf("Up_%d", tm), *fake_conf, mc, mspec)
 	assert.Nil(t, err)
-	fake_down_conf := SqsDownStreamConf{
+	fake_down_conf := service.DefaultDownStreamConf{
 		// Allow the handler to run slowly(up to 10 secs)
 		Timeout: 10000,
 		ConcurrentHandlers: 2,
 		ErrorPercentThreshold: 1,
 		RequestVolumeThreshold: 1,
-		SleepWindow: 1000,
+		SleepWindow: 1000, // circuit turns half-opened from opened
 	}
-	// Note that BackOff's requests may be blocked by opened DownStream
-	// circuit.
-	// So must ensure those requests can come after
-	// DownStreamConf.SleepWindow. Otherwise, DownStream probably wouldn't
-	// be able to keep up.
-	backOff := NewBackOffImpl(1000, 5, fake_down_conf.SleepWindow)
-	down := NewSqsDownStream(fmt.Sprintf("Down_%d", tm), fake_down_conf)
+	backOff := NewBackOffImpl(1000, 5, 2000)
+	down := service.NewDefaultDownStream(fmt.Sprintf("Down_%d", tm), fake_down_conf)
 	up.SetBackPressure(down, backOff)
 	go up.Run()
 	var total int32 = 0
 	down_done := make(chan *struct{})
 	go down.Run(up, func(msg interface{}) error {
 		v := atomic.AddInt32(&total, 1)
-		if v < 5 {
+		if v < 15 {
 			time.Sleep(time.Duration(2)*time.Second)
+			return fmt.Errorf("** Err %d", v)
 		}
 		Log.Info("[Test] Down message", "total", v)
 		if v == int32(count * many) {
