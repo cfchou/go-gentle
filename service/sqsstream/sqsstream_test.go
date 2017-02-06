@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sync/atomic"
 	"github.com/cfchou/porter/service"
+	"github.com/afex/hystrix-go/hystrix"
 )
 
 func TestMain(m *testing.M) {
@@ -264,14 +265,15 @@ func TestSqsUpStream_Run_Back_Pressured(t *testing.T) {
 	up, err := NewSqsUpStream(fmt.Sprintf("Up_%d", tm), *fake_conf, mc, mspec)
 	assert.Nil(t, err)
 	fake_down_conf := service.DefaultDownStreamConf{
-		// Allow the handler to run slowly(up to 10 secs)
+		// Timeout doesn't interrupt handler. It only contributes an
+		// ErrTimeout the metrics in the circuit breaker.
 		Timeout: 10000,
 		ConcurrentHandlers: 2,
 		ErrorPercentThreshold: 1,
 		RequestVolumeThreshold: 1,
 		SleepWindow: 1000, // circuit turns half-opened from opened
 	}
-	backOff := NewBackOffImpl(1000, 5, 2000)
+	backOff := NewBackOffImpl(1000, 5, 1000)
 	down := service.NewDefaultDownStream(fmt.Sprintf("Down_%d", tm), fake_down_conf)
 	up.SetBackPressure(down, backOff)
 	go up.Run()
@@ -280,7 +282,7 @@ func TestSqsUpStream_Run_Back_Pressured(t *testing.T) {
 	go down.Run(up, func(msg interface{}) error {
 		v := atomic.AddInt32(&total, 1)
 		if v < 15 {
-			time.Sleep(time.Duration(2)*time.Second)
+			time.Sleep(time.Duration(1)*time.Second)
 			return fmt.Errorf("** Err %d", v)
 		}
 		Log.Info("[Test] Down message", "total", v)

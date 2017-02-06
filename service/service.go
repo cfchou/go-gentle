@@ -4,6 +4,7 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
+	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
 var Log = log15.New()
@@ -30,5 +31,18 @@ type DownStreamMonitor interface {
 	NeedBackOff() bool
 }
 
+type SendService interface {
+	SendMessage(interface{}, duration time.Duration) (interface{}, error)
+}
 
+type SendSpec interface {
+	ToSendMessageInput() (*sqs.SendMessageInput, error)
+}
+
+// A rate limit.
+type RateLimit interface {
+	// Wait for $count tokens are granted(return true) or
+	// timeout(return false).
+	Wait(count int64, timeout time.Duration) bool
+}
 

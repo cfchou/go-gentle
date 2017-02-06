@@ -51,11 +51,6 @@ func (b *BackOffImpl) Run(work func() error) error {
 	return nil
 }
 
-// Provide an interface for mocking
-type ReceiveSpec interface {
-	ToReceiveMessageInput() (*sqs.ReceiveMessageInput, error)
-}
-
 type ReceiveInput struct {
 	sqs.ReceiveMessageInput
 	log log15.Logger
