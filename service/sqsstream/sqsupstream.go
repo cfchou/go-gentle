@@ -98,7 +98,7 @@ type SqsUpStream struct {
 	once      sync.Once
 
 	// For back-pressure
-	monitor service.DownStreamMonitor
+	monitor service.Monitor
 	backOff service.BackOff
 	state   int
 }
@@ -132,7 +132,7 @@ func NewSqsUpStream(name string, conf SqsUpStreamConf, client sqsiface.SQSAPI, s
 	}, nil
 }
 
-func (up *SqsUpStream) SetBackPressure(monitor service.DownStreamMonitor, backOff service.BackOff) error {
+func (up *SqsUpStream) SetBackPressure(monitor service.Monitor, backOff service.BackOff) error {
 	if up.state != created {
 		panic("UpStream is already running")
 	}
@@ -170,7 +170,7 @@ func (up *SqsUpStream) Run() {
 	})
 }
 
-func (up *SqsUpStream) backPressuredRun(monitor service.DownStreamMonitor, backOff service.BackOff) {
+func (up *SqsUpStream) backPressuredRun(monitor service.Monitor, backOff service.BackOff) {
 	backOffCount := 0
 	up.log.Debug("[Up] BackOff restored", "backOffCount", backOffCount)
 	for {

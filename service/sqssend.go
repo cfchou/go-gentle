@@ -10,6 +10,7 @@ import (
 )
 
 var ErrRateLimited = errors.New("Rate limit reached")
+var ErrTimeout = errors.New("Timeout")
 
 type SqsSendService struct {
 	Name string
@@ -88,7 +89,6 @@ func (s *SqsSendService) SendMessage(spec SendSpec, timeout time.Duration) (*sqs
 		return nil, err
 	}
 
-	hystrix.GetCircuitSettings()
 	// Blocked
 	s.log.Debug("[SqsSend] Wait")
 	if !s.limiter.Wait(1, timeout) {
@@ -116,4 +116,8 @@ func (s *SqsSendService) SendMessage(spec SendSpec, timeout time.Duration) (*sqs
 	}
 	return <- result, nil
 }
+
+
+
+
 

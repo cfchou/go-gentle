@@ -18,21 +18,22 @@ type BackOff interface {
 }
 
 type UpStream interface {
-	SetBackPressure(monitor DownStreamMonitor, backOff BackOff) error
+	SetBackPressure(Monitor, BackOff) error
 	Run()
-	WaitMessage(timeout time.Duration) (interface{}, error)
+	WaitMessage(time.Duration) (interface{}, error)
 }
 
 type DownStream interface {
-	Run(up UpStream, handler func(interface{}) error) error
+	Run(UpStream, func(interface{}) error) error
 }
 
-type DownStreamMonitor interface {
+type Monitor interface {
 	NeedBackOff() bool
 }
 
-type SendService interface {
-	SendMessage(interface{}, duration time.Duration) (interface{}, error)
+type Sender interface {
+	SendMessage(interface{}, time.Duration) (interface{}, error)
+	GetLogger() log15.Logger
 }
 
 type SendSpec interface {
@@ -43,6 +44,6 @@ type SendSpec interface {
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or
 	// timeout(return false).
-	Wait(count int64, timeout time.Duration) bool
+	Wait(int64, time.Duration) bool
 }
 

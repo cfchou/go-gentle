@@ -17,33 +17,15 @@ type DefaultDownStreamConf struct {
 	ConcurrentHandlers     int `mapstructure:"concurrent_handlers", json:"concurrent_handlers"`
 }
 
-// Implement both DownStream and DownStreamMonitor interfaces
-type DefaultDownStream struct {
+type CircuitBreakerMonitor struct {
 	Name string
-	Conf *DefaultDownStreamConf
 
-	log                    log15.Logger
+	log log15.Logger
+	sleepWindow int
 	openedOrLastTestedTime int64
 }
 
-func NewDefaultDownStream(name string, downConf DefaultDownStreamConf) *DefaultDownStream {
-	// circuit for downstream
-	hystrix.ConfigureCommand(name, hystrix.CommandConfig{
-		MaxConcurrentRequests:  downConf.ConcurrentHandlers,
-		Timeout:                downConf.Timeout,
-		RequestVolumeThreshold: downConf.RequestVolumeThreshold,
-		ErrorPercentThreshold:  downConf.ErrorPercentThreshold,
-		SleepWindow:            downConf.SleepWindow,
-	})
-	return &DefaultDownStream{
-		Name:                   name,
-		Conf:                   &downConf,
-		log:                    Log.New("service", name),
-		openedOrLastTestedTime: time.Now().Unix(),
-	}
-}
-
-func (d *DefaultDownStream) NeedBackOff() bool {
+func (d *CircuitBreakerMonitor) NeedBackOff() bool {
 	// Circuit.AllowRequest() is unreliable because it has a race condition
 	// that one call outside hystrix would make the one call inside hystrix
 	// return false, and vice versa.
@@ -55,7 +37,7 @@ func (d *DefaultDownStream) NeedBackOff() bool {
 	}
 	// Circuit is closed.
 	lastTime := atomic.LoadInt64(&d.openedOrLastTestedTime)
-	if time.Duration(now) <= time.Duration(lastTime)+time.Duration(d.Conf.SleepWindow) {
+	if time.Duration(now) <= time.Duration(lastTime)+time.Duration(d.sleepWindow) {
 		return true
 	}
 	// Circuit is half-opened.
@@ -66,6 +48,38 @@ func (d *DefaultDownStream) NeedBackOff() bool {
 		d.log.Debug("[Down] NeedBackOff")
 	}
 	return swapped
+}
+
+// Implement both DownStream and DownStreamMonitor interfaces
+type DefaultDownStream struct {
+	Name string
+	Conf *DefaultDownStreamConf
+	Monitor
+
+	log                    log15.Logger
+}
+
+func NewDefaultDownStream(name string, downConf DefaultDownStreamConf) *DefaultDownStream {
+	// circuit for downstream
+	hystrix.ConfigureCommand(name, hystrix.CommandConfig{
+		MaxConcurrentRequests:  downConf.ConcurrentHandlers,
+		Timeout:                downConf.Timeout,
+		RequestVolumeThreshold: downConf.RequestVolumeThreshold,
+		ErrorPercentThreshold:  downConf.ErrorPercentThreshold,
+		SleepWindow:            downConf.SleepWindow,
+	})
+	log := Log.New("service", name)
+	return &DefaultDownStream{
+		Name:                   name,
+		Conf:                   &downConf,
+		Monitor: &CircuitBreakerMonitor{
+			Name: name,
+			log: log,
+			sleepWindow: downConf.SleepWindow,
+			openedOrLastTestedTime: time.Now().Unix(),
+		},
+		log: log,
+	}
 }
 
 func (d *DefaultDownStream) Run(up UpStream, handler func(interface{}) error) error {
