@@ -17,6 +17,8 @@ type DefaultDownStreamConf struct {
 	ConcurrentHandlers     int `mapstructure:"concurrent_handlers", json:"concurrent_handlers"`
 }
 
+var DownStreamLog = Log.New()
+
 type CircuitBreakerMonitor struct {
 	Name string
 
@@ -68,7 +70,7 @@ func NewDefaultDownStream(name string, downConf DefaultDownStreamConf) *DefaultD
 		ErrorPercentThreshold:  downConf.ErrorPercentThreshold,
 		SleepWindow:            downConf.SleepWindow,
 	})
-	log := Log.New("service", name)
+	log := DownStreamLog.New("service", name)
 	return &DefaultDownStream{
 		Name:                   name,
 		Conf:                   &downConf,

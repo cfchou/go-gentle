@@ -47,6 +47,10 @@ type SqsSendServiceConf struct {
 	SleepWindow            int `mapstructure:"sleep_window", json:"sleep_window"`
 }
 
+type SendSpec interface {
+	ToSendMessageInput() (*sqs.SendMessageInput, error)
+}
+
 type SendInput struct {
 	sqs.SendMessageInput
 }

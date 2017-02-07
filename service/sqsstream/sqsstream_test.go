@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sync/atomic"
 	"github.com/cfchou/porter/service"
-	"github.com/afex/hystrix-go/hystrix"
 )
 
 func TestMain(m *testing.M) {
@@ -28,22 +27,22 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-type MockClient struct {
+type mockClient struct {
 	mock.Mock
 	sqsiface.SQSAPI
 }
 
-func (m *MockClient) ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
+func (m *mockClient) ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*sqs.ReceiveMessageOutput), args.Error(1)
 }
 
-type MockSpec struct {
+type mockSpec struct {
 	mock.Mock
 	ReceiveSpec
 }
 
-func (m *MockSpec) ToReceiveMessageInput() (*sqs.ReceiveMessageInput, error) {
+func (m *mockSpec) ToReceiveMessageInput() (*sqs.ReceiveMessageInput, error) {
 	args := m.Called()
 	return args.Get(0).(*sqs.ReceiveMessageInput), args.Error(1)
 }
@@ -76,12 +75,12 @@ func _TestSqsUpStream_WaitMessage_One(t *testing.T) {
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(1)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
 	// Calls except for the first one will be blocked
 	done := make(chan *struct{}, 1)
-	mc := &MockClient{}
+	mc := &mockClient{}
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		done <- &struct{}{}
 	}).Return(fake_output, nil)
@@ -104,12 +103,12 @@ func _TestSqsUpStream_WaitMessage_One_Multi(t *testing.T) {
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(1)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
 	// Calls after $count times will be blocked
 	done := make(chan *struct{}, count)
-	mc := &MockClient{}
+	mc := &mockClient{}
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		done <- &struct{}{}
 	}).Return(fake_output, nil)
@@ -130,17 +129,17 @@ func _TestSqsUpStream_WaitMessage_One_Multi(t *testing.T) {
 	}
 }
 
-func _TestSqsUpStream_WaitMessage_Many(t *testing.T) {
+func TestSqsUpStream_WaitMessage_Many(t *testing.T) {
 	many := 10
 	fake_conf := fakeSqsUpStreamConf()
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(many)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
 	done := make(chan *struct{}, 1)
-	mc := &MockClient{}
+	mc := &mockClient{}
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		done <- &struct{}{}
 	}).Return(fake_output, nil)
@@ -159,18 +158,18 @@ func _TestSqsUpStream_WaitMessage_Many(t *testing.T) {
 	}
 }
 
-func _TestSqsUpStream_WaitMessage_Many_Multi(t *testing.T) {
+func TestSqsUpStream_WaitMessage_Many_Multi(t *testing.T) {
 	count := 5
 	many := 5
 	fake_conf := fakeSqsUpStreamConf()
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(many)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
 	done := make(chan *struct{}, count)
-	mc := &MockClient{}
+	mc := &mockClient{}
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		done <- &struct{}{}
 	}).Return(fake_output, nil)
@@ -192,18 +191,18 @@ func _TestSqsUpStream_WaitMessage_Many_Multi(t *testing.T) {
 	}
 }
 
-func _TestSqsDownStream_Run(t *testing.T) {
+func TestSqsDownStream_Run(t *testing.T) {
 	count := 5
 	many := 5
 	fake_conf := fakeSqsUpStreamConf()
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(many)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
 	up_done := make(chan *struct{}, count)
-	mc := &MockClient{}
+	mc := &mockClient{}
 	recv_times := 0
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		// blocked here when recv_times == count
@@ -251,10 +250,10 @@ func TestSqsUpStream_Run_Back_Pressured(t *testing.T) {
 	fake_input := sqs.ReceiveMessageInput{}
 	fake_output := fakeReceiveMessageOutput(many)
 
-	mspec := &MockSpec{}
+	mspec := &mockSpec{}
 	mspec.On("ToReceiveMessageInput").Return(&fake_input, nil)
 
-	mc := &MockClient{}
+	mc := &mockClient{}
 	recv_times := 0
 	mc.On("ReceiveMessage", &fake_input).Run(func(args mock.Arguments) {
 		recv_times++

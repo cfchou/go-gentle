@@ -4,7 +4,8 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"errors"
+	"github.com/rs/xid"
 )
 
 var Log = log15.New()
@@ -20,6 +21,7 @@ type BackOff interface {
 type UpStream interface {
 	SetBackPressure(Monitor, BackOff) error
 	Run()
+	// timeout == 0 results in blocking as long as it needs.
 	WaitMessage(time.Duration) (interface{}, error)
 }
 
@@ -31,19 +33,42 @@ type Monitor interface {
 	NeedBackOff() bool
 }
 
-type Sender interface {
-	SendMessage(interface{}, time.Duration) (interface{}, error)
-	GetLogger() log15.Logger
+type Message interface {
+	Id() string
 }
 
-type SendSpec interface {
-	ToSendMessageInput() (*sqs.SendMessageInput, error)
+type Sender interface {
+	// timeout == 0 results in blocking as long as it needs.
+	SendMessage(Message, time.Duration) (Message, error)
+	Logger() log15.Logger
 }
 
 // A rate limit.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or
 	// timeout(return false).
+	// timeout == 0 results in blocking as long as it needs.
 	Wait(int64, time.Duration) bool
 }
 
+var ErrRateLimited = errors.New("Rate limit reached")
+var ErrTimeout = errors.New("Timeout")
+var ErrBackOff = errors.New("Should back off")
+
+type Msg struct {
+	id string
+}
+
+func NewMsg() *Msg {
+	return &Msg{
+		id: xid.New().String(),
+	}
+}
+
+func (m *Msg) Id() string {
+	return m.id
+}
+
+func IntToMillis(millis int) time.Duration {
+	return time.Duration(millis) * time.Millisecond
+}

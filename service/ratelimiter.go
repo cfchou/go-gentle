@@ -1,5 +1,5 @@
 // vim:fileencoding=utf-8
-// A wrapper for "github.com/juju/ratelimit"
+// A wrapper for "github.com/juju/ratelimit".
 
 package service
 
@@ -28,7 +28,7 @@ type TokenBucketRateLimit struct {
 func NewTokenBucketRateLimit(conf TokenBucketRateLimitConf) *TokenBucketRateLimit {
 	return &TokenBucketRateLimit{
 		bucket: ratelimit.NewBucket(
-			time.Duration(conf.RequestsInterval) * time.Millisecond,
+			IntToMillis(conf.RequestsInterval),
 			conf.MaxRequestsBurst),
 	}
 }

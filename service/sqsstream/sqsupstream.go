@@ -15,7 +15,6 @@ import (
 )
 
 var ErrQueueTimeout = errors.New("See no message until timeout")
-var ErrBackOff = errors.New("Should back off for a while")
 
 const (
 	created                = iota
@@ -31,9 +30,9 @@ type BackOffImpl struct {
 func NewBackOffImpl(expInit int, expSteps int, constWindow int) service.BackOff {
 	return &BackOffImpl{
 		expBackOff: retrier.ExponentialBackoff(expSteps,
-			time.Duration(expInit)*time.Millisecond),
+			service.IntToMillis(expInit)),
 		constBackOff: retrier.ConstantBackoff(1024,
-			time.Duration(constWindow)*time.Millisecond),
+			service.IntToMillis(constWindow)),
 	}
 }
 
@@ -208,7 +207,7 @@ func (up *SqsUpStream) backPressuredRun(monitor service.Monitor, backOff service
 			// be calling for backing off.
 			if monitor.NeedBackOff() {
 				up.log.Warn("[Up] BackOff needed")
-				return ErrBackOff
+				return service.ErrBackOff
 			}
 			return nil
 		})
