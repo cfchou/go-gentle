@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 )
 
+var UpStreamLog = Log.New()
 
 func WaitMessage(queue chan Message, timeout time.Duration) (Message, error) {
 	if timeout == 0 {
@@ -31,13 +32,11 @@ type DefaultUpStream struct {
 	log                    log15.Logger
 	state int32
 
-	client    Reader
+	client    MessageSource
 	queue chan Message
 }
 
-var UpStreamLog = Log.New()
-
-func NewDefaultUpStream(name string, maxWaitingMessages int, client Reader) *DefaultUpStream {
+func NewDefaultUpStream(name string, maxWaitingMessages int, client MessageSource) *DefaultUpStream {
 	return &DefaultUpStream{
 		Name:      name,
 		log:       UpStreamLog.New("service", name),

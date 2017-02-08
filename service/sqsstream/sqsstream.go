@@ -30,13 +30,4 @@ func (m *SqsMessage) Id() string {
 	return *m.id
 }
 
-type Reader interface {
-	ReceiveMessages() ([]service.Message, error)
-}
-
-// Provide an interface for mocking
-type ReceiveSpec interface {
-	ToReceiveMessageInput() (*sqs.ReceiveMessageInput, error)
-}
-
 

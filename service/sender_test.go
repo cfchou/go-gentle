@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sync"
 	"github.com/afex/hystrix-go/hystrix"
+	"github.com/rs/xid"
 )
 
 var log = Log.New()
@@ -62,17 +63,20 @@ func (m *mockSender2) Logger() log15.Logger {
 }
 
 type TestMsg struct {
-	Message
 	timeout time.Duration
+	id string
 }
 
+func (m *TestMsg) Id() string {
+	return m.id
+}
 
 func newTestMsgs(count int) []TestMsg {
 	var cmds []TestMsg
 	for i := 1; i <= count; i++ {
 		cmds = append(cmds, TestMsg{
-			Message: NewMsg(),
 			timeout: 0,
+			id: xid.New().String(),
 		})
 	}
 	return cmds

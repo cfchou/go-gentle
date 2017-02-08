@@ -10,6 +10,8 @@ import (
 	"github.com/inconshreveable/log15"
 )
 
+var BackPressuredUpStreamLog = Log.New()
+
 type DefaultBackPressuredUpStream struct {
 	Name string
 
@@ -17,7 +19,7 @@ type DefaultBackPressuredUpStream struct {
 	state int32
 	lock sync.Mutex
 
-	client    Reader
+	client    MessageSource
 	queue     chan Message
 
 	// For back-pressure
@@ -26,11 +28,11 @@ type DefaultBackPressuredUpStream struct {
 }
 
 func NewDefaultBackPressuredUpStream(name string, maxWaitingMessages int,
-	client Reader, monitor Monitor, backOff BackOff) *DefaultBackPressuredUpStream {
+	client MessageSource, monitor Monitor, backOff BackOff) *DefaultBackPressuredUpStream {
 
 	return &DefaultBackPressuredUpStream{
 		Name:      name,
-		log:       UpStreamLog.New("service", name),
+		log:       BackPressuredUpStreamLog.New("service", name),
 		state: created,
 		client:    client,
 		queue:     make(chan Message, maxWaitingMessages),
