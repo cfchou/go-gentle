@@ -25,12 +25,10 @@ func NewRateLimitedSender(name string, sender Sender, limiter RateLimit) *RateLi
 
 func (s *RateLimitedSender) SendMessage(msg Message, timeout time.Duration) (Message, error) {
 
-	s.log.Debug("[Sender] SendMessage...", "msg", msg.Id(),
-		"when", time.Now().Unix())
+	s.log.Debug("[Sender] SendMessage...", "msg", msg.Id())
 	if timeout == 0 {
 		s.limiter.Wait(1, timeout)
-		s.log.Debug("[Sender] SendMessage ok","msg", msg.Id(),
-			"when", time.Now().Unix())
+		s.log.Debug("[Sender] SendMessage ok","msg", msg.Id())
 		return s.Sender.SendMessage(msg, timeout)
 	}
 	begin := time.Now()
@@ -46,8 +44,7 @@ func (s *RateLimitedSender) SendMessage(msg Message, timeout time.Duration) (Mes
 			"msg", msg.Id())
 		return nil, ErrTimeout
 	}
-	s.log.Debug("[Sender] SendMessage ok", "msg", msg.Id(),
-		"when", time.Now().Unix())
+	s.log.Debug("[Sender] SendMessage ok", "msg", msg.Id())
 	return s.Sender.SendMessage(msg, end_allowed.Sub(end))
 }
 
@@ -79,8 +76,7 @@ func NewCircuitBreakerSender(name string, sender Sender,
 func (s *CircuitBreakerSender) SendMessage(msg Message, timeout time.Duration) (Message, error) {
 
 	result := make(chan Message, 1)
-	s.log.Debug("[Sender] Circuit Do", "msg", msg.Id(),
-		"when", time.Now().Unix())
+	s.log.Debug("[Sender] Circuit Do", "msg", msg.Id())
 	err := hystrix.Do(s.Name, func () (error) {
 		resp, err := s.Sender.SendMessage(msg, timeout)
 		if err != nil {
@@ -94,8 +90,7 @@ func (s *CircuitBreakerSender) SendMessage(msg Message, timeout time.Duration) (
 	}, nil)
 
 	if err != nil {
-		s.log.Warn("[Sender] Circuit err","err", err,
-			"msg", msg.Id(), "when", time.Now().Unix())
+		s.log.Warn("[Sender] Circuit err","err", err, "msg", msg.Id())
 		if err == hystrix.ErrTimeout {
 			// hystrix.ErrTimeout doesn't interrupt SendMessage().
 			// It just contributes to circuit's metrics.

@@ -81,10 +81,6 @@ func newTestMsgs(count int) []TestMsg {
 func TestRateLimitedSender_SendMessage(t *testing.T) {
 	request_interval := 300
 	count := 10
-	rl := NewTokenBucketRateLimit(TokenBucketRateLimitConf{
-		RequestsInterval: request_interval,
-		MaxRequestsBurst: 1,
-	})
 	ms := &mockSender2{
 		log: log.New(),
 	}
@@ -94,14 +90,19 @@ func TestRateLimitedSender_SendMessage(t *testing.T) {
 		ms.On("SendMessage", v, v.timeout).Return(v, nil)
 	}
 
-	rls := NewRateLimitedSender("test", ms, rl)
+	rls := NewRateLimitedSender("test", ms,
+		NewTokenBucketRateLimit(
+			TokenBucketRateLimitConf{
+				RequestsInterval: request_interval,
+				MaxRequestsBurst: 1,
+			}))
 
 	begin := time.Now()
 	// count - 1 since the token-bucket is fully filled at the beginning.
 	end_expected := begin.Add(IntToMillis((count - 1)*request_interval))
-	for i := 1; i <= count; i++ {
-		_, err := rls.SendMessage(ms.msg, 0)
-		assert.Nil(t, err)
+	for _, v := range cmds {
+		u, _ := rls.SendMessage(v, v.timeout)
+		assert.EqualValues(t, u, v)
 	}
 	end := time.Now()
 	log.Debug("[Test] status", "begin", begin, "end", end, "end_expected", end_expected)
@@ -134,8 +135,8 @@ func TestRateLimitedSender_SendMessage_Concurrent(t *testing.T) {
 	end_expected := begin.Add(IntToMillis((count - 1)*request_interval))
 	for _, v := range cmds {
 		go func(v TestMsg) {
-			_, err := rls.SendMessage(v, v.timeout)
-			assert.Nil(t, err)
+			u, _ := rls.SendMessage(v, v.timeout)
+			assert.EqualValues(t, u, v)
 			wg.Done()
 		}(v)
 	}
@@ -165,8 +166,8 @@ func TestCircuitBreakerSender_SendMessage(t *testing.T) {
 	})
 
 	for _, v := range cmds {
-		_, err := cbs.SendMessage(v, v.timeout)
-		assert.Nil(t, err)
+		u, _ := cbs.SendMessage(v, v.timeout)
+		assert.EqualValues(t, u, v)
 	}
 }
 
@@ -211,8 +212,8 @@ func TestSender_Mixin1(t *testing.T) {
 	end_expected := begin.Add(IntToMillis((count - 1)*request_interval))
 	for _, v := range cmds {
 		go func(v TestMsg) {
-			_, err := cbs.SendMessage(v, v.timeout)
-			assert.Nil(t, err)
+			u, _ := cbs.SendMessage(v, v.timeout)
+			assert.EqualValues(t, u, v)
 			wg.Done()
 		}(v)
 	}
@@ -262,8 +263,8 @@ func TestSender_Mixin2(t *testing.T) {
 	end_expected := begin.Add(IntToMillis((count - 1)*request_interval))
 	for _, v := range cmds {
 		go func(v TestMsg) {
-			_, err := rls.SendMessage(v, v.timeout)
-			assert.Nil(t, err)
+			u, _ := rls.SendMessage(v, v.timeout)
+			assert.EqualValues(t, u, v)
 			wg.Done()
 		}(v)
 	}

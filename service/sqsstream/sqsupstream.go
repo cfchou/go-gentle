@@ -65,6 +65,32 @@ func (spec *ReceiveInput) ToReceiveMessageInput() (*sqs.ReceiveMessageInput, err
 	return &input, nil
 }
 
+type SqsReader struct {
+	client sqsiface.SQSAPI
+	input *sqs.ReceiveMessageInput
+}
+
+func NewSqsReader(client sqsiface.SQSAPI, input sqs.ReceiveMessageInput) *SqsReader {
+	return &SqsReader{
+		client: client,
+		input:  &input,
+	}
+}
+
+func (r *SqsReader) ReceiveMessages() ([]service.Message, error) {
+	resp, err := r.client.ReceiveMessage(r.input)
+	if err != nil {
+		return nil, err
+	}
+	msgs := make([]service.Message, len(resp.Messages))
+	for i, msg := range resp.Messages {
+		msgs[i] = NewSqsMessage(msg)
+	}
+	return msgs, nil
+}
+
+
+
 type SqsUpStreamConf struct {
 	// MaxWaitingMessages is the max number of messages that have not been
 	// removed by WaitMessage(). It's the capacity of the buffered channel
@@ -91,9 +117,8 @@ type SqsUpStream struct {
 	Conf *SqsUpStreamConf
 
 	log       log15.Logger
-	client    sqsiface.SQSAPI
-	queue     chan *sqs.Message
-	msg_input *sqs.ReceiveMessageInput
+	client    Reader
+	queue     chan service.Message
 	once      sync.Once
 
 	// For back-pressure
@@ -102,7 +127,7 @@ type SqsUpStream struct {
 	state   int
 }
 
-func NewSqsUpStream(name string, conf SqsUpStreamConf, client sqsiface.SQSAPI, spec ReceiveSpec) (*SqsUpStream, error) {
+func NewSqsUpStream(name string, conf SqsUpStreamConf, client Reader) (*SqsUpStream, error) {
 	// Register a circuit breaker for sqs.ReceiveMessage()
 	hystrix.ConfigureCommand(name, hystrix.CommandConfig{
 		// Long polling is supported by sqs. A valid WaitTimeSeconds
@@ -116,17 +141,12 @@ func NewSqsUpStream(name string, conf SqsUpStreamConf, client sqsiface.SQSAPI, s
 		ErrorPercentThreshold:  conf.ErrorPercentThreshold,
 		SleepWindow:            conf.SleepWindow,
 	})
-	input, err := spec.ToReceiveMessageInput()
-	if err != nil {
-		return nil, err
-	}
 	return &SqsUpStream{
 		Name:      name,
 		Conf:      &conf,
 		log:       Log.New("service", name),
 		client:    client,
-		queue:     make(chan *sqs.Message, conf.MaxWaitingMessages),
-		msg_input: input,
+		queue:     make(chan service.Message, conf.MaxWaitingMessages),
 		state:     created,
 	}, nil
 }
@@ -140,7 +160,7 @@ func (up *SqsUpStream) SetBackPressure(monitor service.Monitor, backOff service.
 	return nil
 }
 
-func (up *SqsUpStream) WaitMessage(timeout time.Duration) (interface{}, error) {
+func (up *SqsUpStream) WaitMessage(timeout time.Duration) (service.Message, error) {
 	if timeout == 0 {
 		m := <-up.queue
 		return m, nil
@@ -175,23 +195,24 @@ func (up *SqsUpStream) backPressuredRun(monitor service.Monitor, backOff service
 	for {
 		err := backOff.Run(func() error {
 			backOffCount++
-			up.log.Debug("[Up] ReceiveMessage", "backOffCount", backOffCount)
-			var msgs []*sqs.Message
+			up.log.Debug("[Up] ReceiveMessages", "backOffCount", backOffCount)
+			var msgs []service.Message
 			// The circuit protects reads from the upstream(sqs).
 			err := hystrix.Do(up.Name, func() error {
-				resp, err := up.client.ReceiveMessage(up.msg_input)
+				var err error
+				msgs, err = up.client.ReceiveMessages()
 				if err != nil {
-					up.log.Error("[Up] ReceiveMessage err", "err", err)
+					up.log.Error("[Up] ReceiveMessages err", "err", err)
 					return err
 				}
-				up.log.Debug("[Up] ReceiveMessage ok", "len", len(resp.Messages))
-				msgs = resp.Messages
+				up.log.Debug("[Up] ReceiveMessages ok", "len", len(msgs))
 				return nil
 			}, nil)
 			for i, msg := range msgs {
 				// Enqueuing might block
 				nth := fmt.Sprintf("%d/%d", i+1, len(msgs))
-				up.log.Debug("[Up] Enqueuing...", "nth/total", nth)
+				up.log.Debug("[Up] Enqueuing...",
+					"nth/total", nth, "msg", msg.Id())
 				up.queue <- msg
 			}
 			if err != nil {
@@ -220,16 +241,16 @@ func (up *SqsUpStream) backPressuredRun(monitor service.Monitor, backOff service
 
 func (up *SqsUpStream) normalRun() {
 	for {
-		up.log.Debug("[Up] Try ReceiveMessage")
-		var msgs []*sqs.Message
+		up.log.Debug("[Up] Try ReceiveMessages")
+		var msgs []service.Message
 		hystrix.Do(up.Name, func() error {
-			resp, err := up.client.ReceiveMessage(up.msg_input)
+			var err error
+			msgs, err := up.client.ReceiveMessages()
 			if err != nil {
-				up.log.Error("[Up] ReceiveMessage err", "err", err)
+				up.log.Error("[Up] ReceiveMessages err", "err", err)
 				return err
 			}
-			up.log.Debug("[Up] ReceiveMessage ok", "len", len(resp.Messages))
-			msgs = resp.Messages
+			up.log.Debug("[Up] ReceiveMessages ok", "len", len(msgs))
 			return nil
 		}, func(err error) error {
 			// Could be the circuit is still opened
@@ -237,8 +258,11 @@ func (up *SqsUpStream) normalRun() {
 			up.log.Warn("[Up] Fallback of ReceiveMessage", "err", err)
 			return err
 		})
-		for _, msg := range msgs {
-			// enqueuing might block
+		for i, msg := range msgs {
+			// Enqueuing might block
+			nth := fmt.Sprintf("%d/%d", i+1, len(msgs))
+			up.log.Debug("[Up] Enqueuing...",
+				"nth/total", nth, "msg", msg.Id())
 			up.queue <- msg
 		}
 		up.log.Debug("[Up] Done")

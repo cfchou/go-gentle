@@ -18,23 +18,28 @@ type BackOff interface {
 	Run(work func() error) error
 }
 
-type UpStream interface {
-	SetBackPressure(Monitor, BackOff) error
-	Run()
-	// timeout == 0 results in blocking as long as it needs.
-	WaitMessage(time.Duration) (interface{}, error)
+type Message interface {
+	Id() string
 }
 
+type UpStream interface {
+	Run() error
+	// timeout == 0 results in blocking as long as it needs.
+	WaitMessage(time.Duration) (Message, error)
+}
+
+type Handler func(Message) error
+
 type DownStream interface {
-	Run(UpStream, func(interface{}) error) error
+	Run(UpStream, Handler) error
 }
 
 type Monitor interface {
 	NeedBackOff() bool
 }
 
-type Message interface {
-	Id() string
+type Reader interface {
+	ReceiveMessages() ([]Message, error)
 }
 
 type Sender interface {
@@ -51,9 +56,16 @@ type RateLimit interface {
 	Wait(int64, time.Duration) bool
 }
 
+const (
+	created                = iota
+	running                = iota
+)
+
 var ErrRateLimited = errors.New("Rate limit reached")
 var ErrTimeout = errors.New("Timeout")
 var ErrBackOff = errors.New("Should back off")
+var ErrConf = errors.New("Config error")
+var ErrRepeatedRun = errors.New("Repeated run")
 
 type Msg struct {
 	id string
