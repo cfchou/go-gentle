@@ -91,12 +91,11 @@ func (s *CircuitBreakerSender) SendMessage(msg Message, timeout time.Duration) (
 
 	if err != nil {
 		s.log.Warn("[Sender] Circuit err","err", err, "msg", msg.Id())
-		if err == hystrix.ErrTimeout {
-			// hystrix.ErrTimeout doesn't interrupt SendMessage().
-			// It just contributes to circuit's metrics.
-			return <- result, nil
+		// hystrix.ErrTimeout doesn't interrupt SendMessage().
+		// It just contributes to circuit's metrics.
+		if err != hystrix.ErrTimeout {
+			return nil, err
 		}
-		return nil, err
 	}
 	return <- result, nil
 }

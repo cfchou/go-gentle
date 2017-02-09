@@ -21,6 +21,11 @@ type MessageSource interface {
 	ReceiveMessages() ([]Message, error)
 }
 
+type Receiver interface {
+	ReceiveMessages() ([]Message, error)
+	Logger() log15.Logger
+}
+
 type UpStream interface {
 	Run() error
 	// timeout == 0 results in blocking as long as it needs.
@@ -41,6 +46,8 @@ type Sender interface {
 
 type BackOff interface {
 	Run(work func() error) error
+	Wait()
+	Reset()
 }
 
 type Monitor interface {
