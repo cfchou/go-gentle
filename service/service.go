@@ -21,13 +21,19 @@ type MessageSource interface {
 	ReceiveMessages() ([]Message, error)
 }
 
+// Resiliency patterns should be dealt with in Receiver, because one
+// Receiver.ReceiveMessages() maps to one outgoing request to the external
+// service.
 type Receiver interface {
 	ReceiveMessages() ([]Message, error)
 	Logger() log15.Logger
 }
 
+// UpStream provides an interface for DownStream to consume one Message a time.
+// A DownStream applies back pressure to UpStream per Message basis which may in turn back pressure
+// the Receiver.
 type UpStream interface {
-	Run() error
+	//Run() error
 	// timeout == 0 results in blocking as long as it needs.
 	WaitMessage(time.Duration) (Message, error)
 }

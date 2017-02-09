@@ -32,16 +32,17 @@ type DefaultUpStream struct {
 	log                    log15.Logger
 	state int32
 
-	client    MessageSource
+	receiver Receiver
 	queue chan Message
 }
 
-func NewDefaultUpStream(name string, maxWaitingMessages int, client MessageSource) *DefaultUpStream {
+func NewDefaultUpStream(name string, maxWaitingMessages int, receiver Receiver) *DefaultUpStream {
 	return &DefaultUpStream{
 		Name:      name,
 		log:       UpStreamLog.New("service", name),
 		state: created,
-		client:    client,
+		//client:    client,
+		receiver: receiver,
 		queue:     make(chan Message, maxWaitingMessages),
 	}
 }
@@ -61,6 +62,25 @@ func (up *DefaultUpStream) Run() error {
 	return nil
 }
 
+func (up *DefaultUpStream) run() {
+	for {
+		msgs, err := up.receiver.ReceiveMessages()
+		if err != nil {
+			up.log.Error("[Up] ReceiveMessages err", "err", err)
+			continue
+		}
+		for i, msg := range msgs {
+			// Enqueuing might block
+			nth := fmt.Sprintf("%d/%d", i+1, len(msgs))
+			up.log.Debug("[Up] Enqueuing...",
+				"nth/total", nth, "msg", msg.Id())
+			up.queue <- msg
+		}
+		up.log.Debug("[Up] Done")
+	}
+}
+
+/*
 func (up *DefaultUpStream) run() {
 	for {
 		up.log.Debug("[Up] Try ReceiveMessages")
@@ -90,5 +110,4 @@ func (up *DefaultUpStream) run() {
 		up.log.Debug("[Up] Done")
 	}
 }
-
-
+*/
