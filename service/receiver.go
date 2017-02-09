@@ -42,7 +42,9 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if r.monitor.NeedBackOff() {
+		r.log.Warn("[Receiver] NeedBackOff")
 		if r.state == normal_state {
+			r.log.Warn("[Receiver] normal -> backoff")
 			r.state = backoff_state
 			r.ticker.Stop()
 			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
@@ -52,6 +54,7 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 	msgs, err := r.Receiver.ReceiveMessages()
 	if err == nil {
 		if r.state == backoff_state {
+			r.log.Info("[Receiver] Receive ok, backoff -> normal")
 			r.state = normal_state
 			r.ticker.Stop()
 			r.ticker = backoff.NewTicker(&backoff.ZeroBackOff{})
@@ -60,7 +63,7 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 		}
 	} else {
 		if r.state == normal_state {
-			r.log.Error("[Receiver] ReceiveMessages err, start backing off", "err", err)
+			r.log.Error("[Receiver] ReceiveMessages err, normal -> backoff", "err", err)
 			r.state = backoff_state
 			r.ticker.Stop()
 			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))

@@ -4,7 +4,6 @@ package service
 import (
 	"time"
 	"gopkg.in/eapache/go-resiliency.v1/retrier"
-	"github.com/cenkalti/backoff"
 )
 
 type DefaultBackOff struct {

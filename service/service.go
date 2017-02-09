@@ -46,8 +46,10 @@ type Sender interface {
 
 type BackOff interface {
 	Run(work func() error) error
+	/*
 	Wait()
 	Reset()
+	*/
 }
 
 type Monitor interface {
