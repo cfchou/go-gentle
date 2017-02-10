@@ -19,11 +19,14 @@ const (
 type BackOffReceiver struct {
 	Receiver
 	monitor Monitor
-	lock sync.Mutex
-	ticker *backoff.Ticker
-	interval time.Duration
+
 	log log15.Logger
+	interval time.Duration
+
+	lock sync.RWMutex
+	ticker *backoff.Ticker
 	state int
+
 }
 
 // TODO mixed back-off: exponential back-off followed by constant back-off
@@ -31,46 +34,56 @@ func NewBackOffReceiver(receiver Receiver, monitor Monitor, interval time.Durati
 	return &BackOffReceiver{
 		Receiver: receiver,
 		monitor: monitor,
-		ticker: backoff.NewTicker(&backoff.ZeroBackOff{}),
-		interval: interval,
 		log: receiver.Logger().New("mixin", "backoff"),
+		interval: interval,
+		ticker: backoff.NewTicker(&backoff.ZeroBackOff{}),
 		state: normal_state,
 	}
 }
 
 func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if r.monitor.NeedBackOff() {
-		r.log.Warn("[Receiver] NeedBackOff")
-		if r.state == normal_state {
+
+	need := r.monitor.NeedBackOff()
+	if need {
+		r.lock.Lock()
+		if need && r.state == normal_state {
 			r.log.Warn("[Receiver] normal -> backoff")
 			r.state = backoff_state
 			r.ticker.Stop()
 			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
 		}
-	}
-	<- r.ticker.C
-	msgs, err := r.Receiver.ReceiveMessages()
-	if err == nil {
-		if r.state == backoff_state {
-			r.log.Info("[Receiver] Receive ok, backoff -> normal")
-			r.state = normal_state
-			r.ticker.Stop()
-			r.ticker = backoff.NewTicker(&backoff.ZeroBackOff{})
-		} else {
-			r.log.Debug("[Receiver] ReceiveMessages ok","len", len(msgs))
-		}
+		<- r.ticker.C
+		r.lock.Unlock()
 	} else {
-		if r.state == normal_state {
-			r.log.Error("[Receiver] ReceiveMessages err, normal -> backoff", "err", err)
-			r.state = backoff_state
-			r.ticker.Stop()
-			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
-		} else {
-			r.log.Error("[Receiver] ReceiveMessages err", "err", err)
-		}
+		r.lock.RLock()
+		<- r.ticker.C
+		r.lock.RUnlock()
 	}
+	msgs, err := r.Receiver.ReceiveMessages()
+	go func() {
+		// last-commit-wins if multiple calls run concurrently.
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		if err == nil {
+			if r.state == backoff_state {
+				r.log.Info("[Receiver] Receive ok, backoff -> normal")
+				r.state = normal_state
+				r.ticker.Stop()
+				r.ticker = backoff.NewTicker(&backoff.ZeroBackOff{})
+			} else {
+				r.log.Debug("[Receiver] ReceiveMessages ok","len", len(msgs))
+			}
+		} else {
+			if r.state == normal_state {
+				r.log.Error("[Receiver] ReceiveMessages err, normal -> backoff", "err", err)
+				r.state = backoff_state
+				r.ticker.Stop()
+				r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
+			} else {
+				r.log.Error("[Receiver] ReceiveMessages err", "err", err)
+			}
+		}
+	}()
 	return msgs, err
 }
 
