@@ -4,7 +4,6 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
-	"github.com/afex/hystrix-go/hystrix"
 	"fmt"
 	"sync/atomic"
 )

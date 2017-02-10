@@ -26,7 +26,7 @@ type BackOffReceiver struct {
 	lock sync.RWMutex
 	ticker *backoff.Ticker
 	state int
-
+	last int64
 }
 
 // TODO mixed back-off: exponential back-off followed by constant back-off
@@ -38,6 +38,7 @@ func NewBackOffReceiver(receiver Receiver, monitor Monitor, interval time.Durati
 		interval: interval,
 		ticker: backoff.NewTicker(&backoff.ZeroBackOff{}),
 		state: normal_state,
+		last: time.Now().UnixNano(),
 	}
 }
 
@@ -45,12 +46,17 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 
 	need := r.monitor.NeedBackOff()
 	if need {
+		r.log.Warn("[Receiver] NeedBackOff")
+		finish_at := time.Now().UnixNano()
 		r.lock.Lock()
-		if need && r.state == normal_state {
-			r.log.Warn("[Receiver] normal -> backoff")
+		if r.state == normal_state && finish_at > r.last {
+			r.log.Warn("[Receiver] NeedBackOff normal -> backoff")
 			r.state = backoff_state
+			r.last = finish_at
 			r.ticker.Stop()
 			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
+			// one tick is immediately presented when state changed
+			<- r.ticker.C
 		}
 		<- r.ticker.C
 		r.lock.Unlock()
@@ -60,28 +66,41 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 		r.lock.RUnlock()
 	}
 	msgs, err := r.Receiver.ReceiveMessages()
+	finish_at := time.Now().UnixNano()
 	go func() {
 		// last-commit-wins if multiple calls run concurrently.
 		r.lock.Lock()
 		defer r.lock.Unlock()
 		if err == nil {
-			if r.state == backoff_state {
-				r.log.Info("[Receiver] Receive ok, backoff -> normal")
+			// favour normal_state when draw
+			if r.state == backoff_state && finish_at >= r.last {
+				r.log.Info("[Receiver] ReceiveMessages ok; backoff -> normal",
+					"when", finish_at)
 				r.state = normal_state
 				r.ticker.Stop()
 				r.ticker = backoff.NewTicker(&backoff.ZeroBackOff{})
+				// one tick is immediately presented when state changed
+				<- r.ticker.C
 			} else {
-				r.log.Debug("[Receiver] ReceiveMessages ok","len", len(msgs))
+				r.log.Debug("[Receiver] ReceiveMessages ok",
+					"len", len(msgs), "when", finish_at)
 			}
 		} else {
-			if r.state == normal_state {
-				r.log.Error("[Receiver] ReceiveMessages err, normal -> backoff", "err", err)
+			if r.state == normal_state && finish_at > r.last {
+				r.log.Error("[Receiver] ReceiveMessages err; normal -> backoff",
+					"err", err, "when", finish_at)
 				r.state = backoff_state
 				r.ticker.Stop()
 				r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
+				// one tick is immediately presented when state changed
+				<- r.ticker.C
 			} else {
-				r.log.Error("[Receiver] ReceiveMessages err", "err", err)
+				r.log.Error("[Receiver] ReceiveMessages err", "err", err,
+					"when", finish_at)
 			}
+		}
+		if finish_at > r.last {
+			r.last = finish_at
 		}
 	}()
 	return msgs, err

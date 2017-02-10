@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"time"
 	"errors"
+	"sync"
 )
 
 
@@ -33,52 +34,33 @@ func (m *mockMonitor) NeedBackOff() bool {
 	return args.Bool(0)
 }
 
-func TestBackOffReceiver_ReceiveMessages_sleep_big_than_backoff(t *testing.T) {
-	count := 5
+func _TestBackOffReceiver_ReceiveMessages_blocking(t *testing.T) {
+	count := 8
 	mon := &mockMonitor{}
 	mon.On("NeedBackOff").Return(false)
 
 	r := &mockReceiver{
 		log: log.New(),
 	}
+	var wg sync.WaitGroup
+	wg.Add(count)
 
 	c := r.On("ReceiveMessages").Run(func (args mock.Arguments) {
 		log.Debug("[Test]", "when", time.Now().Unix())
 		time.Sleep(2 * time.Second)
+		wg.Done()
 	})
 
-	// sleep > backoff
 	br := NewBackOffReceiver(r, mon, 1 * time.Second)
 
 	c.Return([]Message{}, errors.New("oh oh"))
+	// synchronous call to switch on back-off
 	br.ReceiveMessages()
 	for i := 1; i < count; i++ {
-		br.ReceiveMessages()
+		// asynchronous calls
+		go br.ReceiveMessages()
 	}
-}
-
-func TestBackOffReceiver_ReceiveMessages_sleep_small_than_backoff(t *testing.T) {
-	count := 5
-	mon := &mockMonitor{}
-	mon.On("NeedBackOff").Return(false)
-
-	r := &mockReceiver{
-		log: log.New(),
-	}
-
-	c := r.On("ReceiveMessages").Run(func (args mock.Arguments) {
-		log.Debug("[Test]", "when", time.Now().Unix())
-		time.Sleep(2 * time.Second)
-	})
-
-	// sleep < backoff
-	br := NewBackOffReceiver(r, mon, 3 * time.Second)
-
-	c.Return([]Message{}, errors.New("oh oh"))
-	br.ReceiveMessages()
-	for i := 1; i < count; i++ {
-		br.ReceiveMessages()
-	}
+	wg.Wait()
 }
 
 func TestBackOffReceiver_ReceiveMessages_backoff_to_normal(t *testing.T) {
@@ -89,23 +71,27 @@ func TestBackOffReceiver_ReceiveMessages_backoff_to_normal(t *testing.T) {
 		log: log.New(),
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(4)
 	c := r.On("ReceiveMessages").Run(func (args mock.Arguments) {
 		log.Debug("[Test]", "when", time.Now().Unix())
 		time.Sleep(2 * time.Second)
+		wg.Done()
 	})
 
-	// sleep < backoff
-	br := NewBackOffReceiver(r, mon, 3 * time.Second)
+	br := NewBackOffReceiver(r, mon, 1 * time.Second)
 
 	log.Info("[Test] error...", "when", time.Now().Unix())
 	c.Return([]Message{}, errors.New("oh oh"))
+	// synchronous call to switch on back-off
 	br.ReceiveMessages()
 	br.ReceiveMessages()
 
 	// sleep < backoff, so next ReceiveMessages() starts when the last backoff expires
-	log.Info("[Test] ok when the last backoff expires", "when", time.Now().Unix())
+	log.Info("[Test] ok...", "when", time.Now().Unix())
 	c.Return([]Message{}, nil)
 	br.ReceiveMessages()
 	br.ReceiveMessages()
+	wg.Wait()
 }
 
