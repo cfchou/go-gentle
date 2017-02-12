@@ -17,6 +17,20 @@ type Message interface {
 	Id() string
 }
 
+type Messages interface {
+	Message
+	Flatten() []Message
+}
+
+type Driver interface {
+	// timeout == 0 results in blocking as long as it needs.
+	// It's important to know that if Exchange() comes back with
+	// ErrTimeout, depending on the implementation, the msg could still
+	// be delivered(at-most-once).
+	Exchange(msg Message, timeout time.Duration) (Messages, error)
+	Logger() log15.Logger
+}
+
 type MessageSource interface {
 	ReceiveMessages() ([]Message, error)
 }
@@ -25,7 +39,8 @@ type MessageSource interface {
 // Receiver.ReceiveMessages() maps to one outgoing request to the external
 // service.
 type Receiver interface {
-	ReceiveMessages() ([]Message, error)
+	//ReceiveMessages() ([]Message, error)
+	Receive() (Message, error)
 	Logger() log15.Logger
 }
 
@@ -38,7 +53,7 @@ type UpStream interface {
 	WaitMessage(time.Duration) (Message, error)
 }
 
-type Handler func(Message) error
+type Handler func(Message) (Message, error)
 
 type DownStream interface {
 	Run(UpStream, Handler) error

@@ -14,6 +14,7 @@ const (
 	backoff_state = iota
 )
 
+
 // Note that BackOffReceiver is thread-safe by serializing ReceiveMessage().
 // Safety is favoured over performance.
 type BackOffReceiver struct {
@@ -106,6 +107,7 @@ func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
 	return msgs, err
 }
 
+/*
 type RateLimitedReceiver struct {
 	Receiver
 	Name string
@@ -128,6 +130,7 @@ func (r *RateLimitedReceiver) ReceiveMessages() ([]Message, error) {
 	r.log.Debug("[Receiver] Waited")
 	return r.Receiver.ReceiveMessages()
 }
+*/
 
 type CircuitBreakerReceiver struct {
 	Receiver

@@ -75,13 +75,14 @@ func NewCircuitBreakerSender(name string, sender Sender,
 
 func (s *CircuitBreakerSender) SendMessage(msg Message, timeout time.Duration) (Message, error) {
 
-	result := make(chan Message, 1)
+	result := make(chan interface{}, 1)
 	s.log.Debug("[Sender] Circuit Do", "msg", msg.Id())
 	err := hystrix.Do(s.Name, func () (error) {
 		resp, err := s.Sender.SendMessage(msg, timeout)
 		if err != nil {
 			s.log.Error("[Sender] SendMessage err",
 				"msg", msg.Id(), "err", err)
+			result <- err
 			return err
 		}
 		s.log.Debug("[Sender] SendMessage ok", "msg", msg.Id())
@@ -89,14 +90,36 @@ func (s *CircuitBreakerSender) SendMessage(msg Message, timeout time.Duration) (
 		return nil
 	}, nil)
 
+	// hystrix.Do() is synchronous so at this point there are three
+	// possibilities:
+	// 1. work function is prevented from execution, err contains
+	//    hystrix.ErrCircuitOpen or hystrix.ErrMaxConcurrency.
+	// 2. work is finished before hystrix's timeout. err is nil or err
+	//    returned by SendMessage().
+	// 3. work is finished after hystrix's timeout. err is
+	//    hystrix.ErrTimeout. There may be err from SendMessage() but
+	//    it's overwritten.
+	// In case 2 and 3 we'd like to return SendMessages()'s err if there's
+	// any.
+	// hystrix.ErrTimeout doesn't interrupt SendMessage().
+	// It just contributes to circuit's metrics.
+
 	if err != nil {
-		s.log.Warn("[Sender] Circuit err","err", err, "msg", msg.Id())
-		// hystrix.ErrTimeout doesn't interrupt SendMessage().
-		// It just contributes to circuit's metrics.
+		s.log.Warn("[Sender] Circuit err","err", err,
+			"msg", msg.Id())
 		if err != hystrix.ErrTimeout {
+			// Can be ErrCircuitOpen, ErrMaxConcurrency or
+			// SendMessage()'s err.
 			return nil, err
 		}
 	}
-	return <- result, nil
+	switch v := <-result.(type) {
+	case Message:
+		return v, nil
+	case error:
+		return nil, v
+	default:
+		panic("Never be here")
+	}
 }
 
