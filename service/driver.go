@@ -5,8 +5,6 @@ import (
 	"github.com/inconshreveable/log15"
 	"time"
 	"sync"
-	"github.com/cenkalti/backoff"
-	"database/sql/driver"
 )
 
 type RateLimitedDriver struct {
