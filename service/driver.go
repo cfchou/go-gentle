@@ -72,20 +72,22 @@ func NewDriverReceiver(name string, driver Driver, max_queuing_messages int,
 }
 
 func (r *DriverReceiver) onceDo() {
-	r.log.Info("[Receiver] once")
-	for {
-		// Viewed as an infinite source of events
-		msgs, err := r.driver.Exchange(r.fixedRequest, 0)
-		if err != nil {
-			r.msgs <- err
-			continue
-		}
+	go func() {
+		r.log.Info("[Receiver] once")
+		for {
+			// Viewed as an infinite source of events
+			msgs, err := r.driver.Exchange(r.fixedRequest, 0)
+			if err != nil {
+				r.msgs <- err
+				continue
+			}
 
-		flattened_msgs := msgs.Flatten()
-		for _, m := range flattened_msgs {
-			r.msgs <- m
+			flattened_msgs := msgs.Flatten()
+			for _, m := range flattened_msgs {
+				r.msgs <- m
+			}
 		}
-	}
+	}()
 }
 
 func (r *DriverReceiver) Receive() (Message, error) {
@@ -107,7 +109,8 @@ type HandlerReactor struct {
 
 	log log15.Logger
 	handler Handler
-	semaphore chan *struct{}
+	semaphore chan chan *handlerReturn
+
 	once sync.Once
 }
 
@@ -118,20 +121,40 @@ func NewHandlerReactor(name string, receiver Receiver, handler Handler,
 		Receiver:receiver,
 		log: receiver.Logger().New("mixin", name),
 		handler:handler,
-		semaphore:make(chan *struct{}, max_concurrent_handlers),
+		semaphore:make(chan chan *handlerReturn, max_concurrent_handlers),
 	}
 }
 
-func (r *HandlerReactor) Receive() (Message, error) {
-	msg, err := r.Receiver.Receive()
-	if err != nil {
-		return nil, err
-	}
-	r.semaphore <- &struct{}{}
-	defer func() {
-		<- r.semaphore
+type handlerReturn struct {
+	msg Message
+	err error
+}
+
+func (r *HandlerReactor) onceDo() {
+	go func(){
+		for {
+			r.log.Info("[Receiver] once")
+			msg, err := r.Receiver.Receive()
+			if err != nil {
+				continue
+			}
+			ret := make(chan *handlerReturn, 1)
+			r.semaphore <- ret
+			go func() {
+				m, e := r.handler(msg)
+				ret <- &handlerReturn{
+					msg: m,
+					err: e,
+				}
+			}()
+		}
 	}()
-	return r.handler(msg)
+}
+
+func (r *HandlerReactor) Receive() (Message, error) {
+	r.once.Do(r.onceDo)
+	ret := <- <- r.semaphore
+	return ret.msg, ret.err
 }
 
 /*
