@@ -18,6 +18,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"time"
 	"github.com/hashicorp/go-cleanhttp"
+	"github.com/hashicorp/golang-lru"
 )
 
 // getClient uses a Context and Config to retrieve a Token
@@ -119,18 +120,65 @@ func saveToken(file string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-func main() {
-	get_token := func(name string) *oauth2.Token {
-		cacheFile, err := tokenCacheFile1(name)
-		if err != nil {
-			log.Fatalf("Unable to get path to cached credential file. %v", err)
 
+
+
+
+
+func showLabels(srv *gmail.Service) {
+	user := "me"
+	r, err := srv.Users.Labels.List(user).Do()
+	if err != nil {
+		log.Fatalf("Unable to retrieve labels. %v", err)
+	}
+	if (len(r.Labels) > 0) {
+		fmt.Print("Labels:\n")
+		for _, l := range r.Labels {
+			fmt.Printf("- %s\n",  l.Name)
 		}
-		tok, err := tokenFromFile(cacheFile)
-		if err != nil {
-			log.Fatalf("tokenFromFile. %v", err)
-		}
-		return tok
+	} else {
+		fmt.Print("No labels found.")
+	}
+}
+
+func getToken(tok_file string) *oauth2.Token {
+	cacheFile, err := tokenCacheFile1(tok_file)
+	if err != nil {
+		log.Fatalf("Unable to get path to cached credential file. %v", err)
+
+	}
+	tok, err := tokenFromFile(cacheFile)
+	if err != nil {
+		log.Fatalf("tokenFromFile. %v", err)
+	}
+	return tok
+}
+
+func createService(name string, conf *oauth2.Config, tok *oauth2.Token, cl *http.Client, cache *lru.Cache) {
+	parent_ctx := context.Background()
+	ctx := context.WithValue(parent_ctx, oauth2.HTTPClient, cl)
+	client := conf.Client(ctx, tok)
+	// Timeout for a request
+	client.Timeout = time.Second * 30
+	srv, err := gmail.New(client)
+	if err != nil {
+		log.Fatalf("Unable to retrieve gmail Client %v", err)
+	}
+	cache.Add(name, srv)
+}
+
+func getService(name string, cache *lru.Cache) *gmail.Service {
+	v, b := cache.Get(name)
+	if !b {
+		log.Fatalf("lru.Get() false")
+	}
+	return v.(*gmail.Service)
+}
+
+func main() {
+	cache, err := lru.New(2)
+	if err != nil {
+		log.Fatalf("lru.New(). %v", err)
 	}
 
 	// It makes more sense to have separated sharable Transports, i.e.
@@ -140,7 +188,7 @@ func main() {
 	// Enlarge MaxIdleConnsPerHost so that connections to the same Gmail
 	// host are cached. It should be less than MaxIdleConns.
 	tr.MaxIdleConnsPerHost = 100
-	tr.MaxIdleConns = 120
+	tr.MaxIdleConns = 200
 	tr.IdleConnTimeout = 20 * time.Minute
 
 	// This Client will not really be used in oauth2. oauth2 only extract Transport
@@ -149,55 +197,26 @@ func main() {
 		Transport:tr,
 	}
 
-	parent_ctx := context.Background()
-	get_client := func(conf *oauth2.Config, tok *oauth2.Token) *http.Client {
-		ctx := context.WithValue(parent_ctx, oauth2.HTTPClient, cl)
-		client := conf.Client(ctx, tok)
-		client.Timeout = time.Second * 30
-		return client
-	}
 
-	show_labels := func(srv *gmail.Service) {
-		user := "me"
-		r, err := srv.Users.Labels.List(user).Do()
-		if err != nil {
-			log.Fatalf("Unable to retrieve labels. %v", err)
-		}
-		if (len(r.Labels) > 0) {
-			fmt.Print("Labels:\n")
-			for _, l := range r.Labels {
-				fmt.Printf("- %s\n",  l.Name)
-			}
-		} else {
-			fmt.Print("No labels found.")
-		}
-	}
+	bs, err := ioutil.ReadFile("client_secret.json")
+	config, err := google.ConfigFromJSON(bs, gmail.GmailReadonlyScope)
 
-	tok1 := get_token("gmail-go-quickstart1.json")
-	tok2 := get_token("gmail-go-quickstart2.json")
-
-	b, err := ioutil.ReadFile("client_secret.json")
-	config, err := google.ConfigFromJSON(b, gmail.GmailReadonlyScope)
+	tok1 := getToken("gmail-go-quickstart1.json")
+	tok2 := getToken("gmail-go-quickstart2.json")
 
 
-	c1 := get_client(config, tok1)
-	c2 := get_client(config, tok2)
-
-	srv1, err := gmail.New(c1)
-	if err != nil {
-		log.Fatalf("Unable to retrieve gmail Client %v", err)
-	}
-
-	srv2, err := gmail.New(c2)
-	if err != nil {
-		log.Fatalf("Unable to retrieve gmail Client %v", err)
-	}
-
+	createService("srv1", config, tok1, cl, cache)
+	srv1 := getService("srv1", cache)
+	showLabels(srv1)
 	fmt.Println("===========================")
-	show_labels(srv1)
-	fmt.Println("===========================")
-	show_labels(srv2)
 
+	createService("srv2", config, tok2, cl, cache)
+	srv2 := getService("srv2", cache)
+	showLabels(srv2)
+	fmt.Println("===========================")
+
+	srv1a := getService("srv1", cache)
+	showLabels(srv1a)
 }
 
 func main2() {
