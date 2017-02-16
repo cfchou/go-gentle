@@ -17,6 +17,7 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"time"
+	"github.com/hashicorp/go-cleanhttp"
 )
 
 // getClient uses a Context and Config to retrieve a Token
@@ -131,8 +132,26 @@ func main() {
 		}
 		return tok
 	}
+
+	// It makes more sense to have separated sharable Transports, i.e.
+	// One Transport shared by all Clients of Gmail.
+	// Another Transport shared by Clients of another service.
+	tr := cleanhttp.DefaultPooledTransport()
+	// Enlarge MaxIdleConnsPerHost so that connections to the same Gmail
+	// host are cached. It should be less than MaxIdleConns.
+	tr.MaxIdleConnsPerHost = 100
+	tr.MaxIdleConns = 120
+	tr.IdleConnTimeout = 20 * time.Minute
+
+	// This Client will not really be used in oauth2. oauth2 only extract Transport
+	// from it if it's saved as context's oauth2.HTTPClient.
+	cl := &http.Client{
+		Transport:tr,
+	}
+
+	parent_ctx := context.Background()
 	get_client := func(conf *oauth2.Config, tok *oauth2.Token) *http.Client {
-		ctx := context.Background()
+		ctx := context.WithValue(parent_ctx, oauth2.HTTPClient, cl)
 		client := conf.Client(ctx, tok)
 		client.Timeout = time.Second * 30
 		return client
@@ -154,11 +173,12 @@ func main() {
 		}
 	}
 
-	tok1 := get_token("gmail_1.json")
-	tok2 := get_token("gmail_2.json")
+	tok1 := get_token("gmail-go-quickstart1.json")
+	tok2 := get_token("gmail-go-quickstart2.json")
 
 	b, err := ioutil.ReadFile("client_secret.json")
 	config, err := google.ConfigFromJSON(b, gmail.GmailReadonlyScope)
+
 
 	c1 := get_client(config, tok1)
 	c2 := get_client(config, tok2)

@@ -57,3 +57,6 @@ import:
   version: ^1.0.0
 - package: github.com/cenkalti/backoff
   version: ^1.0.0
+- package: github.com/pkg/errors
+  version: ^0.8.0
+- package: github.com/hashicorp/go-cleanhttp
