@@ -49,7 +49,7 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messag
 	return s.Driver.Exchange(msg, end_allowed.Sub(end))
 }
 
-// Note that BackOffDriver is thread-safe by serializing ReceiveMessage().
+// Note that BackOffDriver is thread-safe by serializing Exchange().
 // Safety is favoured over performance.
 type BackOffDriver struct {
 	Name string

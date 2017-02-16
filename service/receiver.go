@@ -3,7 +3,6 @@ package service
 
 import (
 	"sync"
-	"github.com/pkg/errors"
 	"github.com/inconshreveable/log15"
 	"github.com/afex/hystrix-go/hystrix"
 )
@@ -37,7 +36,7 @@ func (r *DriverReceiver) onceDo() {
 			// Viewed as an infinite source of events
 			msgs, err := r.driver.Exchange(r.fixed_request, 0)
 			if err != nil {
-				r.msgs <- errors.Wrapf(err, "#%s: upstream failed", r.Name)
+				r.msgs <- err
 				continue
 			}
 
@@ -74,8 +73,8 @@ type HandlerReactor struct {
 }
 
 type tuple struct {
-	msg *Message
-	err *error
+	msg Message
+	err error
 }
 
 func NewHandlerReactor(name string, receiver Receiver, handler Handler,
@@ -99,8 +98,8 @@ func (r *HandlerReactor) onceDo() {
 				r.semaphore <- ret
 				go func() {
 					ret <- &tuple{
-						msg: &msg,
-						err: &errors.Wrapf(err,"#%s: upstream failed", r.Name),
+						msg: msg,
+						err: err,
 					}
 				}()
 				continue
@@ -110,8 +109,8 @@ func (r *HandlerReactor) onceDo() {
 				// TODO: Wrapf(e)?
 				m, e := r.handler(msg)
 				ret <- &tuple{
-					msg: &m,
-					err: &e,
+					msg: m,
+					err: e,
 				}
 			}()
 		}
@@ -121,7 +120,7 @@ func (r *HandlerReactor) onceDo() {
 func (r *HandlerReactor) Receive() (Message, error) {
 	r.once.Do(r.onceDo)
 	ret := <-<-r.semaphore
-	return *ret.msg, *ret.err
+	return ret.msg, ret.err
 }
 
 type CircuitBreakerReceiver struct {
@@ -131,7 +130,6 @@ type CircuitBreakerReceiver struct {
 	log       log15.Logger
 	handler   Handler
 	semaphore chan chan *tuple
-
 	once sync.Once
 }
 
@@ -144,15 +142,15 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 		if err != nil {
 			r.log.Error("[Receiver] ReceiveMessages err", "err", err)
 			result <- &tuple{
-				msg: &msg,
-				err: &err,
+				msg: msg,
+				err: err,
 			}
 			return err
 		}
 		r.log.Debug("[Receiver] ReceiveMessages ok")
 		result <- &tuple{
-			msg: &msg,
-			err: &err,
+			msg: msg,
+			err: err,
 		}
 		return nil
 	}, nil)
@@ -165,7 +163,7 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 	// 3. work is finished after hystrix's timeout. err is
 	//    hystrix.ErrTimeout. There may be err from Receive() but
 	//    it's overwritten.
-	// In case 2 and 3 we'd like to return Receive()'s err if there's
+	// In case 2 and 3 we'd like to return Receive() if there's
 	// any.
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
@@ -177,14 +175,8 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 			return nil, err
 		}
 	}
-	switch v := <-result.(type) {
-	case Message:
-		return v, nil
-	case error:
-		return nil, v
-	default:
-		panic("Never be here")
-	}
+	tp := <-result
+	return tp.msg, tp.err
 }
 
 
