@@ -3,175 +3,190 @@ package service
 
 import (
 	"sync"
-	"github.com/cenkalti/backoff"
-	"github.com/afex/hystrix-go/hystrix"
+	"github.com/pkg/errors"
 	"github.com/inconshreveable/log15"
-	"time"
+	"github.com/afex/hystrix-go/hystrix"
 )
 
-const (
-	normal_state = iota
-	backoff_state = iota
-)
-
-
-// Note that BackOffReceiver is thread-safe by serializing ReceiveMessage().
-// Safety is favoured over performance.
-type BackOffReceiver struct {
-	Receiver
-	monitor Monitor
-
-	log log15.Logger
-	interval time.Duration
-
-	lock sync.RWMutex
-	ticker *backoff.Ticker
-	state int
-	last int64
+// Turns a Driver to a Receiver. It keeps feeding Driver.Exchange() the same Message to get the rep
+type DriverReceiver struct {
+	Name         string
+	driver       Driver
+	log          log15.Logger
+	msgs         chan interface{}
+	fixed_request Message
+	once         sync.Once
 }
 
-// TODO mixed back-off: exponential back-off followed by constant back-off
-func NewBackOffReceiver(receiver Receiver, monitor Monitor, interval time.Duration) *BackOffReceiver {
-	return &BackOffReceiver{
-		Receiver: receiver,
-		monitor: monitor,
-		log: receiver.Logger().New("mixin", "backoff"),
-		interval: interval,
-		ticker: backoff.NewTicker(&backoff.ZeroBackOff{}),
-		state: normal_state,
-		last: time.Now().UnixNano(),
+func NewDriverReceiver(name string, driver Driver, max_queuing_messages int,
+	fixed_request Message) *DriverReceiver {
+
+	return &DriverReceiver{
+		Name:         name,
+		driver:       driver,
+		log:          driver.Logger().New("mixin", name),
+		msgs:         make(chan interface{}, max_queuing_messages),
+		fixed_request: fixed_request,
 	}
 }
 
-func (r *BackOffReceiver) ReceiveMessages() ([]Message, error) {
-
-	need := r.monitor.NeedBackOff()
-	if need {
-		r.log.Warn("[Receiver] NeedBackOff")
-		finish_at := time.Now().UnixNano()
-		r.lock.Lock()
-		if r.state == normal_state && finish_at > r.last {
-			r.log.Warn("[Receiver] NeedBackOff normal -> backoff")
-			r.state = backoff_state
-			r.last = finish_at
-			r.ticker.Stop()
-			r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
-			// one tick is immediately presented when state changed
-			<- r.ticker.C
-		}
-		<- r.ticker.C
-		r.lock.Unlock()
-	} else {
-		r.lock.RLock()
-		<- r.ticker.C
-		r.lock.RUnlock()
-	}
-	msgs, err := r.Receiver.ReceiveMessages()
-	finish_at := time.Now().UnixNano()
+func (r *DriverReceiver) onceDo() {
 	go func() {
-		// last-commit-wins if multiple calls run concurrently.
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		if err == nil {
-			// favour normal_state when draw
-			if r.state == backoff_state && finish_at >= r.last {
-				r.log.Info("[Receiver] ReceiveMessages ok; backoff -> normal",
-					"when", finish_at)
-				r.state = normal_state
-				r.ticker.Stop()
-				r.ticker = backoff.NewTicker(&backoff.ZeroBackOff{})
-				// one tick is immediately presented when state changed
-				<- r.ticker.C
-			} else {
-				r.log.Debug("[Receiver] ReceiveMessages ok",
-					"len", len(msgs), "when", finish_at)
+		r.log.Info("[Receiver] once")
+		for {
+			// Viewed as an infinite source of events
+			msgs, err := r.driver.Exchange(r.fixed_request, 0)
+			if err != nil {
+				r.msgs <- errors.Wrapf(err, "#%s: upstream failed", r.Name)
+				continue
 			}
-		} else {
-			if r.state == normal_state && finish_at > r.last {
-				r.log.Error("[Receiver] ReceiveMessages err; normal -> backoff",
-					"err", err, "when", finish_at)
-				r.state = backoff_state
-				r.ticker.Stop()
-				r.ticker = backoff.NewTicker(backoff.NewConstantBackOff(r.interval))
-				// one tick is immediately presented when state changed
-				<- r.ticker.C
-			} else {
-				r.log.Error("[Receiver] ReceiveMessages err", "err", err,
-					"when", finish_at)
+
+			flattened_msgs := msgs.Flatten()
+			for _, m := range flattened_msgs {
+				r.msgs <- m
 			}
-		}
-		if finish_at > r.last {
-			r.last = finish_at
 		}
 	}()
-	return msgs, err
 }
 
-/*
-type RateLimitedReceiver struct {
-	Receiver
-	Name string
-	limiter RateLimit
-	log log15.Logger
-}
-
-func NewRateLimitedReceiver(name string, receiver Receiver, limiter RateLimit) *RateLimitedReceiver {
-	return &RateLimitedReceiver{
-		Receiver:  receiver,
-		Name:    name,
-		limiter: limiter,
-		log: receiver.Logger().New("mixin", "rate"),
+func (r *DriverReceiver) Receive() (Message, error) {
+	r.once.Do(r.onceDo)
+	switch m := (<-r.msgs).(type) {
+	case error:
+		return nil, m
+	case Message:
+		return m, nil
+	default:
+		panic("Never be here")
 	}
 }
 
-func (r *RateLimitedReceiver) ReceiveMessages() ([]Message, error) {
-	r.log.Debug("[Receiver] Wait...")
-	r.limiter.Wait(1, 0)
-	r.log.Debug("[Receiver] Waited")
-	return r.Receiver.ReceiveMessages()
+// HandlerReactor applies a Handler to the upstream Receiver.Receive().
+type HandlerReactor struct {
+	Name string
+	Receiver
+
+	log       log15.Logger
+	handler   Handler
+	semaphore chan chan *tuple
+
+	once sync.Once
 }
-*/
+
+type tuple struct {
+	msg *Message
+	err *error
+}
+
+func NewHandlerReactor(name string, receiver Receiver, handler Handler,
+	max_concurrent_handlers int) *HandlerReactor {
+	return &HandlerReactor{
+		Name:      name,
+		Receiver:  receiver,
+		log:       receiver.Logger().New("mixin", name),
+		handler:   handler,
+		semaphore: make(chan chan *tuple, max_concurrent_handlers),
+	}
+}
+
+func (r *HandlerReactor) onceDo() {
+	go func() {
+		for {
+			r.log.Info("[Receiver] once")
+			ret := make(chan *tuple, 1)
+			msg, err := r.Receiver.Receive()
+			if err != nil {
+				r.semaphore <- ret
+				go func() {
+					ret <- &tuple{
+						msg: &msg,
+						err: &errors.Wrapf(err,"#%s: upstream failed", r.Name),
+					}
+				}()
+				continue
+			}
+			r.semaphore <- ret
+			go func() {
+				// TODO: Wrapf(e)?
+				m, e := r.handler(msg)
+				ret <- &tuple{
+					msg: &m,
+					err: &e,
+				}
+			}()
+		}
+	}()
+}
+
+func (r *HandlerReactor) Receive() (Message, error) {
+	r.once.Do(r.onceDo)
+	ret := <-<-r.semaphore
+	return *ret.msg, *ret.err
+}
 
 type CircuitBreakerReceiver struct {
-	Receiver
 	Name string
-	log log15.Logger
+	Receiver
+
+	log       log15.Logger
+	handler   Handler
+	semaphore chan chan *tuple
+
+	once sync.Once
 }
 
-func NewCircuitBreakerReceiver(name string, receiver Receiver,
-	conf hystrix.CommandConfig) *CircuitBreakerReceiver {
 
-	hystrix.ConfigureCommand(name, conf)
-	log := receiver.Logger().New("mixin", "circuit")
-	return &CircuitBreakerReceiver{
-		Receiver: receiver,
-		Name: name,
-		log: log,
-	}
-}
+func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 
-func (r *CircuitBreakerReceiver) ReceiveMessages() ([]Message, error) {
-
-	result := make(chan *[]Message, 1)
-	r.log.Debug("[Receiver] Circuit Do")
+	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Name, func() error {
-		msgs, err := r.Receiver.ReceiveMessages()
+		msg, err := r.Receiver.Receive()
 		if err != nil {
 			r.log.Error("[Receiver] ReceiveMessages err", "err", err)
+			result <- &tuple{
+				msg: &msg,
+				err: &err,
+			}
 			return err
 		}
-		r.log.Debug("[Receiver] ReceiveMessages ok", "len", len(msgs))
-		result <- &msgs
+		r.log.Debug("[Receiver] ReceiveMessages ok")
+		result <- &tuple{
+			msg: &msg,
+			err: &err,
+		}
 		return nil
 	}, nil)
-
+	// hystrix.Do() is synchronous so at this point there are three
+	// possibilities:
+	// 1. work function is prevented from execution, err contains
+	//    hystrix.ErrCircuitOpen or hystrix.ErrMaxConcurrency.
+	// 2. work is finished before hystrix's timeout. err is nil or err
+	//    returned by Receive().
+	// 3. work is finished after hystrix's timeout. err is
+	//    hystrix.ErrTimeout. There may be err from Receive() but
+	//    it's overwritten.
+	// In case 2 and 3 we'd like to return Receive()'s err if there's
+	// any.
+	// hystrix.ErrTimeout doesn't interrupt work anyway.
+	// It just contributes to circuit's metrics.
 	if err != nil {
 		r.log.Warn("[Receiver] Circuit err","err", err)
-		// hystrix.ErrTimeout doesn't interrupt ReceiveMessages().
-		// It just contributes to circuit's metrics.
 		if err != hystrix.ErrTimeout {
+			// Can be ErrCircuitOpen, ErrMaxConcurrency or
+			// Receive()'s err.
 			return nil, err
 		}
 	}
-	return *<- result, nil
+	switch v := <-result.(type) {
+	case Message:
+		return v, nil
+	case error:
+		return nil, v
+	default:
+		panic("Never be here")
+	}
 }
+
+
+
+

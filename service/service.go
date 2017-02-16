@@ -22,8 +22,11 @@ type Messages interface {
 	Flatten() []Message
 }
 
+// Driver.Exchange() directly maps to a request to an external service.
+// The response of such request may map to multiple Message for downstream.
 type Driver interface {
-	// timeout == 0 results in blocking as long as it needs.
+	// TODO: consider using context package for timeout
+	// timeout 0 results in blocking as long as it needs.
 	// It's important to know that if Exchange() comes back with
 	// ErrTimeout, depending on the implementation, the msg could still
 	// be delivered(at-most-once).
@@ -31,17 +34,19 @@ type Driver interface {
 	Logger() log15.Logger
 }
 
-type MessageSource interface {
-	ReceiveMessages() ([]Message, error)
-}
-
-// Resiliency patterns should be dealt with in Receiver, because one
-// Receiver.ReceiveMessages() maps to one outgoing request to the external
-// service.
+// Receiver is built on top of Driver with the following features:
+// 1. One Receiver.Receive() fetches one Message for downstream.
+// 2. Receiver.Receive() triggers Driver.Exchange() lazily.
+//
+// No timeout is specified for Receiver.Receive() because it should block until
+// a Message for downstream is available.
 type Receiver interface {
-	//ReceiveMessages() ([]Message, error)
 	Receive() (Message, error)
 	Logger() log15.Logger
+}
+
+type MessageSource interface {
+	ReceiveMessages() ([]Message, error)
 }
 
 // UpStream provides an interface for DownStream to consume one Message a time.
@@ -102,6 +107,7 @@ var ErrTimeout = errors.New("Timeout")
 var ErrBackOff = errors.New("Should back off")
 var ErrConf = errors.New("Config error")
 var ErrRepeatedRun = errors.New("Repeated run")
+var ErrUpStream = errors.New("Error from upstream")
 
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond

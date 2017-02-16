@@ -19,7 +19,7 @@ func NewRateLimitedDriver(name string, channel Driver, limiter RateLimit) *RateL
 		Driver:  channel,
 		Name:    name,
 		limiter: limiter,
-		log: channel.Logger().New("mixin", "rate"),
+		log: channel.Logger().New("mixin", name),
 	}
 }
 
@@ -49,125 +49,6 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messag
 	return s.Driver.Exchange(msg, end_allowed.Sub(end))
 }
 
-
-// Turns a Driver to a Receiver
-type DriverReceiver struct {
-	Name string
-	driver Driver
-	log log15.Logger
-	msgs chan interface{}
-	fixedRequest Message
-	once sync.Once
-}
-
-func NewDriverReceiver(name string, driver Driver, max_queuing_messages int,
-	fixed_request Message) *DriverReceiver {
-	return &DriverReceiver{
-		Name: name,
-		driver:driver,
-		log:driver.Logger().New("mixin", name),
-		msgs: make(chan interface{}, max_queuing_messages),
-		fixedRequest:fixed_request,
-	}
-}
-
-func (r *DriverReceiver) onceDo() {
-	go func() {
-		r.log.Info("[Receiver] once")
-		for {
-			// Viewed as an infinite source of events
-			msgs, err := r.driver.Exchange(r.fixedRequest, 0)
-			if err != nil {
-				r.msgs <- err
-				continue
-			}
-
-			flattened_msgs := msgs.Flatten()
-			for _, m := range flattened_msgs {
-				r.msgs <- m
-			}
-		}
-	}()
-}
-
-func (r *DriverReceiver) Receive() (Message, error) {
-	r.once.Do(r.onceDo)
-	switch m := (<- r.msgs).(type) {
-	case error:
-		return nil, m
-	case Message:
-		return m, nil
-	default:
-		panic("Never be here")
-	}
-}
-
-// It should be used in an asynchronous fashion to maximize throughput.
-type HandlerReactor struct {
-	Name string
-	Receiver
-
-	log log15.Logger
-	handler Handler
-	semaphore chan chan *handlerReturn
-
-	once sync.Once
-}
-
-func NewHandlerReactor(name string, receiver Receiver, handler Handler,
-	max_concurrent_handlers int) *HandlerReactor {
-	return &HandlerReactor{
-		Name:name,
-		Receiver:receiver,
-		log: receiver.Logger().New("mixin", name),
-		handler:handler,
-		semaphore:make(chan chan *handlerReturn, max_concurrent_handlers),
-	}
-}
-
-type handlerReturn struct {
-	msg Message
-	err error
-}
-
-func (r *HandlerReactor) onceDo() {
-	go func(){
-		for {
-			r.log.Info("[Receiver] once")
-			msg, err := r.Receiver.Receive()
-			if err != nil {
-				continue
-			}
-			ret := make(chan *handlerReturn, 1)
-			r.semaphore <- ret
-			go func() {
-				m, e := r.handler(msg)
-				ret <- &handlerReturn{
-					msg: m,
-					err: e,
-				}
-			}()
-		}
-	}()
-}
-
-func (r *HandlerReactor) Receive() (Message, error) {
-	r.once.Do(r.onceDo)
-	ret := <- <- r.semaphore
-	return ret.msg, ret.err
-}
-
-/*
-type BackOffReceiver struct {
-	Name string
-	Receiver
-
-	log log15.Logger
-
-}
-*/
-
-
 // Note that BackOffDriver is thread-safe by serializing ReceiveMessage().
 // Safety is favoured over performance.
 type BackOffDriver struct {
@@ -186,7 +67,7 @@ func NewBackOffDriver(name string, driver Driver) *BackOffDriver {
 	return &BackOffDriver{
 		Name: name,
 		Driver: driver,
-		log: driver.Logger().New("mixin", "backoff"),
+		log: driver.Logger().New("mixin", name),
 		next: time.Now(),
 		last: time.Now(),
 	}
