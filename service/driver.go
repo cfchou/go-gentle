@@ -4,6 +4,7 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
+	"github.com/afex/hystrix-go/hystrix"
 )
 
 type RateLimitedDriver struct {
@@ -67,26 +68,28 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messag
 	return msgs, nil
 }
 
+type GenBackOff func() []time.Duration
+
 type RetryDriver struct {
 	Driver
 	Name string
 	log log15.Logger
-	backoffs []time.Duration
+	gen_backoff GenBackOff
 }
 
-func NewRetryDriver(name string, driver Driver, backoffs[]time.Duration) *RetryDriver {
-	var bk []time.Duration
-	copy(bk, backoffs)
+func NewRetryDriver(name string, driver Driver, gen_backoff GenBackOff) *RetryDriver {
 	return &RetryDriver{
 		Driver:driver,
 		Name:name,
 		log:driver.Logger().New("mixin", name),
-		backoffs:bk,
+		gen_backoff:gen_backoff,
 	}
 }
 
 func (s *RetryDriver) exchange(msg Message) (Messages, error) {
-	bk := s.backoffs
+	var bk []time.Duration
+	s.log.Debug("[Driver] Exchange generate backoffs" , "len", len(bk),
+		"msg_in", msg.Id())
 	to_wait := 0 * time.Second
 	count := 0
 	for {
@@ -101,6 +104,11 @@ func (s *RetryDriver) exchange(msg Message) (Messages, error) {
 			s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
 				"msg_out", msgs.Id())
 			return msgs, err
+		}
+		if count == 1 {
+			bk = s.gen_backoff()
+			s.log.Debug("[Driver] Exchange generate backoffs",
+				"len", len(bk), "msg_in", msg.Id())
 		}
 		if len(bk) == 0 {
 			// backoffs exhausted
@@ -126,7 +134,7 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, er
 	tm := time.NewTimer(timeout)
 	result := make(chan *tuple, 1)
 	go func() {
-		bk := s.backoffs
+		var bk []time.Duration
 		to_wait := 0 * time.Second
 		count := 0
 		for {
@@ -135,7 +143,7 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, er
 				"wait", to_wait, "msg_in", msg.Id())
 			now := time.Now()
 			if !now.Add(to_wait).Before(end_allowed) {
-				s.log.Error("[Driver] Exchange err, timeout" ,
+				s.log.Error("[Driver] Exchange timeout" ,
 					"msg_in", msg.Id())
 				result <- &tuple{
 					fst: nil,
@@ -156,6 +164,11 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, er
 				}
 				return
 			}
+			if count == 1 {
+				bk = s.gen_backoff()
+				s.log.Debug("[Driver] Exchange generate backoffs",
+					"len", len(bk), "msg_in", msg.Id())
+			}
 			if len(bk) == 0 {
 				// backoffs exhausted
 				s.log.Error("[Driver] Exchange err, stop backing off",
@@ -175,8 +188,75 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, er
 	}()
 	select {
 	case <-tm.C:
+		s.log.Error("[Driver] Exchange timeout","msg_in", msg.Id())
 		return nil, ErrTimeout
 	case tp := <-result:
 		return tp.fst.(Messages), tp.snd.(error)
 	}
 }
+
+type CircuitBreakerDriver struct {
+	Driver
+	Name string
+	log log15.Logger
+}
+
+func NewCircuitBreakerDriver(name string, driver Driver,
+	conf hystrix.CommandConfig) *CircuitBreakerDriver {
+	hystrix.ConfigureCommand(name, conf)
+	return &CircuitBreakerDriver{
+		Driver:driver,
+		Name:name,
+		log:driver.Logger().New("mixin", name),
+	}
+}
+
+func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
+		"timeout", timeout)
+	result := make(chan *tuple, 1)
+	err := hystrix.Do(s.Name, func() error {
+		msgs, err := s.Driver.Exchange(msg, timeout)
+		if err != nil {
+			s.log.Error("[Driver] Exchange err", "err", err,
+				"msg_in", msg.Id())
+			result <- &tuple{
+				fst: msgs,
+				snd: err,
+			}
+			return err
+		}
+		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+			"msg_out", msgs.Id())
+		result <- &tuple{
+			fst: msg,
+			snd: err,
+		}
+		return nil
+	}, nil)
+	// hystrix.Do() is synchronous so at this point there are three
+	// possibilities:
+	// 1. work function is prevented from execution, err contains
+	//    hystrix.ErrCircuitOpen or hystrix.ErrMaxConcurrency.
+	// 2. work function is finished before hystrix's timeout. err is nil or
+	//    an error returned by work.
+	// 3. work function is finished after hystrix's timeout. err is
+	//    hystrix.ErrTimeout or an error returned by work.
+	// In case 2 and 3 we'd like to return Exchange()'s result even it's
+	// error.
+	// hystrix.ErrTimeout doesn't interrupt work anyway.
+	// It just contributes to circuit's metrics.
+	if err != nil {
+		s.log.Warn("[Driver] Circuit err","err", err, "msg_in", msg.Id())
+		if err != hystrix.ErrTimeout {
+			// Can be ErrCircuitOpen, ErrMaxConcurrency or
+			// Exchange()'s err.
+			return nil, err
+		}
+	}
+	tp := <-result
+	return tp.fst.(Messages), tp.snd.(error)
+}
+
+
+

@@ -7,25 +7,27 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 )
 
+type GenMessage func() Message
+
 // Turns a Driver to a Receiver. It keeps feeding Driver.Exchange() the same Message to get the rep
 type DriverReceiver struct {
 	Name         string
 	driver       Driver
 	log          log15.Logger
 	msgs         chan interface{}
-	fixed_request Message
+	gen_message   GenMessage
 	once         sync.Once
 }
 
 func NewDriverReceiver(name string, driver Driver, max_queuing_messages int,
-	fixed_request Message) *DriverReceiver {
+	gen_message GenMessage) *DriverReceiver {
 
 	return &DriverReceiver{
 		Name:         name,
 		driver:       driver,
 		log:          driver.Logger().New("mixin", name),
 		msgs:         make(chan interface{}, max_queuing_messages),
-		fixed_request: fixed_request,
+		gen_message: gen_message,
 	}
 }
 
@@ -34,7 +36,7 @@ func (r *DriverReceiver) onceDo() {
 		r.log.Info("[Receiver] once")
 		for {
 			// Viewed as an infinite source of events
-			msgs, err := r.driver.Exchange(r.fixed_request, 0)
+			msgs, err := r.driver.Exchange(r.gen_message(), 0)
 			if err != nil {
 				r.msgs <- err
 				continue
@@ -60,15 +62,13 @@ func (r *DriverReceiver) Receive() (Message, error) {
 	}
 }
 
-// HandlerReactor applies a Handler to the upstream Receiver.Receive().
-type HandlerReactor struct {
-	Name string
+// HandlerReceiver applies a Handler to the upstream Receiver.Receive().
+type HandlerReceiver struct {
 	Receiver
-
+	Name string
 	log       log15.Logger
 	handler   Handler
 	semaphore chan chan *tuple
-
 	once sync.Once
 }
 
@@ -77,9 +77,9 @@ type tuple struct {
 	snd interface{}
 }
 
-func NewHandlerReactor(name string, receiver Receiver, handler Handler,
-	max_concurrent_handlers int) *HandlerReactor {
-	return &HandlerReactor{
+func NewHandlerReceiver(name string, receiver Receiver, handler Handler,
+	max_concurrent_handlers int) *HandlerReceiver {
+	return &HandlerReceiver{
 		Name:      name,
 		Receiver:  receiver,
 		log:       receiver.Logger().New("mixin", name),
@@ -88,10 +88,10 @@ func NewHandlerReactor(name string, receiver Receiver, handler Handler,
 	}
 }
 
-func (r *HandlerReactor) onceDo() {
+func (r *HandlerReceiver) onceDo() {
 	go func() {
+		r.log.Info("[Receiver] once")
 		for {
-			r.log.Info("[Receiver] once")
 			ret := make(chan *tuple, 1)
 			msg, err := r.Receiver.Receive()
 			if err != nil {
@@ -117,37 +117,42 @@ func (r *HandlerReactor) onceDo() {
 	}()
 }
 
-func (r *HandlerReactor) Receive() (Message, error) {
+func (r *HandlerReceiver) Receive() (Message, error) {
 	r.once.Do(r.onceDo)
 	ret := <-<-r.semaphore
 	return ret.fst.(Message), ret.snd.(error)
 }
 
 type CircuitBreakerReceiver struct {
-	Name string
 	Receiver
-
+	Name string
 	log       log15.Logger
-	handler   Handler
-	semaphore chan chan *tuple
-	once sync.Once
 }
 
+func NewCircuitBreakerReceiver(name string, receiver Receiver,
+	conf hystrix.CommandConfig) *CircuitBreakerReceiver {
+	hystrix.ConfigureCommand(name, conf)
+	return &CircuitBreakerReceiver{
+		Receiver:receiver,
+		Name:name,
+		log:receiver.Logger().New("mixin", name),
+	}
+}
 
 func (r *CircuitBreakerReceiver) Receive() (Message, error) {
-
+	r.log.Debug("[Receiver] Receive()")
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Name, func() error {
 		msg, err := r.Receiver.Receive()
 		if err != nil {
-			r.log.Error("[Receiver] ReceiveMessages err", "err", err)
+			r.log.Error("[Receiver] Receive err", "err", err)
 			result <- &tuple{
 				fst: msg,
 				snd: err,
 			}
 			return err
 		}
-		r.log.Debug("[Receiver] ReceiveMessages ok")
+		r.log.Debug("[Receiver] Receive ok", "msg_out", msg.Id())
 		result <- &tuple{
 			fst: msg,
 			snd: err,
@@ -158,11 +163,10 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 	// possibilities:
 	// 1. work function is prevented from execution, err contains
 	//    hystrix.ErrCircuitOpen or hystrix.ErrMaxConcurrency.
-	// 2. work is finished before hystrix's timeout. err is nil or err
-	//    returned by Receive().
-	// 3. work is finished after hystrix's timeout. err is
-	//    hystrix.ErrTimeout. There may be err from Receive() but
-	//    it's overwritten.
+	// 2. work function is finished before hystrix's timeout. err is nil or
+	//    an error returned by work.
+	// 3. work function is finished after hystrix's timeout. err is
+	//    hystrix.ErrTimeout or an error returned by work.
 	// In case 2 and 3 we'd like to return Receive() if there's
 	// any.
 	// hystrix.ErrTimeout doesn't interrupt work anyway.

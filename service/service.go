@@ -70,16 +70,6 @@ type Sender interface {
 	Logger() log15.Logger
 }
 
-/*
-type BackOff interface {
-	Run(work func() error) error
-	/*
-	Wait()
-	Reset()
-	*/
-}
-*/
-
 type BackOff interface {
 	Wait()
 	WaitUntil(timeout time.Duration) bool
