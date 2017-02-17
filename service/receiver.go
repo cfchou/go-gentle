@@ -73,8 +73,8 @@ type HandlerReactor struct {
 }
 
 type tuple struct {
-	msg Message
-	err error
+	fst interface{}
+	snd interface{}
 }
 
 func NewHandlerReactor(name string, receiver Receiver, handler Handler,
@@ -98,8 +98,8 @@ func (r *HandlerReactor) onceDo() {
 				r.semaphore <- ret
 				go func() {
 					ret <- &tuple{
-						msg: msg,
-						err: err,
+						fst: msg,
+						snd: err,
 					}
 				}()
 				continue
@@ -109,8 +109,8 @@ func (r *HandlerReactor) onceDo() {
 				// TODO: Wrapf(e)?
 				m, e := r.handler(msg)
 				ret <- &tuple{
-					msg: m,
-					err: e,
+					fst: m,
+					snd: e,
 				}
 			}()
 		}
@@ -120,7 +120,7 @@ func (r *HandlerReactor) onceDo() {
 func (r *HandlerReactor) Receive() (Message, error) {
 	r.once.Do(r.onceDo)
 	ret := <-<-r.semaphore
-	return ret.msg, ret.err
+	return ret.fst.(Message), ret.snd.(error)
 }
 
 type CircuitBreakerReceiver struct {
@@ -142,15 +142,15 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 		if err != nil {
 			r.log.Error("[Receiver] ReceiveMessages err", "err", err)
 			result <- &tuple{
-				msg: msg,
-				err: err,
+				fst: msg,
+				snd: err,
 			}
 			return err
 		}
 		r.log.Debug("[Receiver] ReceiveMessages ok")
 		result <- &tuple{
-			msg: msg,
-			err: err,
+			fst: msg,
+			snd: err,
 		}
 		return nil
 	}, nil)
@@ -176,7 +176,7 @@ func (r *CircuitBreakerReceiver) Receive() (Message, error) {
 		}
 	}
 	tp := <-result
-	return tp.msg, tp.err
+	return tp.fst.(Message), tp.snd.(error)
 }
 
 

@@ -4,7 +4,6 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
-	"sync"
 )
 
 type RateLimitedDriver struct {
@@ -23,189 +22,161 @@ func NewRateLimitedDriver(name string, channel Driver, limiter RateLimit) *RateL
 	}
 }
 
-func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
-	s.log.Debug("[Driver] Exchange...", "msg", msg.Id())
-	if timeout == 0 {
-		s.limiter.Wait(1, 0)
-		s.log.Debug("[Driver] Exchange ok","msg", msg.Id())
-		return s.Driver.Exchange(msg, timeout)
+func (s *RateLimitedDriver) exchange(msg Message) (Messages, error) {
+	s.limiter.Wait(1, 0)
+	msgs, err := s.Driver.Exchange(msg, 0)
+	if err != nil {
+		s.log.Error("[Driver] Exchange err","err", err,
+			"msg_in", msg.Id())
+		return nil, err
 	}
+	s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
+		"msg_out", msgs.Id())
+	return msgs, nil
+}
 
-	begin := time.Now()
-	end_allowed := begin.Add(timeout)
+func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
+		"timeout", timeout)
+	if timeout == 0 {
+		return s.exchange(msg)
+	}
+	end_allowed := time.Now().Add(timeout)
 	if !s.limiter.Wait(1, timeout) {
+		// Can't get a ticket within timeout
 		s.log.Warn("[Driver] Wait failed","err", ErrRateLimited,
-			"msg", msg.Id())
+			"msg_in", msg.Id())
 		return nil, ErrRateLimited
 	}
-	end := time.Now()
-	if !end.Before(end_allowed) {
-		// Passed rate limiter, but doesn't have time for Exchange().
+	now := time.Now()
+	if !now.Before(end_allowed) {
+		// Passed rate limit, but doesn't have time for Exchange().
 		s.log.Warn("[Driver] Too late","err", ErrTimeout,
 			"msg", msg.Id())
 		return nil, ErrTimeout
 	}
-	s.log.Debug("[Driver] Exchange ok", "msg", msg.Id())
-	return s.Driver.Exchange(msg, end_allowed.Sub(end))
+	// assert end_allowed.Sub(now) != 0
+	msgs, err := s.Driver.Exchange(msg, end_allowed.Sub(now))
+	if err != nil {
+		s.log.Error("[Driver] Exchange err","err", err,
+			"msg_in", msg.Id())
+		return nil, err
+	}
+	s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
+		"msg_out", msgs.Id())
+	return msgs, nil
 }
 
-// Note that BackOffDriver is thread-safe by serializing Exchange().
-// Safety is favoured over performance.
-type BackOffDriver struct {
-	Name string
+type RetryDriver struct {
 	Driver
-
+	Name string
 	log log15.Logger
-	lock sync.Mutex
 	backoffs []time.Duration
-	next time.Time
-	last time.Time
 }
 
-// TODO mixed back-off: exponential back-off followed by constant back-off
-func NewBackOffDriver(name string, driver Driver) *BackOffDriver {
-	return &BackOffDriver{
-		Name: name,
-		Driver: driver,
-		log: driver.Logger().New("mixin", name),
-		next: time.Now(),
-		last: time.Now(),
+func NewRetryDriver(name string, driver Driver, backoffs[]time.Duration) *RetryDriver {
+	var bk []time.Duration
+	copy(bk, backoffs)
+	return &RetryDriver{
+		Driver:driver,
+		Name:name,
+		log:driver.Logger().New("mixin", name),
+		backoffs:bk,
 	}
 }
 
-func (s *BackOffDriver) GenerateBackOffs() []time.Duration {
-	return []time.Duration{1*time.Second, 2*time.Second}
-}
-
-func (s *BackOffDriver) nextBackOff() time.Duration {
-	if !s.isBackingOff() {
-		panic("Not in backoff state")
-	}
-	return s.backoffs[0]
-}
-
-func (s *BackOffDriver) newBackOffs() {
-	s.backoffs = s.GenerateBackOffs()
-	if len(s.backoffs) == 0 {
-		panic("GenerateBackOffs() length is 0")
-	}
-}
-
-func (s *BackOffDriver) enableBackOff() {
-	s.newBackOffs()
-}
-
-func (s *BackOffDriver) disableBackOff() {
-	s.backoffs = []time.Duration{}
-}
-
-func (s *BackOffDriver) isBackingOff() bool {
-	return len(s.backoffs) > 0
-}
-
-func (s *BackOffDriver) advanceBackOff() {
-	if !s.isBackingOff() {
-		panic("Not in backoff state")
-	}
-	if len(s.backoffs) == 1 {
-		s.newBackOffs()
-	} else {
-		s.backoffs = s.backoffs[1:]
-	}
-}
-
-func (s *BackOffDriver) exchange(msg Message) (Messages, error) {
+func (s *RetryDriver) exchange(msg Message) (Messages, error) {
+	bk := s.backoffs
+	to_wait := 0 * time.Second
+	count := 0
 	for {
-		s.lock.Lock()
-		if !s.isBackingOff() {
-			s.lock.Unlock()
-			break
+		count += 1
+		s.log.Debug("[Driver] Exchange ..." , "count", count,
+			"wait", to_wait, "msg_in", msg.Id())
+		// A negative or zero duration causes Sleep to return immediately.
+		time.Sleep(to_wait)
+		// assert end_allowed.Sub(now) != 0
+		msgs, err := s.Driver.Exchange(msg, 0)
+		if err == nil {
+			s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
+				"msg_out", msgs.Id())
+			return msgs, err
 		}
-		// isBackingOff
-		now := time.Now()
-		if !now.Before(s.next) {
-			if s.isBackingOff() {
-				s.next = s.next.Add(s.nextBackOff())
-				s.advanceBackOff()
-			}
-			s.lock.Unlock()
-			break
+		if len(bk) == 0 {
+			// backoffs exhausted
+			s.log.Error("[Driver] Exchange err, stop backing off",
+				"err", err, "msg_in", msg.Id())
+			return nil, err
+		} else {
+			s.log.Error("[Driver] Exchange err",
+				"err", err, "msg_in", msg.Id())
 		}
-		// now before s.next
-		wait := s.next.Sub(now)
-		s.lock.Unlock()
-		time.Sleep(wait)
+		to_wait = bk[0]
+		bk = bk[1:]
 	}
-	// given the green light
-	msgs, err := s.Driver.Exchange(msg, 0)
-	end := time.Now()
-	s.lock.Lock()
-	if err != nil && !s.isBackingOff() && end.After(s.last) {
-		// s.last < end
-		s.newBackOffs()
-		s.next = s.next.Add(s.nextBackOff())
-		s.advanceBackOff()
-	} else if err == nil && s.isBackingOff() && !end.Before(s.last){
-		// s.last <= end
-		s.disableBackOff()
-		s.next = time.Now()
-	}
-	s.lock.Unlock()
-	return msgs, err
 }
 
-func (s *BackOffDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
+		"timeout", timeout)
 	if timeout == 0 {
 		return s.exchange(msg)
 	}
-
-	finish_at := time.Now().Add(timeout)
-	for {
-		s.lock.Lock()
-		if !s.isBackingOff() {
-			s.lock.Unlock()
-			break
-		}
-
-		// isBackingOff
-		now := time.Now()
-		if !now.Before(finish_at) || !s.next.Before(finish_at) {
-			s.lock.Unlock()
-			return nil, ErrTimeout
-		}
-		if !now.Before(s.next) {
-			if s.isBackingOff() {
-				s.next = s.next.Add(s.nextBackOff())
-				s.advanceBackOff()
-			}
-			s.lock.Unlock()
-			break
-		}
-		wait := s.next.Sub(now)
-		s.lock.Unlock()
-		time.Sleep(wait)
-	}
-	begin := time.Now()
-	if !begin.Before(finish_at) {
-		return nil, ErrTimeout
-	}
-	// given the green light
-	msgs, err := s.Driver.Exchange(msg, finish_at.Sub(begin))
-	end := time.Now()
+	end_allowed := time.Now().Add(timeout)
+	tm := time.NewTimer(timeout)
+	result := make(chan *tuple, 1)
 	go func() {
-		s.lock.Lock()
-		defer s.lock.Unlock()
-		if err != nil && !s.isBackingOff() && end.After(s.last) {
-			// s.last < end
-			s.newBackOffs()
-			s.next = s.next.Add(s.nextBackOff())
-			s.advanceBackOff()
-		} else if err == nil && s.isBackingOff() && !end.Before(s.last){
-			// s.last <= end
-			s.disableBackOff()
-			s.next = time.Now()
+		bk := s.backoffs
+		to_wait := 0 * time.Second
+		count := 0
+		for {
+			count += 1
+			s.log.Debug("[Driver] Exchange ..." , "count", count,
+				"wait", to_wait, "msg_in", msg.Id())
+			now := time.Now()
+			if !now.Add(to_wait).Before(end_allowed) {
+				s.log.Error("[Driver] Exchange err, timeout" ,
+					"msg_in", msg.Id())
+				result <- &tuple{
+					fst: nil,
+					snd:ErrTimeout,
+				}
+				return
+			}
+			// A negative or zero duration causes Sleep to return immediately.
+			time.Sleep(to_wait)
+			// assert end_allowed.Sub(now) != 0
+			msgs, err := s.Driver.Exchange(msg, end_allowed.Sub(now))
+			if err == nil {
+				s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
+					"msg_out", msgs.Id())
+				result <- &tuple{
+					fst: msgs,
+					snd:nil,
+				}
+				return
+			}
+			if len(bk) == 0 {
+				// backoffs exhausted
+				s.log.Error("[Driver] Exchange err, stop backing off",
+					"err", err, "msg_in", msg.Id())
+				result <- &tuple{
+					fst: nil,
+					snd:ErrTimeout,
+				}
+				return
+			} else {
+				s.log.Error("[Driver] Exchange err",
+					"err", err, "msg_in", msg.Id())
+			}
+			to_wait = bk[0]
+			bk = bk[1:]
 		}
-		s.lock.Unlock()
 	}()
-	return msgs, err
+	select {
+	case <-tm.C:
+		return nil, ErrTimeout
+	case tp := <-result:
+		return tp.fst.(Messages), tp.snd.(error)
+	}
 }
