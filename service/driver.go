@@ -5,7 +5,57 @@ import (
 	"github.com/inconshreveable/log15"
 	"time"
 	"github.com/afex/hystrix-go/hystrix"
+	"google.golang.org/appengine/channel"
+	"database/sql/driver"
 )
+
+type MessagesTuple struct {
+	msgs Messages
+	err error
+}
+
+// ChannelDriver pull values from a channel.
+type ChannelDriver struct {
+	Name    string
+	channel <-chan *MessagesTuple
+	log     log15.Logger
+}
+
+func NewChannelDriver(name string, channel <-chan *MessagesTuple, log log15.Logger) *ChannelDriver {
+	return &ChannelDriver{
+		Name:name,
+		channel:channel,
+		log:log.New("mixin", name),
+	}
+}
+
+func (s *ChannelDriver) Logger() log15.Logger {
+	return s.log
+}
+
+func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+	// msg is not used, but it's still here for logging.
+	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id())
+	if timeout == 0 {
+		tp, ok := <- s.channel
+		if !ok {
+			return nil, ErrEOF
+		}
+		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+			"msg_out", tp.msgs.Id())
+		return tp.msgs, tp.err
+	}
+	tm := time.NewTimer(timeout)
+	select {
+	case <-tm.C:
+		s.log.Error("[Driver] Exchange timeout","msg_in", msg.Id())
+		return nil, ErrTimeout
+	case tp := <-s.channel:
+		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+			"msg_out", tp.msgs.Id())
+		return tp.msgs, tp.err
+	}
+}
 
 type RateLimitedDriver struct {
 	Driver
@@ -14,12 +64,12 @@ type RateLimitedDriver struct {
 	log log15.Logger
 }
 
-func NewRateLimitedDriver(name string, channel Driver, limiter RateLimit) *RateLimitedDriver {
+func NewRateLimitedDriver(name string, driver Driver, limiter RateLimit) *RateLimitedDriver {
 	return &RateLimitedDriver{
-		Driver:  channel,
+		Driver:  driver,
 		Name:    name,
 		limiter: limiter,
-		log: channel.Logger().New("mixin", name),
+		log: driver.Logger().New("mixin", name),
 	}
 }
 
@@ -68,28 +118,29 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messag
 	return msgs, nil
 }
 
-type GenBackOff func() []time.Duration
-
+// When Exchange(msg, timeout) encounters error, it backs off for some time
+// and then retries.
+// Note that the times used by back-offs and failed retries do not consume
+// timeout so the same timeout is given to every retry.
 type RetryDriver struct {
 	Driver
 	Name string
 	log log15.Logger
-	gen_backoff GenBackOff
+	genBackoff GenBackOff
 }
 
-func NewRetryDriver(name string, driver Driver, gen_backoff GenBackOff) *RetryDriver {
+func NewRetryDriver(name string, driver Driver, off GenBackOff) *RetryDriver {
 	return &RetryDriver{
 		Driver:driver,
 		Name:name,
 		log:driver.Logger().New("mixin", name),
-		gen_backoff:gen_backoff,
+		genBackoff:off,
 	}
 }
 
-func (s *RetryDriver) exchange(msg Message) (Messages, error) {
+func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id())
 	var bk []time.Duration
-	s.log.Debug("[Driver] Exchange generate backoffs" , "len", len(bk),
-		"msg_in", msg.Id())
 	to_wait := 0 * time.Second
 	count := 0
 	for {
@@ -99,14 +150,15 @@ func (s *RetryDriver) exchange(msg Message) (Messages, error) {
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
-		msgs, err := s.Driver.Exchange(msg, 0)
+		//
+		msgs, err := s.Driver.Exchange(msg, timeout)
 		if err == nil {
 			s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
 				"msg_out", msgs.Id())
 			return msgs, err
 		}
 		if count == 1 {
-			bk = s.gen_backoff()
+			bk = s.genBackoff()
 			s.log.Debug("[Driver] Exchange generate backoffs",
 				"len", len(bk), "msg_in", msg.Id())
 		}
@@ -124,86 +176,13 @@ func (s *RetryDriver) exchange(msg Message) (Messages, error) {
 	}
 }
 
-func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
-	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
-		"timeout", timeout)
-	if timeout == 0 {
-		return s.exchange(msg)
-	}
-	end_allowed := time.Now().Add(timeout)
-	tm := time.NewTimer(timeout)
-	result := make(chan *tuple, 1)
-	go func() {
-		var bk []time.Duration
-		to_wait := 0 * time.Second
-		count := 0
-		for {
-			count += 1
-			s.log.Debug("[Driver] Exchange ..." , "count", count,
-				"wait", to_wait, "msg_in", msg.Id())
-			now := time.Now()
-			if !now.Add(to_wait).Before(end_allowed) {
-				s.log.Error("[Driver] Exchange timeout" ,
-					"msg_in", msg.Id())
-				result <- &tuple{
-					fst: nil,
-					snd:ErrTimeout,
-				}
-				return
-			}
-			// A negative or zero duration causes Sleep to return immediately.
-			time.Sleep(to_wait)
-			// assert end_allowed.Sub(now) != 0
-			msgs, err := s.Driver.Exchange(msg, end_allowed.Sub(now))
-			if err == nil {
-				s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
-					"msg_out", msgs.Id())
-				result <- &tuple{
-					fst: msgs,
-					snd:nil,
-				}
-				return
-			}
-			if count == 1 {
-				bk = s.gen_backoff()
-				s.log.Debug("[Driver] Exchange generate backoffs",
-					"len", len(bk), "msg_in", msg.Id())
-			}
-			if len(bk) == 0 {
-				// backoffs exhausted
-				s.log.Error("[Driver] Exchange err, stop backing off",
-					"err", err, "msg_in", msg.Id())
-				result <- &tuple{
-					fst: nil,
-					snd:ErrTimeout,
-				}
-				return
-			} else {
-				s.log.Error("[Driver] Exchange err",
-					"err", err, "msg_in", msg.Id())
-			}
-			to_wait = bk[0]
-			bk = bk[1:]
-		}
-	}()
-	select {
-	case <-tm.C:
-		s.log.Error("[Driver] Exchange timeout","msg_in", msg.Id())
-		return nil, ErrTimeout
-	case tp := <-result:
-		return tp.fst.(Messages), tp.snd.(error)
-	}
-}
-
 type CircuitBreakerDriver struct {
 	Driver
 	Name string
 	log log15.Logger
 }
 
-func NewCircuitBreakerDriver(name string, driver Driver,
-	conf hystrix.CommandConfig) *CircuitBreakerDriver {
-	hystrix.ConfigureCommand(name, conf)
+func NewCircuitBreakerDriver(name string, driver Driver) *CircuitBreakerDriver {
 	return &CircuitBreakerDriver{
 		Driver:driver,
 		Name:name,
@@ -257,6 +236,5 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Mes
 	tp := <-result
 	return tp.fst.(Messages), tp.snd.(error)
 }
-
 
 

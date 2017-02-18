@@ -40,7 +40,7 @@ type Driver interface {
 //
 // No timeout is specified for Receiver.Receive() because it should block until
 // a Message for downstream is available.
-type Receiver interface {
+type Stream interface {
 	Receive() (Message, error)
 	Logger() log15.Logger
 }
@@ -58,7 +58,10 @@ type UpStream interface {
 	WaitMessage(time.Duration) (Message, error)
 }
 
-type Handler func(Message) (Message, error)
+type Handler interface {
+	Handle(Message) (Message, error)
+	Logger() log15.Logger
+}
 
 type DownStream interface {
 	Run(UpStream, Handler) error
@@ -92,6 +95,7 @@ const (
 	running                = iota
 )
 
+var ErrEOF = errors.New("EOF")
 var ErrRateLimited = errors.New("Rate limit reached")
 var ErrTimeout = errors.New("Timeout")
 var ErrBackOff = errors.New("Should back off")
@@ -102,3 +106,12 @@ var ErrUpStream = errors.New("Error from upstream")
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
+
+type tuple struct {
+	fst interface{}
+	snd interface{}
+}
+
+type GenMessage func() Message
+type GenBackOff func() []time.Duration
+
