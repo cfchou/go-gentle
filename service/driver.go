@@ -5,8 +5,6 @@ import (
 	"github.com/inconshreveable/log15"
 	"time"
 	"github.com/afex/hystrix-go/hystrix"
-	"google.golang.org/appengine/channel"
-	"database/sql/driver"
 )
 
 type MessagesTuple struct {
@@ -21,11 +19,12 @@ type ChannelDriver struct {
 	log     log15.Logger
 }
 
-func NewChannelDriver(name string, channel <-chan *MessagesTuple, log log15.Logger) *ChannelDriver {
+func NewChannelDriver(name string, channel <-chan *MessagesTuple,
+	log_parent log15.Logger) *ChannelDriver {
 	return &ChannelDriver{
 		Name:name,
 		channel:channel,
-		log:log.New("mixin", name),
+		log:log_parent.New("mixin", name),
 	}
 }
 

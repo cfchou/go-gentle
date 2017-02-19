@@ -7,6 +7,7 @@ import (
 	"errors"
 )
 
+// Package level logger.
 var Log = log15.New()
 
 func init()  {
@@ -45,44 +46,13 @@ type Stream interface {
 	Logger() log15.Logger
 }
 
-type MessageSource interface {
-	ReceiveMessages() ([]Message, error)
-}
-
-// UpStream provides an interface for DownStream to consume one Message a time.
-// A DownStream applies back pressure to UpStream per Message basis which may in turn back pressure
-// the Receiver.
-type UpStream interface {
-	//Run() error
-	// timeout == 0 results in blocking as long as it needs.
-	WaitMessage(time.Duration) (Message, error)
-}
-
+// Handler reacts to Message from Stream.
 type Handler interface {
 	Handle(Message) (Message, error)
 	Logger() log15.Logger
 }
 
-type DownStream interface {
-	Run(UpStream, Handler) error
-}
-
-type Sender interface {
-	// timeout == 0 results in blocking as long as it needs.
-	SendMessage(Message, time.Duration) (Message, error)
-	Logger() log15.Logger
-}
-
-type BackOff interface {
-	Wait()
-	WaitUntil(timeout time.Duration) bool
-	UpdateWith(when time.Time, err error)
-}
-
-type Monitor interface {
-	NeedBackOff() bool
-}
-
+// RateLimit is an interface for a "token bucket" rate limit algorithm.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or
 	// timeout(return false).
@@ -98,9 +68,7 @@ const (
 var ErrEOF = errors.New("EOF")
 var ErrRateLimited = errors.New("Rate limit reached")
 var ErrTimeout = errors.New("Timeout")
-var ErrBackOff = errors.New("Should back off")
 var ErrConf = errors.New("Config error")
-var ErrRepeatedRun = errors.New("Repeated run")
 var ErrUpStream = errors.New("Error from upstream")
 
 func IntToMillis(millis int) time.Duration {

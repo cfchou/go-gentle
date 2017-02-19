@@ -21,11 +21,12 @@ type ChannelStream struct {
 	log     log15.Logger
 }
 
-func NewChannelStream(name string, channel <-chan *MessageTuple, log log15.Logger) *ChannelStream {
+func NewChannelStream(name string, channel <-chan *MessageTuple,
+	log_parent log15.Logger) *ChannelStream {
 	return &ChannelStream{
 		Name:name,
 		channel:channel,
-		log:log.New("mixin", name),
+		log:log_parent.New("mixin", name),
 	}
 }
 
@@ -56,7 +57,6 @@ type DriverStream struct {
 
 func NewDriverStream(name string, driver Driver, max_queuing_messages int,
 	genMessage GenMessage) *DriverStream {
-
 	return &DriverStream{
 		Name:         name,
 		driver:       driver,

@@ -25,11 +25,17 @@ type TokenBucketRateLimit struct {
 	bucket *ratelimit.Bucket
 }
 
-func NewTokenBucketRateLimit(conf TokenBucketRateLimitConf) *TokenBucketRateLimit {
+// $requests_interval The minimum interval, in milliseconds, between two
+// consecutive requests.
+// N is the amount of requests allowed when a burst of requests coming
+// in after not seeing requests for N * RequestsInterval. N is capped by
+// $max_requests_burst.
+// If $max_requests_burst == 1, then no burst allowed.
+func NewTokenBucketRateLimit(requests_interval int, max_requests_burst int64) *TokenBucketRateLimit {
 	return &TokenBucketRateLimit{
 		bucket: ratelimit.NewBucket(
-			IntToMillis(conf.RequestsInterval),
-			conf.MaxRequestsBurst),
+			IntToMillis(requests_interval),
+			max_requests_burst),
 	}
 }
 
