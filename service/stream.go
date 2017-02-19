@@ -21,12 +21,11 @@ type ChannelStream struct {
 	log     log15.Logger
 }
 
-func NewChannelStream(name string, channel <-chan *MessageTuple,
-	log_parent log15.Logger) *ChannelStream {
+func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream {
 	return &ChannelStream{
 		Name:name,
 		channel:channel,
-		log:log_parent.New("mixin", name),
+		log:Log.New("mixin", "stream_chan", "name", name),
 	}
 }
 
@@ -60,7 +59,7 @@ func NewDriverStream(name string, driver Driver, max_queuing_messages int,
 	return &DriverStream{
 		Name:         name,
 		driver:       driver,
-		log:          driver.Logger().New("mixin", name),
+		log:Log.New("mixin", "stream_drv", "name", name),
 		msgs:         make(chan interface{}, max_queuing_messages),
 		genMessage: genMessage,
 	}
@@ -116,7 +115,7 @@ func NewMapStream(name string, stream Stream, handler Handler,
 	return &MapStream{
 		Name:      name,
 		Stream:  stream,
-		log:       stream.Logger().New("mixin", name),
+		log:Log.New("mixin", "stream_map", "name", name),
 		handler:   handler,
 		semaphore: make(chan chan *tuple, max_concurrent_handlers),
 	}
@@ -170,7 +169,7 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 		Stream:stream,
 		Name: name,
 		limiter:limiter,
-		log:stream.Logger().New("mixin", name),
+		log:Log.New("mixin", "stream_rate", "name", name),
 	}
 }
 
@@ -200,7 +199,7 @@ func NewRetryStream(name string, stream Stream, off GenBackOff) *RetryStream {
 		Stream: stream,
 		Name: name,
 		genBackoff:off,
-		log: stream.Logger().New("mixin", name),
+		log:Log.New("mixin", "stream_retry", "name", name),
 	}
 }
 
@@ -250,7 +249,7 @@ func NewCircuitBreakerStream(name string, stream Stream) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
 		Stream:stream,
 		Name:name,
-		log:stream.Logger().New("mixin", name),
+		log:Log.New("mixin", "stream_circuit", "name", name),
 	}
 }
 

@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 		log15.MultiHandler(
 			log15.StdoutHandler,
 			log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
-	log.SetHandler(h)
+	Log.SetHandler(h)
 	m.Run()
 }
 
@@ -113,7 +113,7 @@ func TestChannelDriver_Exchange_1(t *testing.T) {
 		err:nil,
 	}
 
-	drv := NewChannelDriver("test", src, log)
+	drv := NewChannelDriver("test", src)
 
 	msg_in := &MockMsg{id:"#0"}
 	msg_out, err := drv.Exchange(msg_in, 0)
@@ -135,7 +135,7 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 		close(src)
 	}()
 
-	drv := NewChannelDriver("test", src, log)
+	drv := NewChannelDriver("test", src)
 	msg_in := &MockMsg{id:"#0"}
 	for i:=1; i<=count; i++{
 		msg_out, err := drv.Exchange(msg_in, 0)
@@ -153,7 +153,7 @@ func TestRateLimitedDriver_Exchange(t *testing.T) {
 	// 1 msg/sec
 	requests_interval := 1000
 	drv := NewRateLimitedDriver("rate",
-		NewChannelDriver("chan", src, log),
+		NewChannelDriver("chan", src),
 		NewTokenBucketRateLimit(requests_interval, 1))
 	msg_in := &MockMsg{id:"#0"}
 	count := 4

@@ -19,7 +19,7 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 		Handler: handler,
 		Name:name,
 		limiter:limiter,
-		log:handler.Logger().New("mixin", name),
+		log:Log.New("mixin", "hdr_rate", "name", name),
 	}
 }
 
@@ -47,7 +47,7 @@ func NewRetryHandler(name string, handler Handler, genBackOff GenBackOff, log lo
 		Handler:handler,
 		Name: name,
 		genBackOff:genBackOff,
-		log:handler.Logger().New("mixin", name),
+		log:Log.New("mixin", "hdr_retry", "name", name),
 	}
 }
 
@@ -99,7 +99,7 @@ func NewCircuitBreakerHandler(name string, handler Handler) *CircuitBreakerHandl
 	return &CircuitBreakerHandler{
 		Handler:handler,
 		Name:name,
-		log:handler.Logger().New("mixin", name),
+		log:Log.New("mixin", "hdr_circuit", "name", name),
 	}
 }
 

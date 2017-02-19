@@ -19,17 +19,12 @@ type ChannelDriver struct {
 	log     log15.Logger
 }
 
-func NewChannelDriver(name string, channel <-chan *MessagesTuple,
-	log_parent log15.Logger) *ChannelDriver {
+func NewChannelDriver(name string, channel <-chan *MessagesTuple) *ChannelDriver {
 	return &ChannelDriver{
 		Name:name,
 		channel:channel,
-		log:log_parent.New("mixin", name),
+		log:Log.New("mixin", "drv_chan", "name", name),
 	}
-}
-
-func (s *ChannelDriver) Logger() log15.Logger {
-	return s.log
 }
 
 func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
@@ -56,6 +51,11 @@ func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (Messages, 
 	}
 }
 
+func (s *ChannelDriver) Logger() log15.Logger {
+	return s.log
+}
+
+
 type RateLimitedDriver struct {
 	Driver
 	Name string
@@ -68,7 +68,7 @@ func NewRateLimitedDriver(name string, driver Driver, limiter RateLimit) *RateLi
 		Driver:  driver,
 		Name:    name,
 		limiter: limiter,
-		log: driver.Logger().New("mixin", name),
+		log:Log.New("mixin", "drv_rate", "name", name),
 	}
 }
 
@@ -132,8 +132,8 @@ func NewRetryDriver(name string, driver Driver, off GenBackOff) *RetryDriver {
 	return &RetryDriver{
 		Driver:driver,
 		Name:name,
-		log:driver.Logger().New("mixin", name),
 		genBackoff:off,
+		log:Log.New("mixin", "drv_retry", "name", name),
 	}
 }
 
@@ -185,7 +185,7 @@ func NewCircuitBreakerDriver(name string, driver Driver) *CircuitBreakerDriver {
 	return &CircuitBreakerDriver{
 		Driver:driver,
 		Name:name,
-		log:driver.Logger().New("mixin", name),
+		log:Log.New("mixin", "drv_circuit", "name", name),
 	}
 }
 
