@@ -2,7 +2,6 @@
 package service
 
 import (
-	"flag"
 	"testing"
 	"github.com/inconshreveable/log15"
 	"github.com/stretchr/testify/assert"
@@ -13,51 +12,38 @@ import (
 	"github.com/pkg/errors"
 )
 
-var log = Log.New()
-
-func TestMain(m *testing.M) {
-	flag.Parse()
-	//h := log15.LvlFilterHandler(log15.LvlDebug, log15.CallerFuncHandler(log15.StdoutHandler))
-	h := log15.LvlFilterHandler(log15.LvlDebug,
-		log15.MultiHandler(
-			log15.StdoutHandler,
-			log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
-	Log.SetHandler(h)
-	m.Run()
-}
-
-type MockMsg struct {
+type mockMsg struct {
 	id string
 }
 
-func (m *MockMsg) Id() string {
+func (m *mockMsg) Id() string {
 	return m.id
 }
 
-type MockMsgs struct {
+type mockMeta struct {
 	id string
 	msgs []Message
 }
 
-func (m *MockMsgs) Id() string {
+func (m *mockMeta) Id() string {
 	return m.id
 }
 
-func (m *MockMsgs) Flatten() []Message {
+func (m *mockMeta) Flatten() []Message {
 	return m.msgs
 }
 
-type MockDriver struct {
+type mockDriver struct {
 	mock.Mock
 	log log15.Logger
 }
 
-func (m *MockDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
+func (m *mockDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	args := m.Called(msg, timeout)
 	return args.Get(0).(MetaMessage), args.Error(1)
 }
 
-func (m *MockDriver) Logger() log15.Logger {
+func (m *mockDriver) Logger() log15.Logger {
 	return m.log
 }
 
@@ -66,11 +52,11 @@ func (m *MockDriver) Logger() log15.Logger {
 func genMetaMessage(id string, num int) MetaMessage {
 	msgs := make([]Message, num)
 	for i:= 0; i < num; i++ {
-		msgs[i] = &MockMsg{
+		msgs[i] = &mockMsg{
 			id: string(i),
 		}
 	}
-	return &MockMsgs{
+	return &mockMeta{
 		id:id,
 		msgs:msgs,
 	}
@@ -114,7 +100,7 @@ func TestChannelDriver_Exchange_1(t *testing.T) {
 
 	drv := NewChannelDriver("test", src)
 
-	msg_in := &MockMsg{id:"#0"}
+	msg_in := &mockMsg{id:"#0"}
 	msg_out, err := drv.Exchange(msg_in, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), id)
@@ -135,7 +121,7 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 	}()
 
 	drv := NewChannelDriver("test", src)
-	msg_in := &MockMsg{id:"#0"}
+	msg_in := &mockMsg{id:"#0"}
 	for i:=1; i<=count; i++{
 		msg_out, err := drv.Exchange(msg_in, 0)
 		assert.NoError(t, err)
@@ -154,7 +140,7 @@ func TestRateLimitedDriver_Exchange(t *testing.T) {
 	drv := NewRateLimitedDriver("rate",
 		NewChannelDriver("chan", src),
 		NewTokenBucketRateLimit(requests_interval, 1))
-	msg_in := &MockMsg{id:"#0"}
+	msg_in := &mockMsg{id:"#0"}
 	count := 4
 	minimum := time.Duration((count - 1) * requests_interval) * time.Millisecond
 	var wg sync.WaitGroup
@@ -175,13 +161,13 @@ func TestRateLimitedDriver_Exchange(t *testing.T) {
 }
 
 func TestRetryDriver_Exchange(t *testing.T) {
-	mdrv := &MockDriver{log:log.New("mixin", "mock")}
+	mdrv := &mockDriver{log:log.New("mixin", "mock")}
 	backoffs := []time.Duration{1*time.Second, 2*time.Second}
 	drv := NewRetryDriver("retry", mdrv,
 		func() []time.Duration{
 			return backoffs
 		})
-	msg_in := &MockMsg{id:"#0"}
+	msg_in := &mockMsg{id:"#0"}
 	msgs := genMetaMessage(fmt.Sprintf("#%d", 1), 0)
 
 	call := mdrv.On("Exchange", msg_in, IntToMillis(0))
