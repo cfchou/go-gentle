@@ -52,19 +52,18 @@ type MockDriver struct {
 	log log15.Logger
 }
 
-func (m *MockDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (m *MockDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	args := m.Called(msg, timeout)
-	return args.Get(0).(Messages), args.Error(1)
+	return args.Get(0).(MetaMessage), args.Error(1)
 }
 
 func (m *MockDriver) Logger() log15.Logger {
 	return m.log
 }
 
-
-// Generate Messages with $id. It contains []Message that each of which has id
+// Generate MetaMessage with $id. It contains []Message that each of which has id
 // in the form of $id.$index
-func genMessages(id string, num int) Messages {
+func genMetaMessage(id string, num int) MetaMessage {
 	msgs := make([]Message, num)
 	for i:= 0; i < num; i++ {
 		msgs[i] = &MockMsg{
@@ -78,17 +77,17 @@ func genMessages(id string, num int) Messages {
 }
 
 // Return two channels $src and $done.
-// $src generates infinite amount of Messages until close($done).
-// For every Messages $msgs from $src, $msg.Flatten() returns []Message of
+// $src generates infinite amount of MetaMessage until close($done).
+// For every MetaMessage $msgs from $src, $msg.Flatten() returns []Message of
 // length $n_nested.
-func genMessagesChannelInfinite(n_nested int) (<-chan *MessagesTuple, chan *struct{}) {
+func genMetaMessageChannelInfinite(n_nested int) (<-chan *MessagesTuple, chan *struct{}) {
 	done := make(chan *struct{}, 1)
 	src := make(chan *MessagesTuple, 1)
 	go func() {
 		count := 1
 		for {
 			tp := &MessagesTuple{
-				msgs:genMessages(fmt.Sprintf("#%d", count),
+				msgs:genMetaMessage(fmt.Sprintf("#%d", count),
 					n_nested),
 				err:nil,
 			}
@@ -106,7 +105,7 @@ func genMessagesChannelInfinite(n_nested int) (<-chan *MessagesTuple, chan *stru
 
 func TestChannelDriver_Exchange_1(t *testing.T) {
 	id := "#1"
-	msgs := genMessages("#1", 0)
+	msgs := genMetaMessage("#1", 0)
 	src := make(chan *MessagesTuple, 1)
 	src <- &MessagesTuple{
 		msgs:msgs,
@@ -126,7 +125,7 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 	count := 10
 	go func() {
 		for i:=1; i<=count; i++{
-			msgs := genMessages(fmt.Sprintf("#%d", i), 0)
+			msgs := genMetaMessage(fmt.Sprintf("#%d", i), 0)
 			src <- &MessagesTuple{
 				msgs:msgs,
 				err:nil,
@@ -149,7 +148,7 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 }
 
 func TestRateLimitedDriver_Exchange(t *testing.T) {
-	src, done := genMessagesChannelInfinite(0)
+	src, done := genMetaMessageChannelInfinite(0)
 	// 1 msg/sec
 	requests_interval := 1000
 	drv := NewRateLimitedDriver("rate",
@@ -183,7 +182,7 @@ func TestRetryDriver_Exchange(t *testing.T) {
 			return backoffs
 		})
 	msg_in := &MockMsg{id:"#0"}
-	msgs := genMessages(fmt.Sprintf("#%d", 1), 0)
+	msgs := genMetaMessage(fmt.Sprintf("#%d", 1), 0)
 
 	call := mdrv.On("Exchange", msg_in, IntToMillis(0))
 	call.Return(msgs, nil)

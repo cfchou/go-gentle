@@ -43,25 +43,25 @@ func (r *ChannelStream) Receive() (Message, error) {
 	return tp.msg, tp.err
 }
 
-// Turns a Driver to a Stream. It keeps executing
-// driver.Exchange(genMessage()) to form a stream of Message's.
+// Turns a Driver to a Stream. It keeps calling
+// driver.Exchange(inputStream.Receive()) to form a stream of Message's.
 type DriverStream struct {
 	Name         string
 	driver       Driver
 	log          log15.Logger
 	msgs         chan interface{}
-	genMessage   GenMessage
+	inputStream   Stream
 	once         sync.Once
 }
 
 func NewDriverStream(name string, driver Driver, max_queuing_messages int,
-	genMessage GenMessage) *DriverStream {
-	return &DriverStream{
+	genInputMessage Stream) *DriverStream {
+	return &DriverStream {
 		Name:         name,
 		driver:       driver,
 		log:Log.New("mixin", "stream_drv", "name", name),
 		msgs:         make(chan interface{}, max_queuing_messages),
-		genMessage: genMessage,
+		inputStream: genInputMessage,
 	}
 }
 
@@ -70,13 +70,20 @@ func (r *DriverStream) onceDo() {
 		r.log.Info("[Stream] once")
 		for {
 			// Viewed as an infinite source of events
-			msgs, err := r.driver.Exchange(r.genMessage(), 0)
+			msg, err := r.inputStream.Receive()
 			if err != nil {
+				r.log.Error("[Stream] inputStream", "err", err)
+				r.msgs <- err
+				continue
+			}
+			meta_messages, err := r.driver.Exchange(msg, 0)
+			if err != nil {
+				r.log.Error("[Stream] Exchange", "err", err)
 				r.msgs <- err
 				continue
 			}
 
-			flattened_msgs := msgs.Flatten()
+			flattened_msgs := meta_messages.Flatten()
 			for _, m := range flattened_msgs {
 				r.msgs <- m
 			}

@@ -8,7 +8,7 @@ import (
 )
 
 type MessagesTuple struct {
-	msgs Messages
+	msgs MetaMessage
 	err error
 }
 
@@ -27,7 +27,7 @@ func NewChannelDriver(name string, channel <-chan *MessagesTuple) *ChannelDriver
 	}
 }
 
-func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	// msg is not used, but it's still here for logging.
 	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id())
 	if timeout == 0 {
@@ -72,7 +72,7 @@ func NewRateLimitedDriver(name string, driver Driver, limiter RateLimit) *RateLi
 	}
 }
 
-func (s *RateLimitedDriver) exchange(msg Message) (Messages, error) {
+func (s *RateLimitedDriver) exchange(msg Message) (MetaMessage, error) {
 	s.limiter.Wait(1, 0)
 	msgs, err := s.Driver.Exchange(msg, 0)
 	if err != nil {
@@ -85,7 +85,7 @@ func (s *RateLimitedDriver) exchange(msg Message) (Messages, error) {
 	return msgs, nil
 }
 
-func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
 		"timeout", timeout)
 	if timeout == 0 {
@@ -137,7 +137,7 @@ func NewRetryDriver(name string, driver Driver, off GenBackOff) *RetryDriver {
 	}
 }
 
-func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id())
 	var bk []time.Duration
 	to_wait := 0 * time.Second
@@ -189,7 +189,7 @@ func NewCircuitBreakerDriver(name string, driver Driver) *CircuitBreakerDriver {
 	}
 }
 
-func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Messages, error) {
+func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
 	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id(),
 		"timeout", timeout)
 	result := make(chan *tuple, 1)
@@ -233,7 +233,7 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Mes
 		}
 	}
 	tp := <-result
-	return tp.fst.(Messages), tp.snd.(error)
+	return tp.fst.(MetaMessage), tp.snd.(error)
 }
 
 

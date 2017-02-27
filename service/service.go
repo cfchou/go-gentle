@@ -18,7 +18,7 @@ type Message interface {
 	Id() string
 }
 
-type Messages interface {
+type MetaMessage interface {
 	Message
 	Flatten() []Message
 }
@@ -31,16 +31,22 @@ type Driver interface {
 	// It's important to know that if Exchange() comes back with
 	// ErrTimeout, depending on the implementation, the msg could still
 	// be delivered(at-most-once).
-	Exchange(msg Message, timeout time.Duration) (Messages, error)
+	Exchange(msg Message, timeout time.Duration) (MetaMessage, error)
 	Logger() log15.Logger
 }
 
-// Receiver is built on top of Driver with the following features:
-// 1. One Receiver.Receive() fetches one Message for downstream.
-// 2. Receiver.Receive() triggers Driver.Exchange() lazily.
-//
-// No timeout is specified for Receiver.Receive() because it should block until
-// a Message for downstream is available.
+// Receiver is built on top of Driver with the following features(differences):
+// 1. One Receiver.Receive() fetches one Message for downstream whilst a Driver
+//    fetches one MetaMessage which may Flatten() to many Message's.
+// 2. Receiver.Receive() triggers Driver.Exchange($msg_in) lazily. Most often,
+//    $msg_in is a dummy value that the Driver would just ignore.
+// 3. Messages passed to both ways of a Diver are interleaved so the order is
+//    automatically maintained.
+// 4. Messages of a stream goes one way. Though two streams can simulate
+//    two-way communication but it would require out-of-band logic to maintain
+//    the order.
+// 5. No timeout is specified for Receiver.Receive() because it should block
+//    until a Message for downstream is available.
 type Stream interface {
 	Receive() (Message, error)
 	Logger() log15.Logger
@@ -60,11 +66,6 @@ type RateLimit interface {
 	Wait(int64, time.Duration) bool
 }
 
-const (
-	created                = iota
-	running                = iota
-)
-
 var ErrEOF = errors.New("EOF")
 var ErrRateLimited = errors.New("Rate limit reached")
 var ErrTimeout = errors.New("Timeout")
@@ -80,6 +81,5 @@ type tuple struct {
 	snd interface{}
 }
 
-type GenMessage func() Message
 type GenBackOff func() []time.Duration
 
