@@ -158,3 +158,28 @@ func TestRetryStream_Receive(t *testing.T) {
 	log.Info("[Test] spent >= minmum?", "spent", end.Sub(begin), "minimum", minimum)
 	assert.True(t, end.Sub(begin) >= minimum)
 }
+
+func TestDriverStream_Receive(t *testing.T) {
+	num_msgs_each_meta := 3
+	count := 2 * num_msgs_each_meta
+	mstream := &mockStream{log: log.New("mixin", "mock")}
+	src, done := genMetaMessageChannelInfinite(num_msgs_each_meta)
+	stream := NewDriverStream("stream",
+		NewChannelDriver("chan", src),
+		1,
+		mstream)
+
+	call := mstream.On("Receive")
+	call.Return(dummy_msg_in, nil)
+
+	for i:=0; i<count; i++ {
+
+		expected_id := fmt.Sprintf("#%d.%d",
+			i / num_msgs_each_meta + 1,
+			i % num_msgs_each_meta)
+		msg_out, err := stream.Receive()
+		assert.NoError(t, err)
+		assert.Equal(t, msg_out.Id(), expected_id)
+	}
+	done <- &struct{}{}
+}

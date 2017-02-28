@@ -50,10 +50,11 @@ func (m *mockDriver) Logger() log15.Logger {
 }
 
 // Generate MetaMessage with $id. It contains []Message that each of which has
-// an id in the form of $id.$index where $index ranges from 0 to $num.
-func genMetaMessage(id string, num int) MetaMessage {
-	msgs := make([]Message, num)
-	for i := 0; i < num; i++ {
+// an id in the form of $id.$index where $index ranges from 0 to
+// $num_msgs_each_meta.
+func genMetaMessage(id string, num_msgs_each_meta int) MetaMessage {
+	msgs := make([]Message, num_msgs_each_meta)
+	for i := 0; i < num_msgs_each_meta; i++ {
 		msgs[i] = &mockMsg{
 			id: fmt.Sprintf("%s.%d", id, i),
 		}
@@ -68,14 +69,14 @@ func genMetaMessage(id string, num int) MetaMessage {
 // $src generates infinite amount of MetaMessage until close($done).
 // For every MetaMessage $msgs from $src, $msg.Flatten() returns []Message of
 // length 0.
-func genMetaMessageChannelInfinite() (<-chan *MetaMessageTuple, chan *struct{}) {
+func genMetaMessageChannelInfinite(num_msgs_each_meta int) (<-chan *MetaMessageTuple, chan *struct{}) {
 	done := make(chan *struct{}, 1)
 	src := make(chan *MetaMessageTuple, 1)
 	go func() {
 		count := 1
 		for {
 			metaMessage := genMetaMessage(fmt.Sprintf("#%d", count),
-				0)
+				num_msgs_each_meta)
 			tp := &MetaMessageTuple{
 				metaMessage: metaMessage,
 				err: nil,
@@ -136,7 +137,7 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 }
 
 func TestRateLimitedDriver_Exchange(t *testing.T) {
-	src, done := genMetaMessageChannelInfinite()
+	src, done := genMetaMessageChannelInfinite(0)
 	// 1 msg/sec
 	requests_interval := 1000
 	drv := NewRateLimitedDriver("rate",
