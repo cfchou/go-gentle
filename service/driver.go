@@ -7,23 +7,23 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 )
 
-type MessagesTuple struct {
-	msgs MetaMessage
-	err error
+type MetaMessageTuple struct {
+	metaMessage MetaMessage
+	err         error
 }
 
 // ChannelDriver pull values from a channel.
 type ChannelDriver struct {
 	Name    string
-	channel <-chan *MessagesTuple
+	channel <-chan *MetaMessageTuple
 	log     log15.Logger
 }
 
-func NewChannelDriver(name string, channel <-chan *MessagesTuple) *ChannelDriver {
+func NewChannelDriver(name string, channel <-chan *MetaMessageTuple) *ChannelDriver {
 	return &ChannelDriver{
-		Name:name,
-		channel:channel,
-		log:Log.New("mixin", "drv_chan", "name", name),
+		Name:    name,
+		channel: channel,
+		log:     Log.New("mixin", "drv_chan", "name", name),
 	}
 }
 
@@ -31,23 +31,24 @@ func (s *ChannelDriver) Exchange(msg Message, timeout time.Duration) (MetaMessag
 	// msg is not used, but it's still here for logging.
 	s.log.Debug("[Driver] Exchange()", "msg_in", msg.Id())
 	if timeout == 0 {
-		tp, ok := <- s.channel
+		tp, ok := <-s.channel
 		if !ok {
+			s.log.Debug("[Driver] Exchange EOF", "msg_in", msg.Id())
 			return nil, ErrEOF
 		}
 		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
-			"msg_out", tp.msgs.Id())
-		return tp.msgs, tp.err
+			"msg_out", tp.metaMessage.Id())
+		return tp.metaMessage, tp.err
 	}
 	tm := time.NewTimer(timeout)
 	select {
 	case <-tm.C:
-		s.log.Error("[Driver] Exchange timeout","msg_in", msg.Id())
+		s.log.Error("[Driver] Exchange timeout", "msg_in", msg.Id())
 		return nil, ErrTimeout
 	case tp := <-s.channel:
 		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
-			"msg_out", tp.msgs.Id())
-		return tp.msgs, tp.err
+			"msg_out", tp.metaMessage.Id())
+		return tp.metaMessage, tp.err
 	}
 }
 
@@ -55,12 +56,11 @@ func (s *ChannelDriver) Logger() log15.Logger {
 	return s.log
 }
 
-
 type RateLimitedDriver struct {
 	Driver
-	Name string
+	Name    string
 	limiter RateLimit
-	log log15.Logger
+	log     log15.Logger
 }
 
 func NewRateLimitedDriver(name string, driver Driver, limiter RateLimit) *RateLimitedDriver {
@@ -68,21 +68,21 @@ func NewRateLimitedDriver(name string, driver Driver, limiter RateLimit) *RateLi
 		Driver:  driver,
 		Name:    name,
 		limiter: limiter,
-		log:Log.New("mixin", "drv_rate", "name", name),
+		log:     Log.New("mixin", "drv_rate", "name", name),
 	}
 }
 
 func (s *RateLimitedDriver) exchange(msg Message) (MetaMessage, error) {
 	s.limiter.Wait(1, 0)
-	msgs, err := s.Driver.Exchange(msg, 0)
+	metaMessage, err := s.Driver.Exchange(msg, 0)
 	if err != nil {
-		s.log.Error("[Driver] Exchange err","err", err,
+		s.log.Error("[Driver] Exchange err", "err", err,
 			"msg_in", msg.Id())
 		return nil, err
 	}
-	s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
-		"msg_out", msgs.Id())
-	return msgs, nil
+	s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+		"msg_out", metaMessage.Id())
+	return metaMessage, nil
 }
 
 func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage, error) {
@@ -94,27 +94,27 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (MetaMe
 	end_allowed := time.Now().Add(timeout)
 	if !s.limiter.Wait(1, timeout) {
 		// Can't get a ticket within timeout
-		s.log.Warn("[Driver] Wait failed","err", ErrRateLimited,
+		s.log.Warn("[Driver] Wait failed", "err", ErrRateLimited,
 			"msg_in", msg.Id())
 		return nil, ErrRateLimited
 	}
 	now := time.Now()
 	if !now.Before(end_allowed) {
 		// Passed rate limit, but doesn't have time for Exchange().
-		s.log.Warn("[Driver] Too late","err", ErrTimeout,
+		s.log.Warn("[Driver] Too late", "err", ErrTimeout,
 			"msg", msg.Id())
 		return nil, ErrTimeout
 	}
 	// assert end_allowed.Sub(now) != 0
-	msgs, err := s.Driver.Exchange(msg, end_allowed.Sub(now))
+	metaMessage, err := s.Driver.Exchange(msg, end_allowed.Sub(now))
 	if err != nil {
-		s.log.Error("[Driver] Exchange err","err", err,
+		s.log.Error("[Driver] Exchange err", "err", err,
 			"msg_in", msg.Id())
 		return nil, err
 	}
-	s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
-		"msg_out", msgs.Id())
-	return msgs, nil
+	s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+		"msg_out", metaMessage.Id())
+	return metaMessage, nil
 }
 
 // When Exchange(msg, timeout) encounters error, it backs off for some time
@@ -123,17 +123,17 @@ func (s *RateLimitedDriver) Exchange(msg Message, timeout time.Duration) (MetaMe
 // timeout so the same timeout is given to every retry.
 type RetryDriver struct {
 	Driver
-	Name string
-	log log15.Logger
+	Name       string
+	log        log15.Logger
 	genBackoff GenBackOff
 }
 
 func NewRetryDriver(name string, driver Driver, off GenBackOff) *RetryDriver {
 	return &RetryDriver{
-		Driver:driver,
-		Name:name,
-		genBackoff:off,
-		log:Log.New("mixin", "drv_retry", "name", name),
+		Driver:     driver,
+		Name:       name,
+		genBackoff: off,
+		log:        Log.New("mixin", "drv_retry", "name", name),
 	}
 }
 
@@ -144,17 +144,17 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage,
 	count := 0
 	for {
 		count += 1
-		s.log.Debug("[Driver] Exchange ..." , "count", count,
+		s.log.Debug("[Driver] Exchange ...", "count", count,
 			"wait", to_wait, "msg_in", msg.Id())
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
 		//
-		msgs, err := s.Driver.Exchange(msg, timeout)
+		metaMessage, err := s.Driver.Exchange(msg, timeout)
 		if err == nil {
-			s.log.Debug("[Driver] Exchange ok","msg_in", msg.Id(),
-				"msg_out", msgs.Id())
-			return msgs, err
+			s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
+				"msg_out", metaMessage.Id())
+			return metaMessage, err
 		}
 		if count == 1 {
 			bk = s.genBackoff()
@@ -178,14 +178,14 @@ func (s *RetryDriver) Exchange(msg Message, timeout time.Duration) (MetaMessage,
 type CircuitBreakerDriver struct {
 	Driver
 	Name string
-	log log15.Logger
+	log  log15.Logger
 }
 
 func NewCircuitBreakerDriver(name string, driver Driver) *CircuitBreakerDriver {
 	return &CircuitBreakerDriver{
-		Driver:driver,
-		Name:name,
-		log:Log.New("mixin", "drv_circuit", "name", name),
+		Driver: driver,
+		Name:   name,
+		log:    Log.New("mixin", "drv_circuit", "name", name),
 	}
 }
 
@@ -194,18 +194,18 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Met
 		"timeout", timeout)
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(s.Name, func() error {
-		msgs, err := s.Driver.Exchange(msg, timeout)
+		metaMessage, err := s.Driver.Exchange(msg, timeout)
 		if err != nil {
 			s.log.Error("[Driver] Exchange err", "err", err,
 				"msg_in", msg.Id())
 			result <- &tuple{
-				fst: msgs,
+				fst: metaMessage,
 				snd: err,
 			}
 			return err
 		}
 		s.log.Debug("[Driver] Exchange ok", "msg_in", msg.Id(),
-			"msg_out", msgs.Id())
+			"msg_out", metaMessage.Id())
 		result <- &tuple{
 			fst: msg,
 			snd: err,
@@ -225,7 +225,7 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Met
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
-		s.log.Warn("[Driver] Circuit err","err", err, "msg_in", msg.Id())
+		s.log.Warn("[Driver] Circuit err", "err", err, "msg_in", msg.Id())
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Exchange()'s err.
@@ -235,5 +235,3 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Met
 	tp := <-result
 	return tp.fst.(MetaMessage), tp.snd.(error)
 }
-
-

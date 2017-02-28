@@ -23,9 +23,9 @@ type ChannelStream struct {
 
 func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream {
 	return &ChannelStream{
-		Name:name,
-		channel:channel,
-		log:Log.New("mixin", "stream_chan", "name", name),
+		Name:    name,
+		channel: channel,
+		log:     Log.New("mixin", "stream_chan", "name", name),
 	}
 }
 
@@ -35,32 +35,33 @@ func (r *ChannelStream) Logger() log15.Logger {
 
 func (r *ChannelStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
-	tp, ok := <- r.channel
+	tp, ok := <-r.channel
 	if !ok {
+		r.log.Debug("[Stream] Receive EOF")
 		return nil, ErrEOF
 	}
-	r.log.Debug("[Stream] Receive ok","msg_out", tp.msg.Id())
+	r.log.Debug("[Stream] Receive ok", "msg_out", tp.msg.Id())
 	return tp.msg, tp.err
 }
 
 // Turns a Driver to a Stream. It keeps calling
 // driver.Exchange(inputStream.Receive()) to form a stream of Message's.
 type DriverStream struct {
-	Name         string
-	driver       Driver
-	log          log15.Logger
-	msgs         chan interface{}
-	inputStream   Stream
-	once         sync.Once
+	Name        string
+	driver      Driver
+	log         log15.Logger
+	msgs        chan interface{}
+	inputStream Stream
+	once        sync.Once
 }
 
 func NewDriverStream(name string, driver Driver, max_queuing_messages int,
 	genInputMessage Stream) *DriverStream {
-	return &DriverStream {
-		Name:         name,
-		driver:       driver,
-		log:Log.New("mixin", "stream_drv", "name", name),
-		msgs:         make(chan interface{}, max_queuing_messages),
+	return &DriverStream{
+		Name:        name,
+		driver:      driver,
+		log:         Log.New("mixin", "stream_drv", "name", name),
+		msgs:        make(chan interface{}, max_queuing_messages),
 		inputStream: genInputMessage,
 	}
 }
@@ -104,25 +105,24 @@ func (r *DriverStream) Receive() (Message, error) {
 	}
 }
 
-
 // MapStream maps a Handler onto the upstream Stream. The results form
 // a stream of Message's.
 // It incorporates Bulkhead pattern using semaphore.
 type MapStream struct {
 	Stream
-	Name string
+	Name      string
 	log       log15.Logger
 	handler   Handler
 	semaphore chan chan *tuple
-	once sync.Once
+	once      sync.Once
 }
 
 func NewMapStream(name string, stream Stream, handler Handler,
 	max_concurrent_handlers int) *MapStream {
 	return &MapStream{
 		Name:      name,
-		Stream:  stream,
-		log:Log.New("mixin", "stream_map", "name", name),
+		Stream:    stream,
+		log:       Log.New("mixin", "stream_map", "name", name),
 		handler:   handler,
 		semaphore: make(chan chan *tuple, max_concurrent_handlers),
 	}
@@ -166,17 +166,17 @@ func (r *MapStream) Receive() (Message, error) {
 
 type RateLimitedStream struct {
 	Stream
-	Name string
+	Name    string
 	limiter RateLimit
-	log       log15.Logger
+	log     log15.Logger
 }
 
 func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLimitedStream {
 	return &RateLimitedStream{
-		Stream:stream,
-		Name: name,
-		limiter:limiter,
-		log:Log.New("mixin", "stream_rate", "name", name),
+		Stream:  stream,
+		Name:    name,
+		limiter: limiter,
+		log:     Log.New("mixin", "stream_rate", "name", name),
 	}
 }
 
@@ -185,10 +185,10 @@ func (r *RateLimitedStream) Receive() (Message, error) {
 	r.limiter.Wait(1, 0)
 	msg, err := r.Stream.Receive()
 	if err != nil {
-		r.log.Error("[Stream] Receive err","err", err)
+		r.log.Error("[Stream] Receive err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Receive ok","msg_out", msg.Id())
+	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -196,17 +196,17 @@ func (r *RateLimitedStream) Receive() (Message, error) {
 // and then retries.
 type RetryStream struct {
 	Stream
-	Name string
-	log       log15.Logger
+	Name       string
+	log        log15.Logger
 	genBackoff GenBackOff
 }
 
 func NewRetryStream(name string, stream Stream, off GenBackOff) *RetryStream {
 	return &RetryStream{
-		Stream: stream,
-		Name: name,
-		genBackoff:off,
-		log:Log.New("mixin", "stream_retry", "name", name),
+		Stream:     stream,
+		Name:       name,
+		genBackoff: off,
+		log:        Log.New("mixin", "stream_retry", "name", name),
 	}
 }
 
@@ -217,7 +217,7 @@ func (r *RetryStream) Receive() (Message, error) {
 	count := 0
 	for {
 		count += 1
-		r.log.Debug("[Stream] Receive ..." , "count", count,
+		r.log.Debug("[Stream] Receive ...", "count", count,
 			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
@@ -249,14 +249,14 @@ func (r *RetryStream) Receive() (Message, error) {
 type CircuitBreakerStream struct {
 	Stream
 	Name string
-	log       log15.Logger
+	log  log15.Logger
 }
 
 func NewCircuitBreakerStream(name string, stream Stream) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
-		Stream:stream,
-		Name:name,
-		log:Log.New("mixin", "stream_circuit", "name", name),
+		Stream: stream,
+		Name:   name,
+		log:    Log.New("mixin", "stream_circuit", "name", name),
 	}
 }
 
@@ -283,7 +283,7 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
-		r.log.Warn("[Stream] Circuit err","err", err)
+		r.log.Warn("[Stream] Circuit err", "err", err)
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Receive()'s err.
@@ -293,5 +293,3 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 	tp := <-result
 	return tp.fst.(Message), tp.snd.(error)
 }
-
-

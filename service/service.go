@@ -10,7 +10,7 @@ import (
 // Package level logger.
 var Log = log15.New()
 
-func init()  {
+func init() {
 	Log.SetHandler(log15.DiscardHandler())
 }
 
@@ -82,4 +82,3 @@ type tuple struct {
 }
 
 type GenBackOff func() []time.Duration
-
