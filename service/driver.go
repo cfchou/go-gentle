@@ -233,5 +233,8 @@ func (s *CircuitBreakerDriver) Exchange(msg Message, timeout time.Duration) (Met
 		}
 	}
 	tp := <-result
+	if tp.snd == nil {
+		return tp.fst.(MetaMessage), nil
+	}
 	return tp.fst.(MetaMessage), tp.snd.(error)
 }

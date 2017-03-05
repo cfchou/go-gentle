@@ -134,5 +134,8 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		}
 	}
 	tp := <-result
+	if tp.snd != nil {
+		return tp.fst.(Message), nil
+	}
 	return tp.fst.(Message), tp.snd.(error)
 }

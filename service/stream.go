@@ -25,7 +25,7 @@ func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream 
 	return &ChannelStream{
 		Name:    name,
 		channel: channel,
-		log:     Log.New("mixin", "stream_chan", "name", name),
+		log:     Log.New("mixin", "chanStream", "name", name),
 	}
 }
 
@@ -60,7 +60,7 @@ func NewDriverStream(name string, driver Driver, max_queuing_messages int,
 	return &DriverStream{
 		Name:        name,
 		driver:      driver,
-		log:         Log.New("mixin", "stream_drv", "name", name),
+		log:         Log.New("mixin", "driverStream", "name", name),
 		msgs:        make(chan interface{}, max_queuing_messages),
 		inputStream: genInputMessage,
 	}
@@ -73,16 +73,21 @@ func (r *DriverStream) onceDo() {
 			// Viewed as an infinite source of events
 			msg, err := r.inputStream.Receive()
 			if err != nil {
-				r.log.Error("[Stream] inputStream", "err", err)
+				r.log.Error("[Stream] Receive failed",
+					"err", err)
 				r.msgs <- err
 				continue
 			}
+			r.log.Debug("[Stream] Receive ok",
+				"msg_out", msg.Id())
 			meta_messages, err := r.driver.Exchange(msg, 0)
 			if err != nil {
-				r.log.Error("[Stream] Exchange", "err", err)
+				r.log.Error("[Stream] Exchange err", "err", err)
 				r.msgs <- err
 				continue
 			}
+			r.log.Debug("[Stream] Exchange ok",
+				"msg_out", meta_messages.Id())
 
 			flattened_msgs := meta_messages.Flatten()
 			for _, m := range flattened_msgs {
@@ -99,69 +104,11 @@ func (r *DriverStream) Receive() (Message, error) {
 	case error:
 		return nil, m
 	case Message:
+		r.log.Debug("[Stream] Receive ok", "msg_out", m.Id())
 		return m, nil
 	default:
 		panic("Never be here")
 	}
-}
-
-// MapStream maps a Handler onto the upstream Stream. The results form
-// a stream of Message's.
-// It incorporates Bulkhead pattern using semaphore.
-type MapStream struct {
-	Stream
-	Name      string
-	log       log15.Logger
-	handler   Handler
-	semaphore chan chan *tuple
-	once      sync.Once
-}
-
-func NewMapStream(name string, stream Stream, handler Handler,
-	max_concurrent_handlers int) *MapStream {
-	return &MapStream{
-		Name:      name,
-		Stream:    stream,
-		log:       Log.New("mixin", "stream_map", "name", name),
-		handler:   handler,
-		semaphore: make(chan chan *tuple, max_concurrent_handlers),
-	}
-}
-
-func (r *MapStream) onceDo() {
-	go func() {
-		r.log.Info("[Stream] once")
-		for {
-			ret := make(chan *tuple, 1)
-			msg, err := r.Stream.Receive()
-			if err != nil {
-				r.semaphore <- ret
-				go func() {
-					ret <- &tuple{
-						fst: msg,
-						snd: err,
-					}
-				}()
-				continue
-			}
-			r.semaphore <- ret
-			go func() {
-				// TODO: Wrapf(e)?
-				m, e := r.handler.Handle(msg)
-				ret <- &tuple{
-					fst: m,
-					snd: e,
-				}
-			}()
-		}
-	}()
-}
-
-func (r *MapStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
-	r.once.Do(r.onceDo)
-	ret := <-<-r.semaphore
-	return ret.fst.(Message), ret.snd.(error)
 }
 
 type RateLimitedStream struct {
@@ -246,6 +193,7 @@ func (r *RetryStream) Receive() (Message, error) {
 	}
 }
 
+// CircuitBreaker pattern using hystrix-go.
 type CircuitBreakerStream struct {
 	Stream
 	Name string
@@ -291,5 +239,126 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 		}
 	}
 	tp := <-result
+	if tp.snd == nil {
+		return tp.fst.(Message), nil
+	}
 	return tp.fst.(Message), tp.snd.(error)
+}
+
+// Bulkhead pattern is used to limit the number of concurrent Receive().
+// Calling Receive() is blocked when exceeding the limit.
+type BulkheadStream struct {
+	Stream
+	Name      string
+	log       log15.Logger
+	semaphore chan *struct{}
+	once      sync.Once
+}
+
+func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
+	return &BulkheadStream{
+		Name:      name,
+		Stream:    stream,
+		log:       Log.New("mixin", "stream_bulk", "name", name),
+		semaphore: make(chan *struct{}, max_concurrency),
+	}
+}
+
+func (r *BulkheadStream) Receive() (Message, error) {
+	r.log.Debug("[Stream] Receive()")
+	r.semaphore <- &struct{}{}
+	msg, err := r.Stream.Receive()
+	if err == nil {
+		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	} else {
+		r.log.Error("[Stream] Receive err", "err", err)
+	}
+	<- r.semaphore
+	return msg, err
+}
+
+// ConcurrentFetchStream concurrently prefetch a number of items from upstream
+// without being asked.
+type ConcurrentFetchStream struct {
+	Stream
+	Name      string
+	log       log15.Logger
+	receives 	  chan *tuple
+	semaphore chan *struct{}
+	once      sync.Once
+}
+
+func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
+	return &ConcurrentFetchStream{
+		Name:      name,
+		Stream:    stream,
+		log:       Log.New("mixin", "fetchStream", "name", name),
+		receives: make(chan *tuple, max_concurrency + 1),
+		semaphore: make(chan *struct{}, max_concurrency),
+	}
+}
+
+func (r *ConcurrentFetchStream) onceDo() {
+	go func() {
+		r.log.Info("[Stream] once")
+		for {
+			// pull more messages as long as semaphore allows
+			r.semaphore <- &struct{}{}
+			go func() {
+				msg, err := r.Stream.Receive()
+				if err == nil {
+					r.log.Debug("[Stream] Receive ok",
+						"msg_out", msg.Id())
+				} else {
+					r.log.Error("[Stream] Receive err",
+						"err", err)
+				}
+				// cap(receives) is max_concurrency + 1, so that
+				// it wouldn't yield here and therefore the
+				// order of received messages is preserved.
+				r.receives <- &tuple{
+					fst: msg,
+					snd: err,
+				}
+			}()
+		}
+	}()
+}
+
+func (r *ConcurrentFetchStream) Receive() (Message, error) {
+	r.log.Debug("[Stream] Receive()")
+	r.once.Do(r.onceDo)
+	recv := <-r.receives
+	<-r.semaphore
+	if recv.snd == nil {
+		return recv.fst.(Message), nil
+	}
+	return recv.fst.(Message), recv.snd.(error)
+}
+
+// MappedStream maps a Handler onto the upstream Stream. The results form
+// a stream of Message's.
+type MappedStream struct {
+	Stream
+	Name      string
+	log       log15.Logger
+	handler   Handler
+	once      sync.Once
+}
+
+func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream {
+	return &MappedStream{
+		Name:      name,
+		Stream:    stream,
+		log:       Log.New("mixin", "handlerStream", "name", name),
+		handler:   handler,
+	}
+}
+
+func (r *MappedStream) Receive() (Message, error) {
+	msg, err := r.Stream.Receive()
+	if err != nil {
+		return r.handler.Handle(msg)
+	}
+	return nil, err
 }

@@ -162,15 +162,16 @@ func TestRetryStream_Receive(t *testing.T) {
 func TestDriverStream_Receive(t *testing.T) {
 	num_msgs_each_meta := 3
 	count := 2 * num_msgs_each_meta
+
 	mstream := &mockStream{log: log.New("mixin", "mock")}
+	call := mstream.On("Receive")
+	call.Return(dummy_msg, nil)
+
 	src, done := genMetaMessageChannelInfinite(num_msgs_each_meta)
 	stream := NewDriverStream("stream",
 		NewChannelDriver("chan", src),
 		1,
 		mstream)
-
-	call := mstream.On("Receive")
-	call.Return(dummy_msg_in, nil)
 
 	for i:=0; i<count; i++ {
 
@@ -183,3 +184,70 @@ func TestDriverStream_Receive(t *testing.T) {
 	}
 	done <- &struct{}{}
 }
+
+func TestBulkheadStream_Receive(t *testing.T) {
+	count := 5
+	max_concurrency := 2
+	mstream := &mockStream{log: log.New("mixin", "mock")}
+	stream := NewBulkheadStream("bulk", mstream, max_concurrency)
+
+	suspend := 1 * time.Second
+	tm := time.NewTimer(suspend)
+	calling := 0
+	call := mstream.On("Receive")
+	call.Run(func (args mock.Arguments) {
+		calling++
+		time.Sleep(suspend)
+	})
+	call.Return(dummy_msg, nil)
+
+	var wg sync.WaitGroup
+	wg.Add(count)
+	for i :=0; i < count; i++ {
+		go func () {
+			msg, err := stream.Receive()
+			wg.Done()
+			assert.NoError(t, err)
+			assert.Equal(t, msg.Id(), dummy_msg.Id())
+		}()
+	}
+	func() {
+		for {
+			select {
+			case <-tm.C:
+				log.Info("[Test] timeout")
+				return
+			default:
+				log.Info("[Test] calling <= max_concurrency?",
+					"calling", calling,
+					"max_concurrency", max_concurrency)
+				assert.True(t, calling <= max_concurrency)
+			}
+		}
+	}()
+	wg.Wait()
+	assert.Equal(t, calling, count)
+}
+
+func TestConcurrentFetchStream_Receive(t *testing.T) {
+	max_concurrency := 2
+	mstream := &mockStream{log: log.New("mixin", "mock")}
+	stream := NewConcurrentFetchStream("bulk", mstream, max_concurrency)
+
+	calling := 0
+	call := mstream.On("Receive")
+	call.Run(func (args mock.Arguments) {
+		calling++
+	})
+	call.Return(dummy_msg, nil)
+
+	msg, err := stream.Receive()
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), dummy_msg.Id())
+	assert.Equal(t, calling, max_concurrency)
+}
+
+func TestMappedStream_Receive(t *testing.T) {
+
+}
+

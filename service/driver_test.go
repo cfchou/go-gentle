@@ -20,7 +20,7 @@ func (m *mockMsg) Id() string {
 	return m.id
 }
 
-var dummy_msg_in = &mockMsg{id: "#0"}
+var dummy_msg = &mockMsg{id: "#0"}
 
 type mockMeta struct {
 	id   string
@@ -87,6 +87,7 @@ func genMetaMessageChannelInfinite(num_msgs_each_meta int) (<-chan *MetaMessageT
 				break
 			case src <- tp:
 			}
+			count++
 		}
 		close(src)
 	}()
@@ -104,7 +105,7 @@ func TestChannelDriver_Exchange_1(t *testing.T) {
 
 	drv := NewChannelDriver("test", src)
 
-	msg_out, err := drv.Exchange(dummy_msg_in, 0)
+	msg_out, err := drv.Exchange(dummy_msg, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), id)
 }
@@ -126,12 +127,12 @@ func TestChannelDriver_Exchange_2(t *testing.T) {
 
 	drv := NewChannelDriver("test", src)
 	for i := 1; i <= count; i++ {
-		msg_out, err := drv.Exchange(dummy_msg_in, 0)
+		msg_out, err := drv.Exchange(dummy_msg, 0)
 		assert.NoError(t, err)
 		assert.Equal(t, msg_out.Id(), fmt.Sprintf("#%d", i))
 	}
 	// one more Exchange() should see ErrEOF
-	msg_out, err := drv.Exchange(dummy_msg_in, 0)
+	msg_out, err := drv.Exchange(dummy_msg, 0)
 	assert.EqualError(t, err, ErrEOF.Error())
 	assert.Nil(t, msg_out)
 }
@@ -150,7 +151,7 @@ func TestRateLimitedDriver_Exchange(t *testing.T) {
 	begin := time.Now()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := drv.Exchange(dummy_msg_in, 0)
+			_, err := drv.Exchange(dummy_msg, 0)
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -179,10 +180,10 @@ func TestRetryDriver_Exchange(t *testing.T) {
 	metaMessage := genMetaMessage(fmt.Sprintf("#%d", 1), 0)
 
 	// 1st ok
-	call := mdrv.On("Exchange", dummy_msg_in, IntToMillis(0))
+	call := mdrv.On("Exchange", dummy_msg, IntToMillis(0))
 	call.Return(metaMessage, nil)
 
-	_, err := drv.Exchange(dummy_msg_in, 0)
+	_, err := drv.Exchange(dummy_msg, 0)
 	assert.NoError(t, err)
 
 	// 2ed err, trigger retry
@@ -190,7 +191,7 @@ func TestRetryDriver_Exchange(t *testing.T) {
 	call.Return(metaMessage, mockErr)
 
 	begin := time.Now()
-	_, err = drv.Exchange(dummy_msg_in, 0)
+	_, err = drv.Exchange(dummy_msg, 0)
 	end := time.Now()
 	assert.EqualError(t, err, mockErr.Error())
 	log.Info("[Test] spent >= minmum?", "spent", end.Sub(begin), "minimum", minimum)
