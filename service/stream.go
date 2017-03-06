@@ -8,46 +8,13 @@ import (
 	"time"
 )
 
-type MessageTuple struct {
-	msg Message
-	err error
-}
+// We have RateLimitedStream, RetryStream, CircuitBreakerStream, BulkheadStream.
+// Each of which, when mixes(encompasses) each other, brings different
+// resiliency options.
+// A Stream applies its resiliency pattern to its upstream(enclosed Stream).
+// Itself could also be another Stream's upstream. The decision of what Streams
+// and in which order to mix must be sane.
 
-// ChannelStream forms a stream from a channel.
-type ChannelStream struct {
-	Name    string
-	channel <-chan *MessageTuple
-	log     log15.Logger
-}
-
-func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream {
-	return &ChannelStream{
-		Name:    name,
-		channel: channel,
-		log:     Log.New("mixin", "chanStream", "name", name),
-	}
-}
-
-func (r *ChannelStream) Logger() log15.Logger {
-	return r.log
-}
-
-func (r *ChannelStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
-	tp, ok := <-r.channel
-	if !ok {
-		r.log.Debug("[Stream] Receive EOF")
-		return nil, ErrEOF
-	}
-	r.log.Debug("[Stream] Receive ok", "msg_out", tp.msg.Id())
-	return tp.msg, tp.err
-}
-
-// Each Stream is armed with a resiliency pattern(rate limit, retry,
-// circuit-breaker, bulkhead). A resiliency pattern kicks in whenever a Stream
-// fails to pulled a message from its upstream.
-// Users could stack(mix-in) Stream's to combine different patterns but the
-// decision must be sane. The stack order is
 type RateLimitedStream struct {
 	Stream
 	Name    string
@@ -204,14 +171,50 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 func (r *BulkheadStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
 	r.semaphore <- &struct{}{}
+	defer func(){<- r.semaphore}()
 	msg, err := r.Stream.Receive()
 	if err == nil {
 		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
 	} else {
 		r.log.Error("[Stream] Receive err", "err", err)
 	}
-	<- r.semaphore
 	return msg, err
+}
+
+// MesssageTuple for ChannelStream
+type MessageTuple struct {
+	msg Message
+	err error
+}
+
+// ChannelStream forms a stream from a channel.
+type ChannelStream struct {
+	Name    string
+	channel <-chan *MessageTuple
+	log     log15.Logger
+}
+
+func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream {
+	return &ChannelStream{
+		Name:    name,
+		channel: channel,
+		log:     Log.New("mixin", "chanStream", "name", name),
+	}
+}
+
+func (r *ChannelStream) Logger() log15.Logger {
+	return r.log
+}
+
+func (r *ChannelStream) Receive() (Message, error) {
+	r.log.Debug("[Stream] Receive()")
+	tp, ok := <-r.channel
+	if !ok {
+		r.log.Debug("[Stream] Receive EOF")
+		return nil, ErrEOF
+	}
+	r.log.Debug("[Stream] Receive ok", "msg_out", tp.msg.Id())
+	return tp.msg, tp.err
 }
 
 // ConcurrentFetchStream concurrently prefetch a number of items from upstream
@@ -287,7 +290,7 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 	return &MappedStream{
 		Name:      name,
 		Stream:    stream,
-		log:       Log.New("mixin", "handlerStream", "name", name),
+		log:       Log.New("mixin", "mappedStream", "name", name),
 		handler:   handler,
 	}
 }

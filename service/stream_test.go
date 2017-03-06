@@ -12,6 +12,15 @@ import (
 	"errors"
 )
 
+type mockMsg struct {
+	id string
+}
+
+func (m *mockMsg) Id() string {
+	return m.id
+}
+
+
 type mockStream struct {
 	mock.Mock
 	log log15.Logger
@@ -27,22 +36,17 @@ func (m *mockStream) Logger() log15.Logger {
 }
 
 func TestChannelStream_Receive_1(t *testing.T) {
-	// Generate MetaMessage with $id. It contains []Message that each of
-	// which has an id in the form of $id.$index where $index ranges from
-	// 0 to $num.
-	metaMessage := genMetaMessage("#1", 1)
-	expected_id := fmt.Sprintf("#1.%d", 0)
-
+	msg := &mockMsg{id:"#0"}
 	src := make(chan *MessageTuple, 1)
 	src <- &MessageTuple{
-		msg: metaMessage.Flatten()[0],
+		msg: msg,
 		err: nil,
 	}
 
 	stream := NewChannelStream("test", src)
 	msg_out, err := stream.Receive()
 	assert.NoError(t, err)
-	assert.Equal(t, msg_out.Id(), expected_id)
+	assert.Equal(t, msg_out.Id(), msg.Id())
 }
 
 func TestChannelStream_Receive_2(t *testing.T) {

@@ -5,7 +5,11 @@ import (
 	"time"
 	"github.com/inconshreveable/log15"
 	"github.com/afex/hystrix-go/hystrix"
+	"github.com/aws/aws-sdk-go/service/budgets"
 )
+
+// Handlers, like Streams, come with resiliency patterns and can be mixed in
+// each other.
 
 type RateLimitedHandler struct {
 	Handler
@@ -19,7 +23,7 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 		Handler: handler,
 		Name:name,
 		limiter:limiter,
-		log:Log.New("mixin", "hdr_rate", "name", name),
+		log:Log.New("mixin", "handler_rate", "name", name),
 	}
 }
 
@@ -47,7 +51,7 @@ func NewRetryHandler(name string, handler Handler, genBackOff GenBackOff, log lo
 		Handler:handler,
 		Name: name,
 		genBackOff:genBackOff,
-		log:Log.New("mixin", "hdr_retry", "name", name),
+		log:Log.New("mixin", "handler_retry", "name", name),
 	}
 }
 
@@ -99,7 +103,7 @@ func NewCircuitBreakerHandler(name string, handler Handler) *CircuitBreakerHandl
 	return &CircuitBreakerHandler{
 		Handler:handler,
 		Name:name,
-		log:Log.New("mixin", "hdr_circuit", "name", name),
+		log:Log.New("mixin", "handler_circuit", "name", name),
 	}
 }
 
@@ -107,18 +111,18 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] Handle()")
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Name, func() error {
-		msg, err := r.Handler.Handle(msg)
+		msg_out, err := r.Handler.Handle(msg)
 		if err != nil {
 			r.log.Error("[Handler] Handle err", "err", err)
 			result <- &tuple{
-				fst: msg,
+				fst: msg_out,
 				snd: err,
 			}
 			return err
 		}
-		r.log.Debug("[Handler] Handle ok", "msg_out", msg.Id())
+		r.log.Debug("[Handler] Handle ok", "msg_out", msg_out.Id())
 		result <- &tuple{
-			fst: msg,
+			fst: msg_out,
 			snd: err,
 		}
 		return nil
@@ -138,4 +142,36 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		return tp.fst.(Message), nil
 	}
 	return tp.fst.(Message), tp.snd.(error)
+}
+
+type BulkheadHandler struct {
+	Handler
+	Name string
+	log       log15.Logger
+	semaphore chan *struct{}
+}
+
+func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *BulkheadHandler{
+	return &BulkheadHandler{
+		Handler:handler,
+		Name:name,
+		log:Log.New("mixin", "handler_bulk", "name", name),
+		semaphore: make(chan *struct{}, max_concurrency),
+	}
+}
+
+func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
+	r.log.Debug("[Handler] " ,
+		"msg_in", msg.Id())
+	r.semaphore <- &struct{}{}
+	defer func(){<- r.semaphore}()
+	msg_out, err := r.Handler.Handle(msg)
+	if err != nil {
+		r.log.Error("[Handler] Handle err", "err", err, "msg_in",
+			msg.Id())
+	} else {
+		r.log.Debug("[Handler] handler ok","msg_in", msg.Id(),
+			"msg_out", msg_out.Id())
+	}
+	return msg_out, err
 }
