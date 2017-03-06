@@ -14,7 +14,6 @@ type MessageTuple struct {
 }
 
 // ChannelStream forms a stream from a channel.
-// Functionally it's like DriverStream with ChannelDriver.
 type ChannelStream struct {
 	Name    string
 	channel <-chan *MessageTuple
@@ -44,73 +43,11 @@ func (r *ChannelStream) Receive() (Message, error) {
 	return tp.msg, tp.err
 }
 
-// Turns a Driver to a Stream. It keeps calling
-// driver.Exchange(inputStream.Receive()) to form a stream of Message's.
-type DriverStream struct {
-	Name        string
-	driver      Driver
-	log         log15.Logger
-	msgs        chan interface{}
-	inputStream Stream
-	once        sync.Once
-}
-
-func NewDriverStream(name string, driver Driver, max_queuing_messages int,
-	genInputMessage Stream) *DriverStream {
-	return &DriverStream{
-		Name:        name,
-		driver:      driver,
-		log:         Log.New("mixin", "driverStream", "name", name),
-		msgs:        make(chan interface{}, max_queuing_messages),
-		inputStream: genInputMessage,
-	}
-}
-
-func (r *DriverStream) onceDo() {
-	go func() {
-		r.log.Info("[Stream] once")
-		for {
-			// Viewed as an infinite source of events
-			msg, err := r.inputStream.Receive()
-			if err != nil {
-				r.log.Error("[Stream] Receive failed",
-					"err", err)
-				r.msgs <- err
-				continue
-			}
-			r.log.Debug("[Stream] Receive ok",
-				"msg_out", msg.Id())
-			meta_messages, err := r.driver.Exchange(msg, 0)
-			if err != nil {
-				r.log.Error("[Stream] Exchange err", "err", err)
-				r.msgs <- err
-				continue
-			}
-			r.log.Debug("[Stream] Exchange ok",
-				"msg_out", meta_messages.Id())
-
-			flattened_msgs := meta_messages.Flatten()
-			for _, m := range flattened_msgs {
-				r.msgs <- m
-			}
-		}
-	}()
-}
-
-func (r *DriverStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
-	r.once.Do(r.onceDo)
-	switch m := (<-r.msgs).(type) {
-	case error:
-		return nil, m
-	case Message:
-		r.log.Debug("[Stream] Receive ok", "msg_out", m.Id())
-		return m, nil
-	default:
-		panic("Never be here")
-	}
-}
-
+// Each Stream is armed with a resiliency pattern(rate limit, retry,
+// circuit-breaker, bulkhead). A resiliency pattern kicks in whenever a Stream
+// fails to pulled a message from its upstream.
+// Users could stack(mix-in) Stream's to combine different patterns but the
+// decision must be sane. The stack order is
 type RateLimitedStream struct {
 	Stream
 	Name    string

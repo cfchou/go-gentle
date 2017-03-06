@@ -159,32 +159,6 @@ func TestRetryStream_Receive(t *testing.T) {
 	assert.True(t, end.Sub(begin) >= minimum)
 }
 
-func TestDriverStream_Receive(t *testing.T) {
-	num_msgs_each_meta := 3
-	count := 2 * num_msgs_each_meta
-
-	mstream := &mockStream{log: log.New("mixin", "mock")}
-	call := mstream.On("Receive")
-	call.Return(dummy_msg, nil)
-
-	src, done := genMetaMessageChannelInfinite(num_msgs_each_meta)
-	stream := NewDriverStream("stream",
-		NewChannelDriver("chan", src),
-		1,
-		mstream)
-
-	for i:=0; i<count; i++ {
-
-		expected_id := fmt.Sprintf("#%d.%d",
-			i / num_msgs_each_meta + 1,
-			i % num_msgs_each_meta)
-		msg_out, err := stream.Receive()
-		assert.NoError(t, err)
-		assert.Equal(t, msg_out.Id(), expected_id)
-	}
-	done <- &struct{}{}
-}
-
 func TestBulkheadStream_Receive(t *testing.T) {
 	count := 5
 	max_concurrency := 2

@@ -7,6 +7,23 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 )
 
+type MetaMessage interface {
+	Message
+	Flatten() []Message
+}
+
+// Driver.Exchange() directly maps to a request to an external service.
+// The response of such request may map to multiple Message for downstream.
+type Driver interface {
+	// TODO: consider using context package for timeout
+	// timeout 0 results in blocking as long as it needs.
+	// It's important to know that if Exchange() comes back with
+	// ErrTimeout, depending on the implementation, the msg could still
+	// be delivered(at-most-once).
+	Exchange(msg Message, timeout time.Duration) (MetaMessage, error)
+	Logger() log15.Logger
+}
+
 type MetaMessageTuple struct {
 	metaMessage MetaMessage
 	err         error
