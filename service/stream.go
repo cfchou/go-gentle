@@ -241,12 +241,13 @@ func (r *ConcurrentFetchStream) onceDo() {
 			// pull more messages as long as semaphore allows
 			r.semaphore <- &struct{}{}
 			go func() {
+				r.log.Debug("[Stream] onceDo Receive()")
 				msg, err := r.Stream.Receive()
 				if err == nil {
-					r.log.Debug("[Stream] Receive ok",
+					r.log.Debug("[Stream] onceDo Receive ok",
 						"msg_out", msg.Id())
 				} else {
-					r.log.Error("[Stream] Receive err",
+					r.log.Error("[Stream] onceDo Receive err",
 						"err", err)
 				}
 				// cap(receives) is max_concurrency + 1, so that
@@ -256,6 +257,7 @@ func (r *ConcurrentFetchStream) onceDo() {
 					fst: msg,
 					snd: err,
 				}
+				r.log.Debug("[Stream] onceDo .....")
 			}()
 		}
 	}()
@@ -266,10 +268,14 @@ func (r *ConcurrentFetchStream) Receive() (Message, error) {
 	r.once.Do(r.onceDo)
 	tp := <-r.receives
 	<-r.semaphore
-	if tp.snd == nil {
-		return tp.fst.(Message), nil
+	if tp.snd != nil {
+		err := tp.snd.(error)
+		r.log.Error("[Stream] Receive err", "err", err)
+		return nil, err
 	}
-	return nil, tp.snd.(error)
+	msg := tp.fst.(Message)
+	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	return msg, nil
 }
 
 // MappedStream maps a Handler onto the upstream Stream. The results form
@@ -292,11 +298,14 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 }
 
 func (r *MappedStream) Receive() (Message, error) {
+	r.log.Debug("[Stream] Receive()")
 	msg, err := r.Stream.Receive()
 	if err != nil {
 		r.log.Error("[Stream] Receive err", "err", err)
 		return nil, err
 	}
 	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
-	return r.handler.Handle(msg)
+	m, e := r.handler.Handle(msg)
+	r.log.Debug("[Stream] Handle", "msg_out", m.Id())
+	return m, e
 }

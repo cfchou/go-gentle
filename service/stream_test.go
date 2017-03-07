@@ -276,15 +276,21 @@ func TestMappedStream_Receive_2(t *testing.T) {
 	calls := make([]* mock.Call, count)
 	for i := 0; i < count; i++ {
 		calls[i] = mhandler.On("Handle", msgs[i])
+		calls[i].Run(func(args mock.Arguments) {
+			m := args.Get(0).(Message)
+			log.Info("[Test] handling", "i", m.Id())
+		})
 		calls[i].Return(msgs[i], nil)
 	}
 	// Amongst all msgs from cstream, Handler deals with the 1st longer
 	// than the others
+	/*
 	calls[0].Run(func(args mock.Arguments) {
 		log.Info("[Test] Running slow")
 		time.Sleep(1 * time.Second)
 	})
-	stream := NewConcurrentFetchStream("test", mstream, count)
+	*/
+	stream := NewConcurrentFetchStream("test", mstream, 2)
 	for i := 0; i < count; i++ {
 		n := i
 		log.Info("[Test]", "i", n)
