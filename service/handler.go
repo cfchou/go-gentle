@@ -5,7 +5,6 @@ import (
 	"time"
 	"github.com/inconshreveable/log15"
 	"github.com/afex/hystrix-go/hystrix"
-	"github.com/aws/aws-sdk-go/service/budgets"
 )
 
 // Handlers, like Streams, come with resiliency patterns and can be mixed in
@@ -138,10 +137,10 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		}
 	}
 	tp := <-result
-	if tp.snd != nil {
+	if tp.snd == nil {
 		return tp.fst.(Message), nil
 	}
-	return tp.fst.(Message), tp.snd.(error)
+	return nil, tp.snd.(error)
 }
 
 type BulkheadHandler struct {

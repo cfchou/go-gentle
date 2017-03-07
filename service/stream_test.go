@@ -13,13 +13,13 @@ import (
 )
 
 type mockMsg struct {
-	id string
+	mock.Mock
 }
 
 func (m *mockMsg) Id() string {
-	return m.id
+	args := m.Called()
+	return args.Get(0).(string)
 }
-
 
 type mockStream struct {
 	mock.Mock
@@ -35,72 +35,82 @@ func (m *mockStream) Logger() log15.Logger {
 	return m.log
 }
 
-func TestChannelStream_Receive_1(t *testing.T) {
-	msg := &mockMsg{id:"#0"}
-	src := make(chan *MessageTuple, 1)
-	src <- &MessageTuple{
-		msg: msg,
-		err: nil,
-	}
-
-	stream := NewChannelStream("test", src)
-	msg_out, err := stream.Receive()
-	assert.NoError(t, err)
-	assert.Equal(t, msg_out.Id(), msg.Id())
+type mockHandler struct {
+	mock.Mock
+	log log15.Logger
 }
 
-func TestChannelStream_Receive_2(t *testing.T) {
-	count := 10
-	metaMessage := genMetaMessage("#1", count)
-	msgs := metaMessage.Flatten()
-
-	src := make(chan *MessageTuple, 1)
-	go func() {
-		for i := 0; i < count; i++ {
-			src <- &MessageTuple{
-				msg: msgs[i],
-				err: nil,
-			}
-		}
-		close(src)
-	}()
-
-	stream := NewChannelStream("test", src)
-	for i := 0; i < count; i++ {
-		expected_id := fmt.Sprintf("#1.%d", i)
-		msg_out, err := stream.Receive()
-		assert.NoError(t, err)
-		assert.Equal(t, msg_out.Id(), expected_id)
-	}
-	// one more Receive() should see ErrEOF
-	msg_out, err := stream.Receive()
-	assert.EqualError(t, err, ErrEOF.Error())
-	assert.Nil(t, msg_out)
+func (m *mockHandler) Handle(msg Message) (Message, error) {
+	args := m.Called(msg)
+	return args.Get(0).(Message), args.Error(1)
 }
 
-func genMessageChannelInfinite() (<-chan *MessageTuple, chan *struct{}) {
+func (m *mockHandler) Logger() log15.Logger {
+	return m.log
+}
+
+func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 	done := make(chan *struct{}, 1)
-	src := make(chan *MessageTuple, 1)
+	src := make(chan Message, 1)
 	go func() {
 		count := 1
 		for {
-			metaMessage := genMetaMessage(fmt.Sprintf("#%d", count),
-				0)
-			tp := &MessageTuple{
-				// MetaMessage itself is a Message
-				msg: metaMessage,
-				err: nil,
-			}
+			mm := &mockMsg{}
+			mm.On("Id").Return(fmt.Sprint(count))
 			select {
 			case <-done:
 				log.Info("[Test] Channel closed")
 				break
-			case src <- tp:
+			case src <- mm:
 			}
 		}
 		close(src)
 	}()
 	return src, done
+}
+
+func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
+	msgs := make([]Message, count)
+	for i := 0; i < count; i++ {
+		mm := &mockMsg{}
+		mm.On("Id").Return(fmt.Sprint(i))
+		msgs[i] = mm
+	}
+	src := make(chan Message, 1)
+	go func() {
+		for i := 0; i < count; i++ {
+			src <- msgs[i]
+		}
+		// Cause Receive() to see ErrEOF
+		close(src)
+	}()
+	return NewChannelStream("test", src), msgs
+}
+
+func TestChannelStream_Receive_1(t *testing.T) {
+	mm := &mockMsg{}
+	mm.On("Id").Return("123")
+	src := make(chan Message, 1)
+	src <- mm
+	stream := NewChannelStream("test", src)
+	msg_out, err := stream.Receive()
+	assert.NoError(t, err)
+	assert.Equal(t, msg_out.Id(), mm.Id())
+}
+
+func TestChannelStream_Receive_2(t *testing.T) {
+	count := 10
+	stream, msgs := genChannelStreamWithMessages(count)
+
+	for i := 0; i < count; i++ {
+		msg_out, err := stream.Receive()
+		assert.NoError(t, err)
+		assert.Equal(t, msg_out.Id(), msgs[i].Id())
+	}
+	// one more Receive() should see ErrEOF
+	msg_out, err := stream.Receive()
+	assert.EqualError(t, err, ErrEOF.Error())
+	assert.Nil(t, msg_out)
 }
 
 func TestRateLimitedStream_Receive(t *testing.T) {
@@ -132,32 +142,33 @@ func TestRateLimitedStream_Receive(t *testing.T) {
 func TestRetryStream_Receive(t *testing.T) {
 	mstream := &mockStream{log: log.New("mixin", "mock")}
 	backoffs := []time.Duration{1 * time.Second, 2 * time.Second}
-	minimum := func() time.Duration {
+	minimum := func(backoffs []time.Duration) time.Duration {
 		dura_sum := 0 * time.Second
 		for _, dura := range backoffs {
 			dura_sum += dura
 		}
 		return dura_sum
-	}()
+	}(backoffs)
 	stream := NewRetryStream("retry", mstream,
 		func() []time.Duration {return backoffs})
 
-	metaMessage := genMetaMessage(fmt.Sprintf("#%d", 1), 0)
-
 	// 1st ok
+	mm := &mockMsg{}
+	mm.On("Id").Return("123")
 	call := mstream.On("Receive")
-	call.Return(metaMessage, nil)
+	call.Return(mm, nil)
 
 	_, err := stream.Receive()
 	assert.NoError(t, err)
 
-	// 2ed err, trigger retry
+	// 2ed err, trigger retry with backoffs
 	mockErr := errors.New("A mocked error")
-	call.Return(metaMessage, mockErr)
+	call.Return(&mockMsg{}, mockErr)
 
 	begin := time.Now()
 	_, err = stream.Receive()
 	end := time.Now()
+	// backoffs exhausted
 	assert.EqualError(t, err, mockErr.Error())
 	log.Info("[Test] spent >= minmum?", "spent", end.Sub(begin), "minimum", minimum)
 	assert.True(t, end.Sub(begin) >= minimum)
@@ -171,13 +182,15 @@ func TestBulkheadStream_Receive(t *testing.T) {
 
 	suspend := 1 * time.Second
 	tm := time.NewTimer(suspend)
+	mm := &mockMsg{}
+	mm.On("Id").Return("123")
 	calling := 0
 	call := mstream.On("Receive")
 	call.Run(func (args mock.Arguments) {
 		calling++
 		time.Sleep(suspend)
 	})
-	call.Return(dummy_msg, nil)
+	call.Return(mm, nil)
 
 	var wg sync.WaitGroup
 	wg.Add(count)
@@ -186,7 +199,7 @@ func TestBulkheadStream_Receive(t *testing.T) {
 			msg, err := stream.Receive()
 			wg.Done()
 			assert.NoError(t, err)
-			assert.Equal(t, msg.Id(), dummy_msg.Id())
+			assert.Equal(t, msg.Id(), mm.Id())
 		}()
 	}
 	func() {
@@ -208,24 +221,79 @@ func TestBulkheadStream_Receive(t *testing.T) {
 }
 
 func TestConcurrentFetchStream_Receive(t *testing.T) {
-	max_concurrency := 2
+	max_concurrency := 5
+	count := max_concurrency
+	mm := &mockMsg{}
 	mstream := &mockStream{log: log.New("mixin", "mock")}
-	stream := NewConcurrentFetchStream("bulk", mstream, max_concurrency)
+	stream := NewConcurrentFetchStream("test", mstream, max_concurrency)
 
-	calling := 0
+	suspend := 1 * time.Second
+	mm.On("Id").Return("123")
 	call := mstream.On("Receive")
 	call.Run(func (args mock.Arguments) {
-		calling++
+		time.Sleep(suspend)
 	})
-	call.Return(dummy_msg, nil)
+	call.Return(mm, nil)
+	begin := time.Now()
+	for i := 0; i < count; i++ {
+		_, err := stream.Receive()
+		assert.NoError(t, err)
+	}
+	dura := time.Now().Sub(begin)
+	log.Info("[Test]", "dura", dura)
+	assert.True(t, dura < suspend * time.Duration(max_concurrency))
+}
+
+func TestMappedStream_Receive_1(t *testing.T) {
+	mstream := &mockStream{log: log.New("mixin", "mock")}
+	mhandler := &mockHandler{log: log.New("mixin", "mock")}
+	mm := &mockMsg{}
+
+	stream := NewMappedStream("test", mstream, mhandler)
+
+	call := mm.On("Id")
+	call.Return("123")
+	receive := mstream.On("Receive")
+	receive.Return(mm, nil)
+	handle := mhandler.On("Handle", mm)
+	handle.Run(func(args mock.Arguments) {
+		log.Info("[Test] handle")
+		call.Return("456")
+	})
+	handle.Return(mm, nil)
 
 	msg, err := stream.Receive()
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), dummy_msg.Id())
-	assert.Equal(t, calling, max_concurrency)
+	assert.Equal(t, msg.Id(), "456")
 }
 
-func TestMappedStream_Receive(t *testing.T) {
+func TestMappedStream_Receive_2(t *testing.T) {
+	count := 10
+	cstream, msgs := genChannelStreamWithMessages(count)
+	mhandler := &mockHandler{log: log.New("mixin", "mock")}
+	mstream := NewMappedStream("test", cstream, mhandler)
 
+	calls := make([]* mock.Call, count)
+	for i := 0; i < count; i++ {
+		calls[i] = mhandler.On("Handle", msgs[i])
+		calls[i].Return(msgs[i], nil)
+	}
+	// Amongst all msgs from cstream, Handler deals with the 1st longer
+	// than the others
+	calls[0].Run(func(args mock.Arguments) {
+		log.Info("[Test] Running slow")
+		time.Sleep(1 * time.Second)
+	})
+	stream := NewConcurrentFetchStream("test", mstream, count)
+	for i := 0; i < count; i++ {
+		n := i
+		log.Info("[Test]", "i", n)
+		msg, err := stream.Receive()
+		assert.NoError(t, err)
+		//assert.Equal(t, msg.Id(), fmt.Sprint(i))
+		log.Info("[Test]", "msg_out", msg.Id())
+	}
 }
+
+
 

@@ -146,7 +146,7 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 	if tp.snd == nil {
 		return tp.fst.(Message), nil
 	}
-	return tp.fst.(Message), tp.snd.(error)
+	return nil, tp.snd.(error)
 }
 
 // Bulkhead pattern is used to limit the number of concurrent Receive().
@@ -181,20 +181,14 @@ func (r *BulkheadStream) Receive() (Message, error) {
 	return msg, err
 }
 
-// MesssageTuple for ChannelStream
-type MessageTuple struct {
-	msg Message
-	err error
-}
-
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
 	Name    string
-	channel <-chan *MessageTuple
+	channel <-chan Message
 	log     log15.Logger
 }
 
-func NewChannelStream(name string, channel <-chan *MessageTuple) *ChannelStream {
+func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 	return &ChannelStream{
 		Name:    name,
 		channel: channel,
@@ -208,17 +202,19 @@ func (r *ChannelStream) Logger() log15.Logger {
 
 func (r *ChannelStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
-	tp, ok := <-r.channel
+	msg, ok := <-r.channel
 	if !ok {
 		r.log.Debug("[Stream] Receive EOF")
 		return nil, ErrEOF
 	}
-	r.log.Debug("[Stream] Receive ok", "msg_out", tp.msg.Id())
-	return tp.msg, tp.err
+	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	return msg, nil
 }
 
 // ConcurrentFetchStream concurrently prefetch a number of items from upstream
 // without being asked.
+// Note that the order of messages emitted from the grand-parent upstream may
+// not be preserved.
 type ConcurrentFetchStream struct {
 	Stream
 	Name      string
@@ -255,7 +251,7 @@ func (r *ConcurrentFetchStream) onceDo() {
 				}
 				// cap(receives) is max_concurrency + 1, so that
 				// it wouldn't yield here and therefore the
-				// order of received messages is preserved.
+				// order of Receive() is preserved.
 				r.receives <- &tuple{
 					fst: msg,
 					snd: err,
@@ -268,12 +264,12 @@ func (r *ConcurrentFetchStream) onceDo() {
 func (r *ConcurrentFetchStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
 	r.once.Do(r.onceDo)
-	recv := <-r.receives
+	tp := <-r.receives
 	<-r.semaphore
-	if recv.snd == nil {
-		return recv.fst.(Message), nil
+	if tp.snd == nil {
+		return tp.fst.(Message), nil
 	}
-	return recv.fst.(Message), recv.snd.(error)
+	return nil, tp.snd.(error)
 }
 
 // MappedStream maps a Handler onto the upstream Stream. The results form
@@ -298,7 +294,9 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 func (r *MappedStream) Receive() (Message, error) {
 	msg, err := r.Stream.Receive()
 	if err != nil {
-		return r.handler.Handle(msg)
+		r.log.Error("[Stream] Receive err", "err", err)
+		return nil, err
 	}
-	return nil, err
+	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	return r.handler.Handle(msg)
 }
