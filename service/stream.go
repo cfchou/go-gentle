@@ -202,19 +202,15 @@ func (r *ChannelStream) Logger() log15.Logger {
 
 func (r *ChannelStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
-	msg, ok := <-r.channel
-	if !ok {
-		r.log.Debug("[Stream] Receive EOF")
-		return nil, ErrEOF
-	}
+	msg := <-r.channel
 	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
 // ConcurrentFetchStream concurrently prefetch a number of items from upstream
 // without being asked.
-// Note that the order of messages emitted from the grand-parent upstream may
-// not be preserved.
+// Note that the order of messages emitted from the upstream may not be
+// preserved. It's down to application to maintain the order if that's required.
 type ConcurrentFetchStream struct {
 	Stream
 	Name      string
@@ -229,7 +225,7 @@ func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *
 		Name:      name,
 		Stream:    stream,
 		log:       Log.New("mixin", "fetchStream", "name", name),
-		receives: make(chan *tuple, max_concurrency + 1),
+		receives: make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
 	}
 }
@@ -240,6 +236,8 @@ func (r *ConcurrentFetchStream) onceDo() {
 		for {
 			// pull more messages as long as semaphore allows
 			r.semaphore <- &struct{}{}
+			// Since Receive() are run concurrently, the order of
+			// elements from upstream may not preserved.
 			go func() {
 				r.log.Debug("[Stream] onceDo Receive()")
 				msg, err := r.Stream.Receive()
@@ -250,14 +248,10 @@ func (r *ConcurrentFetchStream) onceDo() {
 					r.log.Error("[Stream] onceDo Receive err",
 						"err", err)
 				}
-				// cap(receives) is max_concurrency + 1, so that
-				// it wouldn't yield here and therefore the
-				// order of Receive() is preserved.
 				r.receives <- &tuple{
 					fst: msg,
 					snd: err,
 				}
-				r.log.Debug("[Stream] onceDo .....")
 			}()
 		}
 	}()
@@ -304,8 +298,13 @@ func (r *MappedStream) Receive() (Message, error) {
 		r.log.Error("[Stream] Receive err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	r.log.Debug("[Stream] Receive ok, run Handle()", "msg", msg.Id())
 	m, e := r.handler.Handle(msg)
-	r.log.Debug("[Stream] Handle", "msg_out", m.Id())
-	return m, e
+	if e != nil {
+		r.log.Error("[Stream] Handle err", "err", err)
+		return nil, e
+	}
+	r.log.Debug("[Stream] Handle done", "msg_in", msg.Id(),
+		"msg_out", m.Id())
+	return m, nil
 }

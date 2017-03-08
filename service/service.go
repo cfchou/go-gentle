@@ -21,12 +21,14 @@ type Message interface {
 // Messages of a stream goes one way. Though two streams can simulate two-way
 // communication but it would require out-of-band logic.
 type Stream interface {
+	// returned Message can be nil if only if error is not nil
 	Receive() (Message, error)
 	Logger() log15.Logger
 }
 
 // Handler reacts to Message from Stream.
 type Handler interface {
+	// returned Message can be nil if only if error is not nil
 	Handle(Message) (Message, error)
 	Logger() log15.Logger
 }
@@ -38,12 +40,6 @@ type RateLimit interface {
 	// timeout == 0 results in blocking as long as it needs.
 	Wait(int64, time.Duration) bool
 }
-
-var ErrEOF = errors.New("EOF")
-var ErrRateLimited = errors.New("Rate limit reached")
-var ErrTimeout = errors.New("Timeout")
-var ErrConf = errors.New("Config error")
-var ErrUpStream = errors.New("Error from upstream")
 
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond

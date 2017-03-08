@@ -81,13 +81,11 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 		for i := 0; i < count; i++ {
 			src <- msgs[i]
 		}
-		// Cause Receive() to see ErrEOF
-		close(src)
 	}()
 	return NewChannelStream("test", src), msgs
 }
 
-func TestChannelStream_Receive_1(t *testing.T) {
+func TestChannelStream_Receive(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	src := make(chan Message, 1)
@@ -107,10 +105,6 @@ func TestChannelStream_Receive_2(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, msg_out.Id(), msgs[i].Id())
 	}
-	// one more Receive() should see ErrEOF
-	msg_out, err := stream.Receive()
-	assert.EqualError(t, err, ErrEOF.Error())
-	assert.Nil(t, msg_out)
 }
 
 func TestRateLimitedStream_Receive(t *testing.T) {
@@ -220,7 +214,31 @@ func TestBulkheadStream_Receive(t *testing.T) {
 	assert.Equal(t, calling, count)
 }
 
+func TestMappedStream_Receive(t *testing.T) {
+	mstream := &mockStream{log: log.New("mixin", "mock")}
+	mhandler := &mockHandler{log: log.New("mixin", "mock")}
+	mm := &mockMsg{}
+
+	stream := NewMappedStream("test", mstream, mhandler)
+
+	call := mm.On("Id")
+	call.Return("123")
+	receive := mstream.On("Receive")
+	receive.Return(mm, nil)
+	handle := mhandler.On("Handle", mm)
+	handle.Run(func(args mock.Arguments) {
+		log.Info("[Test] handle")
+		call.Return("456")
+	})
+	handle.Return(mm, nil)
+
+	msg, err := stream.Receive()
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), "456")
+}
+
 func TestConcurrentFetchStream_Receive(t *testing.T) {
+	// This test shows that ConcurrentFetchStream reduces running time.
 	max_concurrency := 5
 	count := max_concurrency
 	mm := &mockMsg{}
@@ -244,31 +262,9 @@ func TestConcurrentFetchStream_Receive(t *testing.T) {
 	assert.True(t, dura < suspend * time.Duration(max_concurrency))
 }
 
-func TestMappedStream_Receive_1(t *testing.T) {
-	mstream := &mockStream{log: log.New("mixin", "mock")}
-	mhandler := &mockHandler{log: log.New("mixin", "mock")}
-	mm := &mockMsg{}
-
-	stream := NewMappedStream("test", mstream, mhandler)
-
-	call := mm.On("Id")
-	call.Return("123")
-	receive := mstream.On("Receive")
-	receive.Return(mm, nil)
-	handle := mhandler.On("Handle", mm)
-	handle.Run(func(args mock.Arguments) {
-		log.Info("[Test] handle")
-		call.Return("456")
-	})
-	handle.Return(mm, nil)
-
-	msg, err := stream.Receive()
-	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), "456")
-}
-
-func TestMappedStream_Receive_2(t *testing.T) {
-	count := 10
+func TestConcurrentFetchStream_Receive2(t *testing.T) {
+	// This test shows that ConcurrentFetchStream doesn't preserved order.
+	count := 5
 	cstream, msgs := genChannelStreamWithMessages(count)
 	mhandler := &mockHandler{log: log.New("mixin", "mock")}
 	mstream := NewMappedStream("test", cstream, mhandler)
@@ -278,27 +274,28 @@ func TestMappedStream_Receive_2(t *testing.T) {
 		calls[i] = mhandler.On("Handle", msgs[i])
 		calls[i].Run(func(args mock.Arguments) {
 			m := args.Get(0).(Message)
-			log.Info("[Test] handling", "i", m.Id())
+			log.Info("[Test] handling", "msg", m.Id())
 		})
 		calls[i].Return(msgs[i], nil)
 	}
-	// Amongst all msgs from cstream, Handler deals with the 1st longer
-	// than the others
-	/*
+	// Handler deals with the 1st longer than the others. So it's expected
+	// to be pushed to the end of stream.
 	calls[0].Run(func(args mock.Arguments) {
-		log.Info("[Test] Running slow")
+		m := args.Get(0).(Message)
+		log.Info("[Test] handling slow", "msg", m.Id())
 		time.Sleep(1 * time.Second)
 	})
-	*/
 	stream := NewConcurrentFetchStream("test", mstream, 2)
+	ids := make([]string, count)
 	for i := 0; i < count; i++ {
-		n := i
-		log.Info("[Test]", "i", n)
+		log.Info("[Test] loop", "i", i)
 		msg, err := stream.Receive()
 		assert.NoError(t, err)
-		//assert.Equal(t, msg.Id(), fmt.Sprint(i))
-		log.Info("[Test]", "msg_out", msg.Id())
+		log.Info("[Test] loop", "msg_out", msg.Id())
+		ids[i] = msg.Id()
 	}
+	// The 1st msg from upstream is now the last
+	assert.Equal(t, ids[count - 1], "0")
 }
 
 
