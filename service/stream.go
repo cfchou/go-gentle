@@ -211,6 +211,7 @@ func (r *ChannelStream) Receive() (Message, error) {
 // without being asked.
 // Note that the order of messages emitted from the upstream may not be
 // preserved. It's down to application to maintain the order if that's required.
+// For example, set a sequence number inside Messages.
 type ConcurrentFetchStream struct {
 	Stream
 	Name      string
