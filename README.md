@@ -5,19 +5,19 @@ Talk to external services like a gentleman.
 This package provides resilient implementations of two interfaces: Stream and
 Handler.
 
+Stream and Handler are our fundamental abstractions to achieve back-pressure.
 Stream has one method Get() that emits Message. Handler has one method Handle()
 that transforms a given Message. The helper NewMappedStream() creates a
 MappedStream whose Get() emits a Message transformed by a Handler from a given
 Stream.
 
-Moreover, resiliency patterns enable fault-tolerance as external services are
-not always 100% reliable. Patterns in question here are rate limiting, retry,
-circuit-breaker and bulkhead.
+Besides back-pressure, resiliency patterns are indispensable in distributed
+systems as external services are not reliable at all time. Patterns in question
+include rate limiting, retry, circuit-breaker and bulkhead.
 
 Each implementations of Stream and Handler features one resiliency pattern.
 They are free to mix with each other to form a more sophisticated combined
-resiliency.
-
+resiliency. For example:
 ```
 func compose(name string, stream Stream, handler Handler) Stream {
 	upstream := NewRetryStream(name,
