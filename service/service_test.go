@@ -1,4 +1,3 @@
-// vim:fileencoding=utf-8
 package service
 
 import (
@@ -24,7 +23,7 @@ type mockStream struct {
 	mock.Mock
 }
 
-func (m *mockStream) Receive() (Message, error) {
+func (m *mockStream) Get() (Message, error) {
 	args := m.Called()
 	msg := args.Get(0)
 	err := args.Get(1)

@@ -1,4 +1,3 @@
-// vim:fileencoding=utf-8
 package service
 
 import (
@@ -32,19 +31,19 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 	}
 }
 
-func (r *RateLimitedStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *RateLimitedStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	r.limiter.Wait(1, 0)
-	msg, err := r.stream.Receive()
+	msg, err := r.stream.Get()
 	if err != nil {
-		r.log.Error("[Stream] Receive err", "err", err)
+		r.log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
-// When Receive() encounters error, it backs off for some time
+// When Get() encounters error, it backs off for some time
 // and then retries.
 type RetryStream struct {
 	Name       string
@@ -62,43 +61,43 @@ func NewRetryStream(name string, stream Stream, off GenBackOff) *RetryStream {
 	}
 }
 
-func (r *RetryStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *RetryStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	var bk []time.Duration
 	to_wait := 0 * time.Second
 	count := 0
 	for {
 		count += 1
-		r.log.Debug("[Stream] Receive ...", "count", count,
+		r.log.Debug("[Stream] Get ...", "count", count,
 			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
-		msg, err := r.stream.Receive()
+		msg, err := r.stream.Get()
 		if err == nil {
-			r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+			r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 			return msg, err
 		}
 		if count == 1 {
 			bk = r.genBackoff()
-			r.log.Debug("[Stream] Receive generate backoffs",
+			r.log.Debug("[Stream] Get generate backoffs",
 				"len", len(bk))
 		}
 		if len(bk) == 0 {
 			// backoffs exhausted
-			r.log.Error("[Stream] Receive err, stop backing off",
+			r.log.Error("[Stream] Get err, stop backing off",
 				"err", err)
 			return nil, err
 		} else {
-			r.log.Error("[Stream] Receive err", "err", err)
+			r.log.Error("[Stream] Get err", "err", err)
 		}
 		to_wait = bk[0]
 		bk = bk[1:]
 	}
 }
 
-// Bulkhead pattern is used to limit the number of concurrent Receive().
-// Calling Receive() is blocked when exceeding the limit.
+// Bulkhead pattern is used to limit the number of concurrent Get().
+// Calling Get() is blocked when exceeding the limit.
 type BulkheadStream struct {
 	Name      string
 	stream    Stream
@@ -118,15 +117,15 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 	}
 }
 
-func (r *BulkheadStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *BulkheadStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	r.semaphore <- &struct{}{}
 	defer func() { <-r.semaphore }()
-	msg, err := r.stream.Receive()
+	msg, err := r.stream.Get()
 	if err == nil {
-		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+		r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	} else {
-		r.log.Error("[Stream] Receive err", "err", err)
+		r.log.Error("[Stream] Get err", "err", err)
 	}
 	return msg, err
 }
@@ -149,20 +148,20 @@ func NewCircuitBreakerStream(name string, stream Stream, circuit string) *Circui
 	}
 }
 
-func (r *CircuitBreakerStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *CircuitBreakerStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Circuit, func() error {
-		msg, err := r.stream.Receive()
+		msg, err := r.stream.Get()
 		if err != nil {
-			r.log.Error("[Stream] Receive err", "err", err)
+			r.log.Error("[Stream] Get err", "err", err)
 			result <- &tuple{
 				fst: msg,
 				snd: err,
 			}
 			return err
 		}
-		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+		r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 		result <- &tuple{
 			fst: msg,
 			snd: err,
@@ -175,7 +174,7 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 		r.log.Warn("[Stream] Circuit err", "err", err)
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
-			// Receive()'s err.
+			// Get()'s err.
 			return nil, err
 		}
 	}
@@ -201,10 +200,10 @@ func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 	}
 }
 
-func (r *ChannelStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *ChannelStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	msg := <-r.channel
-	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -238,16 +237,16 @@ func (r *ConcurrentFetchStream) onceDo() {
 		for {
 			// pull more messages as long as semaphore allows
 			r.semaphore <- &struct{}{}
-			// Since Receive() are run concurrently, the order of
+			// Since Get() are run concurrently, the order of
 			// elements from upstream may not preserved.
 			go func() {
-				r.log.Debug("[Stream] onceDo Receive()")
-				msg, err := r.stream.Receive()
+				r.log.Debug("[Stream] onceDo Get()")
+				msg, err := r.stream.Get()
 				if err == nil {
-					r.log.Debug("[Stream] onceDo Receive ok",
+					r.log.Debug("[Stream] onceDo Get ok",
 						"msg_out", msg.Id())
 				} else {
-					r.log.Error("[Stream] onceDo Receive err",
+					r.log.Error("[Stream] onceDo Get err",
 						"err", err)
 				}
 				r.receives <- &tuple{
@@ -259,18 +258,18 @@ func (r *ConcurrentFetchStream) onceDo() {
 	}()
 }
 
-func (r *ConcurrentFetchStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
+func (r *ConcurrentFetchStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
 	r.once.Do(r.onceDo)
 	tp := <-r.receives
 	<-r.semaphore
 	if tp.snd != nil {
 		err := tp.snd.(error)
-		r.log.Error("[Stream] Receive err", "err", err)
+		r.log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
 	msg := tp.fst.(Message)
-	r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -293,14 +292,14 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 	}
 }
 
-func (r *MappedStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
-	msg, err := r.stream.Receive()
+func (r *MappedStream) Get() (Message, error) {
+	r.log.Debug("[Stream] Get()")
+	msg, err := r.stream.Get()
 	if err != nil {
-		r.log.Error("[Stream] Receive err", "err", err)
+		r.log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Receive ok, run Handle()", "msg", msg.Id())
+	r.log.Debug("[Stream] Get ok, run Handle()", "msg", msg.Id())
 	m, e := r.handler.Handle(msg)
 	if e != nil {
 		r.log.Error("[Stream] Handle err", "err", err)

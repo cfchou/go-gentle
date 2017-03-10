@@ -1,4 +1,3 @@
-// vim:fileencoding=utf-8
 package service
 
 import (
@@ -21,9 +20,9 @@ type Message interface {
 // Messages of a stream goes one way. Though two streams can simulate two-way
 // communication but it would require out-of-band logic.
 type Stream interface {
-	// Receive() returns either a Message or an error. Returned Message is
+	// Get() returns either a Message or an error. Returned Message is
 	// nil if only if error is not nil.
-	Receive() (Message, error)
+	Get() (Message, error)
 }
 
 // Handler reacts to Message from Stream.

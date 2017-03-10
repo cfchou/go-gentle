@@ -1,4 +1,3 @@
-// vim:fileencoding=utf-8
 package service
 
 import (
@@ -50,29 +49,29 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 	return NewChannelStream("test", src), msgs
 }
 
-func TestChannelStream_Receive(t *testing.T) {
+func TestChannelStream_Get(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	src := make(chan Message, 1)
 	src <- mm
 	stream := NewChannelStream("test", src)
-	msg_out, err := stream.Receive()
+	msg_out, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), mm.Id())
 }
 
-func TestChannelStream_Receive_2(t *testing.T) {
+func TestChannelStream_Get_2(t *testing.T) {
 	count := 10
 	stream, msgs := genChannelStreamWithMessages(count)
 
 	for i := 0; i < count; i++ {
-		msg_out, err := stream.Receive()
+		msg_out, err := stream.Get()
 		assert.NoError(t, err)
 		assert.Equal(t, msg_out.Id(), msgs[i].Id())
 	}
 }
 
-func TestRateLimitedStream_Receive(t *testing.T) {
+func TestRateLimitedStream_Get(t *testing.T) {
 	src, done := genMessageChannelInfinite()
 	// 1 msg/sec
 	requests_interval := 1000
@@ -86,7 +85,7 @@ func TestRateLimitedStream_Receive(t *testing.T) {
 	begin := time.Now()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := stream.Receive()
+			_, err := stream.Get()
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -98,7 +97,7 @@ func TestRateLimitedStream_Receive(t *testing.T) {
 	done <- &struct{}{}
 }
 
-func TestRetryStream_Receive(t *testing.T) {
+func TestRetryStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 	backoffs := []time.Duration{1 * time.Second, 2 * time.Second}
 	minimum := func(backoffs []time.Duration) time.Duration {
@@ -114,10 +113,10 @@ func TestRetryStream_Receive(t *testing.T) {
 	// 1st: ok
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Return(mm, nil)
 
-	_, err := stream.Receive()
+	_, err := stream.Get()
 	assert.NoError(t, err)
 
 	// 2ed: err, trigger retry with backoffs
@@ -125,7 +124,7 @@ func TestRetryStream_Receive(t *testing.T) {
 	call.Return(nil, mockErr)
 
 	begin := time.Now()
-	_, err = stream.Receive()
+	_, err = stream.Get()
 	dura := time.Now().Sub(begin)
 	// backoffs exhausted
 	assert.EqualError(t, err, mockErr.Error())
@@ -133,7 +132,7 @@ func TestRetryStream_Receive(t *testing.T) {
 	assert.True(t, dura >= minimum)
 }
 
-func TestBulkheadStream_Receive(t *testing.T) {
+func TestBulkheadStream_Get(t *testing.T) {
 	count := 8
 	max_concurrency := 4
 	mstream := &mockStream{}
@@ -145,7 +144,7 @@ func TestBulkheadStream_Receive(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	calling := 0
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Run(func (args mock.Arguments) {
 		calling++
 		time.Sleep(suspend)
@@ -157,7 +156,7 @@ func TestBulkheadStream_Receive(t *testing.T) {
 	begin := time.Now()
 	for i :=0; i < count; i++ {
 		go func () {
-			msg, err := stream.Receive()
+			msg, err := stream.Get()
 			wg.Done()
 			assert.NoError(t, err)
 			assert.Equal(t, msg.Id(), mm.Id())
@@ -169,7 +168,7 @@ func TestBulkheadStream_Receive(t *testing.T) {
 	assert.True(t, dura <= maximum)
 }
 
-func TestMappedStream_Receive(t *testing.T) {
+func TestMappedStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 	mhandler := &mockHandler{}
 	mm := &mockMsg{}
@@ -178,7 +177,7 @@ func TestMappedStream_Receive(t *testing.T) {
 
 	call := mm.On("Id")
 	call.Return("123")
-	receive := mstream.On("Receive")
+	receive := mstream.On("Get")
 	receive.Return(mm, nil)
 	handle := mhandler.On("Handle", mm)
 	handle.Run(func(args mock.Arguments) {
@@ -187,12 +186,12 @@ func TestMappedStream_Receive(t *testing.T) {
 	})
 	handle.Return(mm, nil)
 
-	msg, err := stream.Receive()
+	msg, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg.Id(), "456")
 }
 
-func TestCircuitBreakerStream_Receive(t *testing.T) {
+func TestCircuitBreakerStream_Get(t *testing.T) {
 	count := 8
 	max_concurrency := 4
 	circuit := xid.New().String()
@@ -209,7 +208,7 @@ func TestCircuitBreakerStream_Receive(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	var calling int32
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Run(func (args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 		time.Sleep(suspend)
@@ -222,7 +221,7 @@ func TestCircuitBreakerStream_Receive(t *testing.T) {
 	tm := time.NewTimer(suspend + time.Second)
 	for i :=0; i < count; i++ {
 		go func () {
-			_, err := stream.Receive()
+			_, err := stream.Get()
 			if err != nil {
 				lock.Lock()
 				defer lock.Unlock()
@@ -242,7 +241,7 @@ func TestCircuitBreakerStream_Receive(t *testing.T) {
 	assert.Equal(t, count - max_concurrency, len(all_errors))
 }
 
-func TestCircuitBreakerStream_Receive2(t *testing.T) {
+func TestCircuitBreakerStream_Get2(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &mockStream{}
 	count := 3
@@ -264,7 +263,7 @@ func TestCircuitBreakerStream_Receive2(t *testing.T) {
 
 	suspend := time.Duration(conf.Timeout + 500) * time.Millisecond
 	var calling int32
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Run(func (args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 		time.Sleep(suspend)
@@ -274,13 +273,13 @@ func TestCircuitBreakerStream_Receive2(t *testing.T) {
 	// 1st takes more than timeout. Though no error, it causes
 	// ErrCircuitOpen for the subsequent requests.
 	begin := time.Now()
-	_, err := stream.Receive()
+	_, err := stream.Get()
 	assert.NoError(t, err)
 	dura := time.Now().Sub(begin)
 	assert.True(t, dura > suspend)
 
 	for i := 0; i < count; i++ {
-		_, err := stream.Receive()
+		_, err := stream.Get()
 		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
 	}
 	// ErrCircuitOpen prevents Handle from execution.
@@ -291,12 +290,12 @@ func TestCircuitBreakerStream_Receive2(t *testing.T) {
 	time.Sleep(IntToMillis(conf.SleepWindow))
 	call.Run(func (args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
-	_, err = stream.Receive()
+	_, err = stream.Get()
 	assert.NoError(t, err)
 	// In the end, circuit is closed because of no error.
 }
 
-func TestCircuitBreakerStream_Receive3(t *testing.T) {
+func TestCircuitBreakerStream_Get3(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &mockStream{}
 	count := 3
@@ -318,7 +317,7 @@ func TestCircuitBreakerStream_Receive3(t *testing.T) {
 	mockErr := errors.New("A mocked error")
 
 	var calling int32
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Run(func (args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 	})
@@ -326,11 +325,11 @@ func TestCircuitBreakerStream_Receive3(t *testing.T) {
 
 	// 1st return mockErr, it causes ErrCircuitOpen for the subsequent
 	// requests.
-	_, err := stream.Receive()
+	_, err := stream.Get()
 	assert.EqualError(t, err, mockErr.Error())
 
 	for i := 0; i < count; i++ {
-		_, err := stream.Receive()
+		_, err := stream.Get()
 		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
 	}
 	// ErrCircuitOpen prevents Handle from execution.
@@ -341,11 +340,11 @@ func TestCircuitBreakerStream_Receive3(t *testing.T) {
 	time.Sleep(IntToMillis(conf.SleepWindow))
 	call.Run(func (args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
-	_, err = stream.Receive()
+	_, err = stream.Get()
 	assert.NoError(t, err)
 }
 
-func TestCircuitBreakerStream_Receive4(t *testing.T) {
+func TestCircuitBreakerStream_Get4(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &mockStream{}
 	count := 3
@@ -364,18 +363,18 @@ func TestCircuitBreakerStream_Receive4(t *testing.T) {
 
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 
 	// count is strictly smaller than RequestVolumeThreshold. So circuit is
 	// still closed.
 	for i := 0; i < count; i++ {
 		call.Return(nil, mockErr)
-		_, err := stream.Receive()
+		_, err := stream.Get()
 		assert.EqualError(t, err, mockErr.Error())
 	}
 
 	call.Return(mm, nil)
-	_, err := stream.Receive()
+	_, err := stream.Get()
 	assert.NoError(t, err)
 
 	// Until now, we have $count failed cases and 1 successful case. Need
@@ -384,7 +383,7 @@ func TestCircuitBreakerStream_Receive4(t *testing.T) {
 	// circuit open.
 	for i := 0; i < conf.RequestVolumeThreshold; i++ {
 		call.Return(mm, nil)
-		_, err := stream.Receive()
+		_, err := stream.Get()
 		if i < conf.RequestVolumeThreshold - count - 1 {
 			assert.NoError(t, err)
 		} else {
@@ -394,7 +393,7 @@ func TestCircuitBreakerStream_Receive4(t *testing.T) {
 
 }
 
-func TestConcurrentFetchStream_Receive(t *testing.T) {
+func TestConcurrentFetchStream_Get(t *testing.T) {
 	// This test shows that ConcurrentFetchStream reduces running time.
 	max_concurrency := 5
 	count := max_concurrency
@@ -404,14 +403,14 @@ func TestConcurrentFetchStream_Receive(t *testing.T) {
 
 	suspend := 1 * time.Second
 	mm.On("Id").Return("123")
-	call := mstream.On("Receive")
+	call := mstream.On("Get")
 	call.Run(func (args mock.Arguments) {
 		time.Sleep(suspend)
 	})
 	call.Return(mm, nil)
 	begin := time.Now()
 	for i := 0; i < count; i++ {
-		_, err := stream.Receive()
+		_, err := stream.Get()
 		assert.NoError(t, err)
 	}
 	dura := time.Now().Sub(begin)
@@ -419,7 +418,7 @@ func TestConcurrentFetchStream_Receive(t *testing.T) {
 	assert.True(t, dura < suspend * time.Duration(max_concurrency))
 }
 
-func TestConcurrentFetchStream_Receive2(t *testing.T) {
+func TestConcurrentFetchStream_Get2(t *testing.T) {
 	// This test shows that ConcurrentFetchStream doesn't preserved order.
 	count := 5
 	cstream, msgs := genChannelStreamWithMessages(count)
@@ -446,7 +445,7 @@ func TestConcurrentFetchStream_Receive2(t *testing.T) {
 	ids := make([]string, count)
 	for i := 0; i < count; i++ {
 		log.Info("[Test] loop", "i", i)
-		msg, err := stream.Receive()
+		msg, err := stream.Get()
 		assert.NoError(t, err)
 		log.Info("[Test] loop", "msg_out", msg.Id())
 		ids[i] = msg.Id()

@@ -1,4 +1,3 @@
-// vim:fileencoding=utf-8
 // A wrapper for "github.com/juju/ratelimit".
 
 package service
