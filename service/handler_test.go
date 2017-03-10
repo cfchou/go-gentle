@@ -126,9 +126,9 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	conf.MaxConcurrentRequests = max_concurrency
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	suspend := 1 * time.Second
 	handler := NewCircuitBreakerHandler("test", mhandler, circuit)
 
+	suspend := 1 * time.Second
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	var calling int32
