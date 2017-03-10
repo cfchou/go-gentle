@@ -89,14 +89,14 @@ func TestRateLimitedStream_Receive(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	end := time.Now()
-	log.Info("[Test] spent >= minmum?", "spent", end.Sub(begin), "minimum", minimum)
-	assert.True(t, end.Sub(begin) >= minimum)
+	dura := time.Now().Sub(begin)
+	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
+	assert.True(t, dura >= minimum)
 	done <- &struct{}{}
 }
 
 func TestRetryStream_Receive(t *testing.T) {
-	mstream := &mockStream{log: log.New("mixin", "mock")}
+	mstream := &mockStream{}
 	backoffs := []time.Duration{1 * time.Second, 2 * time.Second}
 	minimum := func(backoffs []time.Duration) time.Duration {
 		dura_sum := 0 * time.Second
@@ -108,7 +108,7 @@ func TestRetryStream_Receive(t *testing.T) {
 	stream := NewRetryStream("retry", mstream,
 		func() []time.Duration {return backoffs})
 
-	// 1st ok
+	// 1st: ok
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	call := mstream.On("Receive")
@@ -117,27 +117,28 @@ func TestRetryStream_Receive(t *testing.T) {
 	_, err := stream.Receive()
 	assert.NoError(t, err)
 
-	// 2ed err, trigger retry with backoffs
+	// 2ed: err, trigger retry with backoffs
 	mockErr := errors.New("A mocked error")
-	call.Return(&mockMsg{}, mockErr)
+	call.Return(nil, mockErr)
 
 	begin := time.Now()
 	_, err = stream.Receive()
-	end := time.Now()
+	dura := time.Now().Sub(begin)
 	// backoffs exhausted
 	assert.EqualError(t, err, mockErr.Error())
-	log.Info("[Test] spent >= minmum?", "spent", end.Sub(begin), "minimum", minimum)
-	assert.True(t, end.Sub(begin) >= minimum)
+	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
+	assert.True(t, dura >= minimum)
 }
 
 func TestBulkheadStream_Receive(t *testing.T) {
-	count := 5
-	max_concurrency := 2
-	mstream := &mockStream{log: log.New("mixin", "mock")}
+	count := 8
+	max_concurrency := 4
+	mstream := &mockStream{}
 	stream := NewBulkheadStream("bulk", mstream, max_concurrency)
 
 	suspend := 1 * time.Second
-	tm := time.NewTimer(suspend)
+	maximum := suspend * time.Duration((count + max_concurrency - 1) / max_concurrency) + time.Second
+
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	calling := 0
@@ -150,6 +151,7 @@ func TestBulkheadStream_Receive(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(count)
+	begin := time.Now()
 	for i :=0; i < count; i++ {
 		go func () {
 			msg, err := stream.Receive()
@@ -158,27 +160,15 @@ func TestBulkheadStream_Receive(t *testing.T) {
 			assert.Equal(t, msg.Id(), mm.Id())
 		}()
 	}
-	func() {
-		for {
-			select {
-			case <-tm.C:
-				log.Info("[Test] timeout")
-				return
-			default:
-				log.Info("[Test] calling <= max_concurrency?",
-					"calling", calling,
-					"max_concurrency", max_concurrency)
-				assert.True(t, calling <= max_concurrency)
-			}
-		}
-	}()
 	wg.Wait()
-	assert.Equal(t, calling, count)
+	dura := time.Now().Sub(begin)
+	log.Info("[Test] spent <= maximum?", "spent", dura, "maximum", maximum)
+	assert.True(t, dura <= maximum)
 }
 
 func TestMappedStream_Receive(t *testing.T) {
-	mstream := &mockStream{log: log.New("mixin", "mock")}
-	mhandler := &mockHandler{log: log.New("mixin", "mock")}
+	mstream := &mockStream{}
+	mhandler := &mockHandler{}
 	mm := &mockMsg{}
 
 	stream := NewMappedStream("test", mstream, mhandler)
@@ -204,7 +194,7 @@ func TestConcurrentFetchStream_Receive(t *testing.T) {
 	max_concurrency := 5
 	count := max_concurrency
 	mm := &mockMsg{}
-	mstream := &mockStream{log: log.New("mixin", "mock")}
+	mstream := &mockStream{}
 	stream := NewConcurrentFetchStream("test", mstream, max_concurrency)
 
 	suspend := 1 * time.Second
@@ -228,7 +218,7 @@ func TestConcurrentFetchStream_Receive2(t *testing.T) {
 	// This test shows that ConcurrentFetchStream doesn't preserved order.
 	count := 5
 	cstream, msgs := genChannelStreamWithMessages(count)
-	mhandler := &mockHandler{log: log.New("mixin", "mock")}
+	mhandler := &mockHandler{}
 	mstream := NewMappedStream("test", cstream, mhandler)
 
 	calls := make([]* mock.Call, count)

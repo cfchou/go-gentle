@@ -4,7 +4,6 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
-	"errors"
 )
 
 // Package level logger.
@@ -21,16 +20,14 @@ type Message interface {
 // Messages of a stream goes one way. Though two streams can simulate two-way
 // communication but it would require out-of-band logic.
 type Stream interface {
-	// returned Message can be nil if only if error is not nil
+	// returned Message is nil if only if error is not nil
 	Receive() (Message, error)
-	Logger() log15.Logger
 }
 
 // Handler reacts to Message from Stream.
 type Handler interface {
-	// returned Message can be nil if only if error is not nil
+	// returned Message is nil if only if error is not nil
 	Handle(Message) (Message, error)
-	Logger() log15.Logger
 }
 
 // RateLimit is an interface for a "token bucket" rate limit algorithm.

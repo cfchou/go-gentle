@@ -6,6 +6,7 @@ import (
 	"github.com/inconshreveable/log15"
 	"github.com/afex/hystrix-go/hystrix"
 	"time"
+	"errors"
 )
 
 // We have RateLimitedStream, RetryStream, CircuitBreakerStream, BulkheadStream.
@@ -73,7 +74,6 @@ func (r *RetryStream) Receive() (Message, error) {
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
-		//
 		msg, err := r.Stream.Receive()
 		if err == nil {
 			r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
@@ -160,6 +160,9 @@ type BulkheadStream struct {
 }
 
 func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
+	if max_concurrency <= 0 {
+		panic(errors.New("max_concurrent must be greater than 0"))
+	}
 	return &BulkheadStream{
 		Name:      name,
 		Stream:    stream,

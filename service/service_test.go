@@ -22,30 +22,30 @@ func (m *mockMsg) Id() string {
 
 type mockStream struct {
 	mock.Mock
-	log log15.Logger
 }
 
 func (m *mockStream) Receive() (Message, error) {
 	args := m.Called()
-	return args.Get(0).(Message), args.Error(1)
-}
-
-func (m *mockStream) Logger() log15.Logger {
-	return m.log
+	msg := args.Get(0)
+	err := args.Get(1)
+	if err != nil {
+		return nil, err.(error)
+	}
+	return msg.(Message), nil
 }
 
 type mockHandler struct {
 	mock.Mock
-	log log15.Logger
 }
 
-func (m *mockHandler) Handle(msg Message) (Message, error) {
-	args := m.Called(msg)
-	return args.Get(0).(Message), args.Error(1)
-}
-
-func (m *mockHandler) Logger() log15.Logger {
-	return m.log
+func (m *mockHandler) Handle(msg_in Message) (Message, error) {
+	args := m.Called(msg_in)
+	msg := args.Get(0)
+	err := args.Get(1)
+	if err != nil {
+		return nil, err.(error)
+	}
+	return msg.(Message), nil
 }
 
 func TestMain(m *testing.M) {

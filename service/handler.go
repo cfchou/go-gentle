@@ -5,6 +5,7 @@ import (
 	"time"
 	"github.com/inconshreveable/log15"
 	"github.com/afex/hystrix-go/hystrix"
+	"errors"
 )
 
 // Handlers, like Streams, come with resiliency patterns and can be mixed in
@@ -45,7 +46,7 @@ type RetryHandler struct {
 	genBackOff GenBackOff
 }
 
-func NewRetryHandler(name string, handler Handler, genBackOff GenBackOff, log log15.Logger) *RetryHandler {
+func NewRetryHandler(name string, handler Handler, genBackOff GenBackOff) *RetryHandler {
 	return &RetryHandler{
 		Handler:handler,
 		Name: name,
@@ -151,6 +152,9 @@ type BulkheadHandler struct {
 }
 
 func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *BulkheadHandler{
+	if max_concurrency <= 0 {
+		panic(errors.New("max_concurrent must be greater than 0"))
+	}
 	return &BulkheadHandler{
 		Handler:handler,
 		Name:name,
