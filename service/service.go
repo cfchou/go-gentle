@@ -4,6 +4,7 @@ package service
 import (
 	"github.com/inconshreveable/log15"
 	"time"
+	"github.com/afex/hystrix-go/hystrix"
 )
 
 // Package level logger.
@@ -35,11 +36,29 @@ type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or
 	// timeout(return false).
 	// timeout == 0 results in blocking as long as it needs.
-	Wait(int64, time.Duration) bool
+	Wait(int, time.Duration) bool
 }
 
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
+}
+
+func GetHystrixDefaultConfig() *hystrix.CommandConfig {
+	return &hystrix.CommandConfig{
+		// How long in millis that if a request exceeds, timeout metric
+		// would increase, then the circuit may open.
+		Timeout:                hystrix.DefaultTimeout,
+
+		ErrorPercentThreshold:  hystrix.DefaultErrorPercentThreshold,
+
+		MaxConcurrentRequests:  hystrix.DefaultMaxConcurrent,
+
+		// the minimum number of requests in the last 10 seconds needed
+		// before a circuit can be tripped.
+		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
+
+		SleepWindow:            hystrix.DefaultSleepWindow,
+	}
 }
 
 type tuple struct {

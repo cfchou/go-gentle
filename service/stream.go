@@ -17,15 +17,15 @@ import (
 // and in which order to mix must be sane.
 
 type RateLimitedStream struct {
-	Stream
 	Name    string
+	stream  Stream
 	limiter RateLimit
 	log     log15.Logger
 }
 
 func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLimitedStream {
 	return &RateLimitedStream{
-		Stream:  stream,
+		stream:  stream,
 		Name:    name,
 		limiter: limiter,
 		log:     Log.New("mixin", "stream_rate", "name", name),
@@ -35,7 +35,7 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 func (r *RateLimitedStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
 	r.limiter.Wait(1, 0)
-	msg, err := r.Stream.Receive()
+	msg, err := r.stream.Receive()
 	if err != nil {
 		r.log.Error("[Stream] Receive err", "err", err)
 		return nil, err
@@ -47,15 +47,15 @@ func (r *RateLimitedStream) Receive() (Message, error) {
 // When Receive() encounters error, it backs off for some time
 // and then retries.
 type RetryStream struct {
-	Stream
 	Name       string
+	stream     Stream
 	log        log15.Logger
 	genBackoff GenBackOff
 }
 
 func NewRetryStream(name string, stream Stream, off GenBackOff) *RetryStream {
 	return &RetryStream{
-		Stream:     stream,
+		stream:     stream,
 		Name:       name,
 		genBackoff: off,
 		log:        Log.New("mixin", "stream_retry", "name", name),
@@ -74,7 +74,7 @@ func (r *RetryStream) Receive() (Message, error) {
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
-		msg, err := r.Stream.Receive()
+		msg, err := r.stream.Receive()
 		if err == nil {
 			r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
 			return msg, err
@@ -97,26 +97,63 @@ func (r *RetryStream) Receive() (Message, error) {
 	}
 }
 
-// CircuitBreaker pattern using hystrix-go.
-type CircuitBreakerStream struct {
-	Stream
-	Name string
-	log  log15.Logger
+// Bulkhead pattern is used to limit the number of concurrent Receive().
+// Calling Receive() is blocked when exceeding the limit.
+type BulkheadStream struct {
+	Name      string
+	stream    Stream
+	log       log15.Logger
+	semaphore chan *struct{}
 }
 
-func NewCircuitBreakerStream(name string, stream Stream) *CircuitBreakerStream {
+func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
+	if max_concurrency <= 0 {
+		panic(errors.New("max_concurrent must be greater than 0"))
+	}
+	return &BulkheadStream{
+		Name:      name,
+		stream:    stream,
+		log:       Log.New("mixin", "stream_bulk", "name", name),
+		semaphore: make(chan *struct{}, max_concurrency),
+	}
+}
+
+func (r *BulkheadStream) Receive() (Message, error) {
+	r.log.Debug("[Stream] Receive()")
+	r.semaphore <- &struct{}{}
+	defer func() { <-r.semaphore }()
+	msg, err := r.stream.Receive()
+	if err == nil {
+		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
+	} else {
+		r.log.Error("[Stream] Receive err", "err", err)
+	}
+	return msg, err
+}
+
+// CircuitBreaker pattern using hystrix-go.
+type CircuitBreakerStream struct {
+	Name    string
+	Circuit string
+	stream  Stream
+	log     log15.Logger
+}
+
+func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
-		Stream: stream,
-		Name:   name,
-		log:    Log.New("mixin", "stream_circuit", "name", name),
+		Name:    name,
+		Circuit: circuit,
+		stream:  stream,
+		log: Log.New("mixin", "stream_circuit", "name", name,
+			"circuit", circuit),
 	}
 }
 
 func (r *CircuitBreakerStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
 	result := make(chan *tuple, 1)
-	err := hystrix.Do(r.Name, func() error {
-		msg, err := r.Stream.Receive()
+	err := hystrix.Do(r.Circuit, func() error {
+		msg, err := r.stream.Receive()
 		if err != nil {
 			r.log.Error("[Stream] Receive err", "err", err)
 			result <- &tuple{
@@ -149,41 +186,6 @@ func (r *CircuitBreakerStream) Receive() (Message, error) {
 	return nil, tp.snd.(error)
 }
 
-// Bulkhead pattern is used to limit the number of concurrent Receive().
-// Calling Receive() is blocked when exceeding the limit.
-type BulkheadStream struct {
-	Stream
-	Name      string
-	log       log15.Logger
-	semaphore chan *struct{}
-	once      sync.Once
-}
-
-func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
-	if max_concurrency <= 0 {
-		panic(errors.New("max_concurrent must be greater than 0"))
-	}
-	return &BulkheadStream{
-		Name:      name,
-		Stream:    stream,
-		log:       Log.New("mixin", "stream_bulk", "name", name),
-		semaphore: make(chan *struct{}, max_concurrency),
-	}
-}
-
-func (r *BulkheadStream) Receive() (Message, error) {
-	r.log.Debug("[Stream] Receive()")
-	r.semaphore <- &struct{}{}
-	defer func(){<- r.semaphore}()
-	msg, err := r.Stream.Receive()
-	if err == nil {
-		r.log.Debug("[Stream] Receive ok", "msg_out", msg.Id())
-	} else {
-		r.log.Error("[Stream] Receive err", "err", err)
-	}
-	return msg, err
-}
-
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
 	Name    string
@@ -199,10 +201,6 @@ func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 	}
 }
 
-func (r *ChannelStream) Logger() log15.Logger {
-	return r.log
-}
-
 func (r *ChannelStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
 	msg := <-r.channel
@@ -216,10 +214,10 @@ func (r *ChannelStream) Receive() (Message, error) {
 // preserved. It's down to application to maintain the order if that's required.
 // For example, set a sequence number inside Messages.
 type ConcurrentFetchStream struct {
-	Stream
 	Name      string
+	stream    Stream
 	log       log15.Logger
-	receives 	  chan *tuple
+	receives  chan *tuple
 	semaphore chan *struct{}
 	once      sync.Once
 }
@@ -227,9 +225,9 @@ type ConcurrentFetchStream struct {
 func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
 	return &ConcurrentFetchStream{
 		Name:      name,
-		Stream:    stream,
+		stream:    stream,
 		log:       Log.New("mixin", "fetchStream", "name", name),
-		receives: make(chan *tuple, max_concurrency),
+		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
 	}
 }
@@ -244,7 +242,7 @@ func (r *ConcurrentFetchStream) onceDo() {
 			// elements from upstream may not preserved.
 			go func() {
 				r.log.Debug("[Stream] onceDo Receive()")
-				msg, err := r.Stream.Receive()
+				msg, err := r.stream.Receive()
 				if err == nil {
 					r.log.Debug("[Stream] onceDo Receive ok",
 						"msg_out", msg.Id())
@@ -279,25 +277,25 @@ func (r *ConcurrentFetchStream) Receive() (Message, error) {
 // MappedStream maps a Handler onto the upstream Stream. The results form
 // a stream of Message's.
 type MappedStream struct {
-	Stream
-	Name      string
-	log       log15.Logger
-	handler   Handler
-	once      sync.Once
+	Name    string
+	stream  Stream
+	log     log15.Logger
+	handler Handler
+	once    sync.Once
 }
 
 func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream {
 	return &MappedStream{
-		Name:      name,
-		Stream:    stream,
-		log:       Log.New("mixin", "mappedStream", "name", name),
-		handler:   handler,
+		Name:    name,
+		stream:  stream,
+		log:     Log.New("mixin", "mappedStream", "name", name),
+		handler: handler,
 	}
 }
 
 func (r *MappedStream) Receive() (Message, error) {
 	r.log.Debug("[Stream] Receive()")
-	msg, err := r.Stream.Receive()
+	msg, err := r.stream.Receive()
 	if err != nil {
 		r.log.Error("[Stream] Receive err", "err", err)
 		return nil, err
