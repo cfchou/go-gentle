@@ -21,13 +21,15 @@ type Message interface {
 // Messages of a stream goes one way. Though two streams can simulate two-way
 // communication but it would require out-of-band logic.
 type Stream interface {
-	// returned Message is nil if only if error is not nil
+	// Receive() returns either a Message or an error. Returned Message is
+	// nil if only if error is not nil.
 	Receive() (Message, error)
 }
 
 // Handler reacts to Message from Stream.
 type Handler interface {
-	// returned Message is nil if only if error is not nil
+	// Handle() transforms an input Message. It returns either a Message or
+	// an error. Returned Message is nil if only if error is not nil.
 	Handle(Message) (Message, error)
 }
 
@@ -35,13 +37,19 @@ type Handler interface {
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or
 	// timeout(return false).
-	// timeout == 0 results in blocking as long as it needs.
+	// timeout == 0 would block as long as it needs.
 	Wait(int, time.Duration) bool
 }
 
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
+
+// GetHystrixDefaultConfig() returns a new CommandConfig filled with defaults.
+//
+// They are:
+// Timeout -- How long in millis that if a request exceeds, timeout metric
+// would increase, then the circuit may open.
 
 func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	return &hystrix.CommandConfig{
