@@ -8,13 +8,7 @@ import (
 	"time"
 )
 
-// We have RateLimitedStream, RetryStream, CircuitBreakerStream, BulkheadStream.
-// Each of which, when mixes(encompasses) each other, brings different
-// resiliency options.
-// A Stream applies its resiliency pattern to its upstream(enclosed Stream).
-// Itself could also be another Stream's upstream. The decision of what Streams
-// and in which order to mix must be sane.
-
+// Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
 	Name    string
 	stream  Stream
@@ -31,6 +25,7 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 	}
 }
 
+// Get() is blocked when the limit is exceeded.
 func (r *RateLimitedStream) Get() (Message, error) {
 	r.log.Debug("[Stream] Get()")
 	r.limiter.Wait(1, 0)
@@ -97,7 +92,6 @@ func (r *RetryStream) Get() (Message, error) {
 }
 
 // Bulkhead pattern is used to limit the number of concurrent Get().
-// Calling Get() is blocked when exceeding the limit.
 type BulkheadStream struct {
 	Name      string
 	stream    Stream
@@ -117,6 +111,7 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 	}
 }
 
+// Get() is blocked when the limit is exceeded.
 func (r *BulkheadStream) Get() (Message, error) {
 	r.log.Debug("[Stream] Get()")
 	r.semaphore <- &struct{}{}

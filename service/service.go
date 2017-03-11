@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-// Package level logger.
+// Package level logger. It uses log15(https://godoc.org/github.com/inconshreveable/log15)
+// to provide finer control over logging.
 var Log = log15.New()
 
 func init() {
@@ -14,57 +15,45 @@ func init() {
 }
 
 type Message interface {
+	// A Message is obliged to implement Id() for better tracing.
 	Id() string
 }
 
-// Messages of a stream goes one way. Though two streams can simulate two-way
-// communication but it would require out-of-band logic.
+// Stream emits Message. Messages of a stream goes one way. Though two streams
+// can simulate two-way communication but it would require out-of-band logic.
 type Stream interface {
-	// Get() returns either a Message or an error. Returned Message is
-	// nil if only if error is not nil.
+	// Get() returns either a Message or an error. Returned Message is nil
+	// if only if error is not nil.
 	Get() (Message, error)
 }
 
-// Handler reacts to Message from Stream.
+// Handler transforms a Message.
 type Handler interface {
-	// Handle() transforms an input Message. It returns either a Message or
-	// an error. Returned Message is nil if only if error is not nil.
-	Handle(Message) (Message, error)
+	// Handle() transforms an Message. Returned Message is nil if only if
+	// error is not nil.
+	Handle(msg Message) (Message, error)
 }
 
-// RateLimit is an interface for a "token bucket" rate limit algorithm.
+// RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
-	// Wait for $count tokens are granted(return true) or
-	// timeout(return false).
-	// timeout == 0 would block as long as it needs.
-	Wait(int, time.Duration) bool
+	// Wait for $count tokens are granted(return true) or timeout(return
+	// false). If $timeout == 0, it would block as long as it needs.
+	Wait(count int, timeout time.Duration) bool
 }
 
+// Converts $millis of int to time.Duration.
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
 
-// GetHystrixDefaultConfig() returns a new CommandConfig filled with defaults.
-//
-// They are:
-// Timeout -- How long in millis that if a request exceeds, timeout metric
-// would increase, then the circuit may open.
-
+// GetHystrixDefaultConfig() returns a new hystrix.CommandConfig filled with defaults(https://godoc.org/github.com/afex/hystrix-go/hystrix#pkg-variables):
 func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	return &hystrix.CommandConfig{
-		// How long in millis that if a request exceeds, timeout metric
-		// would increase, then the circuit may open.
 		Timeout: hystrix.DefaultTimeout,
-
-		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
-
 		MaxConcurrentRequests: hystrix.DefaultMaxConcurrent,
-
-		// the minimum number of requests in the last 10 seconds needed
-		// before a circuit can be tripped.
 		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
-
 		SleepWindow: hystrix.DefaultSleepWindow,
+		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
 	}
 }
 

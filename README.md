@@ -8,25 +8,26 @@ Stream and Handler.
 
 
 ## Stream, Handler and back-pressure
-Stream and Handler are our fundamental abstractions to achieve back-pressure.
-Stream has one method Get() that emits Message. Handler has one method Handle()
-that transforms a given Message. The helper NewMappedStream() creates a
-MappedStream whose Get() emits a Message transformed by a Handler from a given
-Stream.
+__Stream__ and __Handler__ are our fundamental abstractions to achieve back-pressure.
+Stream has one method __Get()__ that emits Message. Handler has another method
+__Handle()__ that transforms a given Message. The helper [NewMappedStream()](https://godoc.org/github.com/cfchou/go-gentle/service#NewMappedStream)
+creates a MappedStream whose Get() emits a Message transformed by a Handler
+from a given Stream.
 
 ## Resiliency
 Besides back-pressure, resiliency patterns are indispensable in distributed
-systems as external services are not reliable at all time. Such patterns
-come to useful oftentimes include rate limiting, retry, circuit-breaker and
-bulkhead.
+systems as external services are not reliable at all time. Some of the patterns
+come to useful include __rate limiting, retry/back-off, circuit-breaker and bulkhead__.
+Each of our implementations of Stream and Handler features one resiliency
+pattern.
 
 ## Composability
-Users define their own Stream/Handler and compose them with our resilient
-implementations.
+_Users define their own Stream/Handler and compose them with our resilient
+counterpart_.
 
-Each implementations of Stream and Handler features one resiliency pattern.
-Nevertheless, they are free to mix with each other to form an ad-hoc, combined
-resiliency. For example:
+Each of our implementations of Stream and Handler features one resiliency
+pattern. Nevertheless, _they are free to mix with each other to form an ad-hoc,
+combined resiliency_. For example:
 ```
 func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) Stream {
 	upstream := NewRetryStream(name,

@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// Handlers, like Streams, come with resiliency patterns and can be mixed in
-// each other.
-
+// Rate limiting pattern is used to limit the speed of a series of Handle().
 type RateLimitedHandler struct {
 	Name    string
 	handler Handler
@@ -26,6 +24,7 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 	}
 }
 
+// Handle() is blocked when the limit is exceeded.
 func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] Handle()")
 	r.limiter.Wait(1, 0)
@@ -146,6 +145,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	return nil, tp.snd.(error)
 }
 
+// Bulkhead pattern is used to limit the number of concurrent Handle().
 type BulkheadHandler struct {
 	Name      string
 	handler   Handler
@@ -165,6 +165,7 @@ func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *Bulk
 	}
 }
 
+// Handle() is blocked when the limit is exceeded.
 func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] ",
 		"msg_in", msg.Id())
