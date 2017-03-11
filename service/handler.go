@@ -1,10 +1,10 @@
 package service
 
 import (
-	"time"
-	"github.com/inconshreveable/log15"
-	"github.com/afex/hystrix-go/hystrix"
 	"errors"
+	"github.com/afex/hystrix-go/hystrix"
+	"github.com/inconshreveable/log15"
+	"time"
 )
 
 // Handlers, like Streams, come with resiliency patterns and can be mixed in

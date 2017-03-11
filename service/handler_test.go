@@ -1,15 +1,15 @@
 package service
 
 import (
-	"testing"
-	"time"
-	"github.com/stretchr/testify/assert"
-	"sync"
 	"errors"
-	"github.com/stretchr/testify/mock"
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/rs/xid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"sync"
 	"sync/atomic"
+	"testing"
+	"time"
 )
 
 func TestRateLimitedHandler_Handle(t *testing.T) {
@@ -85,13 +85,13 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	handler := NewBulkheadHandler("test", mhandler, max_concurrency)
 
 	suspend := 1 * time.Second
-	maximum := suspend * time.Duration((count + max_concurrency - 1) / max_concurrency) + time.Second
+	maximum := suspend*time.Duration((count+max_concurrency-1)/max_concurrency) + time.Second
 
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 	calling := 0
 	call := mhandler.On("Handle", mm)
-	call.Run(func (args mock.Arguments) {
+	call.Run(func(args mock.Arguments) {
 		calling++
 		time.Sleep(suspend)
 	})
@@ -100,8 +100,8 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
-	for i :=0; i < count; i++ {
-		go func () {
+	for i := 0; i < count; i++ {
+		go func() {
 			msg, err := handler.Handle(mm)
 			wg.Done()
 			assert.NoError(t, err)
@@ -132,7 +132,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	mm.On("Id").Return("123")
 	var calling int32
 	call := mhandler.On("Handle", mm)
-	call.Run(func (args mock.Arguments) {
+	call.Run(func(args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 		time.Sleep(suspend)
 	})
@@ -142,8 +142,8 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	var all_errors []*error
 	//
 	tm := time.NewTimer(suspend + time.Second)
-	for i :=0; i < count; i++ {
-		go func () {
+	for i := 0; i < count; i++ {
+		go func() {
 			_, err := handler.Handle(mm)
 			if err != nil {
 				lock.Lock()
@@ -157,13 +157,12 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	assert.Equal(t, atomic.LoadInt32(&calling), int32(max_concurrency))
 	lock.Lock()
 	defer lock.Unlock()
-	for _, e := range(all_errors) {
+	for _, e := range all_errors {
 		assert.EqualError(t, *e, hystrix.ErrMaxConcurrency.Error())
 		log.Info("[Test]", "err", *e)
 	}
-	assert.Equal(t, count - max_concurrency, len(all_errors))
+	assert.Equal(t, count-max_concurrency, len(all_errors))
 }
-
 
 func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	circuit := xid.New().String()
@@ -185,10 +184,10 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 
-	suspend := time.Duration(conf.Timeout + 500) * time.Millisecond
+	suspend := time.Duration(conf.Timeout+500) * time.Millisecond
 	var calling int32
 	call := mhandler.On("Handle", mm)
-	call.Run(func (args mock.Arguments) {
+	call.Run(func(args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 		time.Sleep(suspend)
 	})
@@ -212,7 +211,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
-	call.Run(func (args mock.Arguments) { /* no-op */ })
+	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = handler.Handle(mm)
 	assert.NoError(t, err)
@@ -242,7 +241,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 
 	var calling int32
 	call := mhandler.On("Handle", mm)
-	call.Run(func (args mock.Arguments) {
+	call.Run(func(args mock.Arguments) {
 		atomic.AddInt32(&calling, 1)
 	})
 	call.Return(nil, mockErr)
@@ -262,7 +261,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
-	call.Run(func (args mock.Arguments) { /* no-op */ })
+	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = handler.Handle(mm)
 	assert.NoError(t, err)
@@ -308,7 +307,7 @@ func TestCircuitBreakerHandler_Handle4(t *testing.T) {
 	for i := 0; i < conf.RequestVolumeThreshold; i++ {
 		call.Return(mm, nil)
 		_, err := handler.Handle(mm)
-		if i < conf.RequestVolumeThreshold - count - 1 {
+		if i < conf.RequestVolumeThreshold-count-1 {
 			assert.NoError(t, err)
 		} else {
 			assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())

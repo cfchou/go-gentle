@@ -3,9 +3,9 @@
 package service
 
 import (
-	"time"
-	"github.com/juju/ratelimit"
 	"errors"
+	"github.com/juju/ratelimit"
+	"time"
 )
 
 type TokenBucketRateLimit struct {
@@ -39,4 +39,3 @@ func (rl *TokenBucketRateLimit) Wait(count int, timeout time.Duration) bool {
 	}
 	return rl.bucket.WaitMaxDuration(int64(count), timeout)
 }
-

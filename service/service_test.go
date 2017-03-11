@@ -2,9 +2,9 @@ package service
 
 import (
 	"flag"
-	"testing"
 	"github.com/inconshreveable/log15"
 	"github.com/stretchr/testify/mock"
+	"testing"
 )
 
 // Parent logger for tests
@@ -57,4 +57,3 @@ func TestMain(m *testing.M) {
 	Log.SetHandler(h)
 	m.Run()
 }
-

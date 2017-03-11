@@ -1,41 +1,51 @@
 
-##Go-gentle
+## Go-gentle
 Talk to external services like a gentleman.
 
-This package provides resilient implementations of two interfaces: Stream and
-Handler.
+## Intro
+This package provides composable resilient implementations of two interfaces:
+Stream and Handler.
 
+
+## Stream, Handler and back-pressure
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
 Stream has one method Get() that emits Message. Handler has one method Handle()
 that transforms a given Message. The helper NewMappedStream() creates a
 MappedStream whose Get() emits a Message transformed by a Handler from a given
 Stream.
 
+## Resiliency
 Besides back-pressure, resiliency patterns are indispensable in distributed
-systems as external services are not reliable at all time. Patterns in question
-include rate limiting, retry, circuit-breaker and bulkhead.
+systems as external services are not reliable at all time. Such patterns
+come to useful oftentimes include rate limiting, retry, circuit-breaker and
+bulkhead.
+
+## Composability
+Users define their own Stream/Handler and compose them with our resilient
+implementations.
 
 Each implementations of Stream and Handler features one resiliency pattern.
-They are free to mix with each other to form a more sophisticated combined
+Nevertheless, they are free to mix with each other to form an ad-hoc, combined
 resiliency. For example:
 ```
-func compose(name string, stream Stream, handler Handler) Stream {
+func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) Stream {
 	upstream := NewRetryStream(name,
-		NewRateLimitedStream(name, stream,
+		NewRateLimitedStream(name, userDefinedStream,
 			NewTokenBucketRateLimit(100, 1)),
 		func() []time.Duration {
 			return []time.Duration{time.Second, time.Second}
 		})
 	return NewMappedStream(name, upstream,
-		NewCircuitBreakerHandler(name, handler, "circuit"))
+		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
 }
-
 ```
 
-##Document
+## Install
+
+## Document
 [GoDoc](https://godoc.org/github.com/cfchou/go-gentle/service)
 
-##Appendix
+## Appendix
 
 ###state machine of circuits
 

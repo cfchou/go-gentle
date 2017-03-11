@@ -1,9 +1,9 @@
 package service
 
 import (
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/inconshreveable/log15"
 	"time"
-	"github.com/afex/hystrix-go/hystrix"
 )
 
 // Package level logger.
@@ -54,17 +54,17 @@ func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	return &hystrix.CommandConfig{
 		// How long in millis that if a request exceeds, timeout metric
 		// would increase, then the circuit may open.
-		Timeout:                hystrix.DefaultTimeout,
+		Timeout: hystrix.DefaultTimeout,
 
-		ErrorPercentThreshold:  hystrix.DefaultErrorPercentThreshold,
+		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
 
-		MaxConcurrentRequests:  hystrix.DefaultMaxConcurrent,
+		MaxConcurrentRequests: hystrix.DefaultMaxConcurrent,
 
 		// the minimum number of requests in the last 10 seconds needed
 		// before a circuit can be tripped.
 		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
 
-		SleepWindow:            hystrix.DefaultSleepWindow,
+		SleepWindow: hystrix.DefaultSleepWindow,
 	}
 }
 

@@ -1,11 +1,11 @@
 package service
 
 import (
-	"sync"
-	"github.com/inconshreveable/log15"
-	"github.com/afex/hystrix-go/hystrix"
-	"time"
 	"errors"
+	"github.com/afex/hystrix-go/hystrix"
+	"github.com/inconshreveable/log15"
+	"sync"
+	"time"
 )
 
 // We have RateLimitedStream, RetryStream, CircuitBreakerStream, BulkheadStream.
