@@ -62,4 +62,6 @@ type tuple struct {
 	snd interface{}
 }
 
+// GenBackOff is a function returning a slice of time.Duration that will be
+// used as intervals between back-offs.
 type GenBackOff func() []time.Duration

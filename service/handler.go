@@ -37,6 +37,8 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	return msg, nil
 }
 
+// RetryHandler takes an Handler. When Handler.Handle() encounters an error,
+// RetryHandler back off for some time and then retries.
 type RetryHandler struct {
 	Name       string
 	Log        log15.Logger

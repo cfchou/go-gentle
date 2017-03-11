@@ -38,7 +38,7 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	return msg, nil
 }
 
-// When Get() encounters error, it backs off for some time
+// RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
 type RetryStream struct {
 	Name       string
