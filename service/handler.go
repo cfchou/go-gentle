@@ -91,6 +91,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	}
 }
 
+// CircuitBreakerHandler is a handler equipped with a circuit-breaker.
 type CircuitBreakerHandler struct {
 	Name    string
 	Log     log15.Logger
@@ -98,6 +99,9 @@ type CircuitBreakerHandler struct {
 	handler Handler
 }
 
+// In hystrix-go, a circuit-breaker must be given a unique name.
+// NewCircuitBreakerHandler() creates a CircuitBreakerHandler with a
+// circuit-breaker named $circuit.
 func NewCircuitBreakerHandler(name string, handler Handler, circuit string) *CircuitBreakerHandler {
 	return &CircuitBreakerHandler{
 		Name:    name,
@@ -153,6 +157,8 @@ type BulkheadHandler struct {
 	semaphore chan *struct{}
 }
 
+// Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
+// run concurrently.
 func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *BulkheadHandler {
 	if max_concurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))

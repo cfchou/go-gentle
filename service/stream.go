@@ -99,6 +99,8 @@ type BulkheadStream struct {
 	semaphore chan *struct{}
 }
 
+// Create a BulkheadStream that allows at maximum $max_concurrency Get() to
+// run concurrently.
 func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
 	if max_concurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))
@@ -125,7 +127,7 @@ func (r *BulkheadStream) Get() (Message, error) {
 	return msg, err
 }
 
-// CircuitBreaker pattern using hystrix-go.
+// CircuitBreakerStream is a Stream equipped with a circuit-breaker.
 type CircuitBreakerStream struct {
 	Name    string
 	Log     log15.Logger
@@ -133,6 +135,9 @@ type CircuitBreakerStream struct {
 	stream  Stream
 }
 
+// In hystrix-go, a circuit-breaker must be given a unique name.
+// NewCircuitBreakerStream() creates a CircuitBreakerStream with a
+// circuit-breaker named $circuit.
 func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
 		Name:    name,
@@ -187,6 +192,7 @@ type ChannelStream struct {
 	Log     log15.Logger
 }
 
+// Create a ChannelStream that gets Messages from $channel.
 func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 	return &ChannelStream{
 		Name:    name,
@@ -202,11 +208,10 @@ func (r *ChannelStream) Get() (Message, error) {
 	return msg, nil
 }
 
-// ConcurrentFetchStream concurrently prefetch a number of items from upstream
-// without being asked.
+// ConcurrentFetchStream internally keeps fetching a number of items from
+// upstream concurrently.
 // Note that the order of messages emitted from the upstream may not be
 // preserved. It's down to application to maintain the order if that's required.
-// For example, set a sequence number inside Messages.
 type ConcurrentFetchStream struct {
 	Name      string
 	Log       log15.Logger
@@ -216,6 +221,8 @@ type ConcurrentFetchStream struct {
 	once      sync.Once
 }
 
+// Create a ConcurrentFetchStream that allows at maximum $max_concurrency
+// Messages being internally fetched from upstream concurrently.
 func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
 	return &ConcurrentFetchStream{
 		Name:      name,
@@ -268,8 +275,8 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	return msg, nil
 }
 
-// MappedStream maps a Handler onto the upstream Stream. The results form
-// a stream of Message's.
+// A MappedStream whose Get() emits a Message transformed by a Handler from
+// a given Stream.
 type MappedStream struct {
 	Name    string
 	Log     log15.Logger
