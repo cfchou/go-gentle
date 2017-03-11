@@ -11,30 +11,30 @@ import (
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
 	Name    string
+	Log     log15.Logger
 	stream  Stream
 	limiter RateLimit
-	log     log15.Logger
 }
 
 func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLimitedStream {
 	return &RateLimitedStream{
-		stream:  stream,
 		Name:    name,
+		Log:     Log.New("mixin", "stream_rate", "name", name),
+		stream:  stream,
 		limiter: limiter,
-		log:     Log.New("mixin", "stream_rate", "name", name),
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
 func (r *RateLimitedStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	r.limiter.Wait(1, 0)
 	msg, err := r.stream.Get()
 	if err != nil {
-		r.log.Error("[Stream] Get err", "err", err)
+		r.Log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+	r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -42,49 +42,49 @@ func (r *RateLimitedStream) Get() (Message, error) {
 // and then retries.
 type RetryStream struct {
 	Name       string
+	Log        log15.Logger
 	stream     Stream
-	log        log15.Logger
 	genBackoff GenBackOff
 }
 
 func NewRetryStream(name string, stream Stream, off GenBackOff) *RetryStream {
 	return &RetryStream{
-		stream:     stream,
 		Name:       name,
+		Log:        Log.New("mixin", "stream_retry", "name", name),
+		stream:     stream,
 		genBackoff: off,
-		log:        Log.New("mixin", "stream_retry", "name", name),
 	}
 }
 
 func (r *RetryStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	var bk []time.Duration
 	to_wait := 0 * time.Second
 	count := 0
 	for {
 		count += 1
-		r.log.Debug("[Stream] Get ...", "count", count,
+		r.Log.Debug("[Stream] Get ...", "count", count,
 			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
 		if err == nil {
-			r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+			r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 			return msg, err
 		}
 		if count == 1 {
 			bk = r.genBackoff()
-			r.log.Debug("[Stream] Get generate backoffs",
+			r.Log.Debug("[Stream] Get generate backoffs",
 				"len", len(bk))
 		}
 		if len(bk) == 0 {
 			// backoffs exhausted
-			r.log.Error("[Stream] Get err, stop backing off",
+			r.Log.Error("[Stream] Get err, stop backing off",
 				"err", err)
 			return nil, err
 		} else {
-			r.log.Error("[Stream] Get err", "err", err)
+			r.Log.Error("[Stream] Get err", "err", err)
 		}
 		to_wait = bk[0]
 		bk = bk[1:]
@@ -94,8 +94,8 @@ func (r *RetryStream) Get() (Message, error) {
 // Bulkhead pattern is used to limit the number of concurrent Get().
 type BulkheadStream struct {
 	Name      string
+	Log       log15.Logger
 	stream    Stream
-	log       log15.Logger
 	semaphore chan *struct{}
 }
 
@@ -105,22 +105,22 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 	}
 	return &BulkheadStream{
 		Name:      name,
+		Log:       Log.New("mixin", "stream_bulk", "name", name),
 		stream:    stream,
-		log:       Log.New("mixin", "stream_bulk", "name", name),
 		semaphore: make(chan *struct{}, max_concurrency),
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
 func (r *BulkheadStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	r.semaphore <- &struct{}{}
 	defer func() { <-r.semaphore }()
 	msg, err := r.stream.Get()
 	if err == nil {
-		r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+		r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	} else {
-		r.log.Error("[Stream] Get err", "err", err)
+		r.Log.Error("[Stream] Get err", "err", err)
 	}
 	return msg, err
 }
@@ -128,35 +128,35 @@ func (r *BulkheadStream) Get() (Message, error) {
 // CircuitBreaker pattern using hystrix-go.
 type CircuitBreakerStream struct {
 	Name    string
+	Log     log15.Logger
 	Circuit string
 	stream  Stream
-	log     log15.Logger
 }
 
 func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
 		Name:    name,
+		Log: Log.New("mixin", "stream_circuit", "name", name,
+			"circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		log: Log.New("mixin", "stream_circuit", "name", name,
-			"circuit", circuit),
 	}
 }
 
 func (r *CircuitBreakerStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg, err := r.stream.Get()
 		if err != nil {
-			r.log.Error("[Stream] Get err", "err", err)
+			r.Log.Error("[Stream] Get err", "err", err)
 			result <- &tuple{
 				fst: msg,
 				snd: err,
 			}
 			return err
 		}
-		r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+		r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 		result <- &tuple{
 			fst: msg,
 			snd: err,
@@ -166,7 +166,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
-		r.log.Warn("[Stream] Circuit err", "err", err)
+		r.Log.Warn("[Stream] Circuit err", "err", err)
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Get()'s err.
@@ -184,21 +184,21 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 type ChannelStream struct {
 	Name    string
 	channel <-chan Message
-	log     log15.Logger
+	Log     log15.Logger
 }
 
 func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 	return &ChannelStream{
 		Name:    name,
+		Log:     Log.New("mixin", "chanStream", "name", name),
 		channel: channel,
-		log:     Log.New("mixin", "chanStream", "name", name),
 	}
 }
 
 func (r *ChannelStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	msg := <-r.channel
-	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+	r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -209,8 +209,8 @@ func (r *ChannelStream) Get() (Message, error) {
 // For example, set a sequence number inside Messages.
 type ConcurrentFetchStream struct {
 	Name      string
+	Log       log15.Logger
 	stream    Stream
-	log       log15.Logger
 	receives  chan *tuple
 	semaphore chan *struct{}
 	once      sync.Once
@@ -219,8 +219,8 @@ type ConcurrentFetchStream struct {
 func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
 	return &ConcurrentFetchStream{
 		Name:      name,
+		Log:       Log.New("mixin", "fetchStream", "name", name),
 		stream:    stream,
-		log:       Log.New("mixin", "fetchStream", "name", name),
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
 	}
@@ -228,20 +228,20 @@ func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *
 
 func (r *ConcurrentFetchStream) onceDo() {
 	go func() {
-		r.log.Info("[Stream] once")
+		r.Log.Info("[Stream] once")
 		for {
 			// pull more messages as long as semaphore allows
 			r.semaphore <- &struct{}{}
 			// Since Get() are run concurrently, the order of
 			// elements from upstream may not preserved.
 			go func() {
-				r.log.Debug("[Stream] onceDo Get()")
+				r.Log.Debug("[Stream] onceDo Get()")
 				msg, err := r.stream.Get()
 				if err == nil {
-					r.log.Debug("[Stream] onceDo Get ok",
+					r.Log.Debug("[Stream] onceDo Get ok",
 						"msg_out", msg.Id())
 				} else {
-					r.log.Error("[Stream] onceDo Get err",
+					r.Log.Error("[Stream] onceDo Get err",
 						"err", err)
 				}
 				r.receives <- &tuple{
@@ -254,17 +254,17 @@ func (r *ConcurrentFetchStream) onceDo() {
 }
 
 func (r *ConcurrentFetchStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	r.once.Do(r.onceDo)
 	tp := <-r.receives
 	<-r.semaphore
 	if tp.snd != nil {
 		err := tp.snd.(error)
-		r.log.Error("[Stream] Get err", "err", err)
+		r.Log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
 	msg := tp.fst.(Message)
-	r.log.Debug("[Stream] Get ok", "msg_out", msg.Id())
+	r.Log.Debug("[Stream] Get ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -272,35 +272,34 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 // a stream of Message's.
 type MappedStream struct {
 	Name    string
+	Log     log15.Logger
 	stream  Stream
-	log     log15.Logger
 	handler Handler
-	once    sync.Once
 }
 
 func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream {
 	return &MappedStream{
 		Name:    name,
+		Log:     Log.New("mixin", "mappedStream", "name", name),
 		stream:  stream,
-		log:     Log.New("mixin", "mappedStream", "name", name),
 		handler: handler,
 	}
 }
 
 func (r *MappedStream) Get() (Message, error) {
-	r.log.Debug("[Stream] Get()")
+	r.Log.Debug("[Stream] Get()")
 	msg, err := r.stream.Get()
 	if err != nil {
-		r.log.Error("[Stream] Get err", "err", err)
+		r.Log.Error("[Stream] Get err", "err", err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get ok, run Handle()", "msg", msg.Id())
+	r.Log.Debug("[Stream] Get ok, run Handle()", "msg", msg.Id())
 	m, e := r.handler.Handle(msg)
 	if e != nil {
-		r.log.Error("[Stream] Handle err", "err", err)
+		r.Log.Error("[Stream] Handle err", "err", err)
 		return nil, e
 	}
-	r.log.Debug("[Stream] Handle done", "msg_in", msg.Id(),
+	r.Log.Debug("[Stream] Handle done", "msg_in", msg.Id(),
 		"msg_out", m.Id())
 	return m, nil
 }
