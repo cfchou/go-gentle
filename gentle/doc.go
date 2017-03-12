@@ -13,7 +13,7 @@ from a given Stream.
 Resiliency
 
 Besides back-pressure, resiliency patterns are indispensable in distributed
-systems as external gentles are not reliable at all time. Some of the patterns
+systems as external services are not reliable at all time. Some of the patterns
 come to useful include rate limiting, retry/back-off, circuit-breaker and bulkhead.
 Each of our implementations of Stream and Handler features one resiliency
 pattern:

@@ -10,7 +10,7 @@ Stream and Handler.
 ## Stream, Handler and back-pressure
 __Stream__ and __Handler__ are our fundamental abstractions to achieve back-pressure.
 Stream has one method __Get()__ that emits Message. Handler has another method
-__Handle()__ that transforms a given Message. The helper [NewMappedStream()](https://godoc.org/github.com/cfchou/go-gentle/service#NewMappedStream)
+__Handle()__ that transforms a given Message. The helper [NewMappedStream()](https://godoc.org/github.com/cfchou/go-gentle/gentle#NewMappedStream)
 creates a MappedStream whose Get() emits a Message transformed by a Handler
 from a given Stream.
 
@@ -44,7 +44,7 @@ func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) 
 ## Install
 
 ## Document
-[GoDoc](https://godoc.org/github.com/cfchou/go-gentle/service)
+[GoDoc](https://godoc.org/github.com/cfchou/go-gentle/gentle)
 
 ## Appendix
 
