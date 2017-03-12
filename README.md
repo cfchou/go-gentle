@@ -41,35 +41,21 @@ func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) 
 }
 ```
 
-## Install
-
 ## Document
 [GoDoc](https://godoc.org/github.com/cfchou/go-gentle/gentle)
 
-## Appendix
+## Install
 
-###state machine of circuits
-
-```
-Two rolling metrics are relevent:
-reqs_last_10s := metrics.requests.take(-10s)
-err_last_10s := metrics.errors.take(-10s) 
-```
-
-A circuit, according to its state, may allow or disallow requests.
-
-Requests, if they are given the green light to run, would update the metrics.
-If they are disallow, no update to metrics including __reqs_last_10s__.
-
+If you're using [glide](https://glide.sh/), simply run:
 
 ```
-[closed] -> [open] when:
-reqs_last_10s > RequestVolumeThreshold &&
-    err_last_10s / req_last_10s > ErrorPercentThreshold
+glide get gopkg.in/cfchou/go-gentle.v1
+glide update
 ```
 
-```
-[open] -> [half_closed] -> [closed] when:
-now.Sub(openedOrLastTestTime) > SleepWindow && reqest.success
-    
-```
+If you're using other package management tools or not using them at all, then
+you have to install dependencies by yourself. The dependencies are described in
+[glide.yaml](https://github.com/cfchou/go-gentle/blob/master/glide.yaml)
+
+
+
