@@ -6,28 +6,31 @@ Stream and Handler and back-pressure
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
 Stream has one method Get() that emits Message. Handler has another method
-Handle() that transforms a given Message. The helper NewMappedStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewMappedStream)
+Handle() that transforms a given Message. The helper NewMappedStream()
 creates a MappedStream whose Get() emits a Message transformed by a Handler
 from a given Stream.
+
+  Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
+  Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
+  NewMappedStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewMappedStream)
 
 Resiliency
 
 Besides back-pressure, resiliency patterns are indispensable in distributed
 systems as external services are not reliable at all time. Some of the patterns
-come to useful include rate limiting, retry/back-off, circuit-breaker and bulkhead.
+come to useful include rate-limiting, retry/back-off, circuit-breaker and bulkhead.
 Each of our implementations of Stream and Handler features one resiliency
 pattern:
 
-RateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedStream)
-RetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryStream)
-BulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadStream)
-CircuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerStream)
+  RateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedStream)
+  RetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryStream)
+  BulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadStream)
+  CircuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerStream)
 
-RateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedHandler)
-RetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryHandler)
-BulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadHandler)
-CircuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerHandler)
-
+  RateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedHandler)
+  RetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryHandler)
+  BulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadHandler)
+  CircuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerHandler)
 
 Composability
 
@@ -46,14 +49,20 @@ with each other to form an ad-hoc, combined resiliency. For example:
   		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
   }
 
+A crucial difference exists in how Stream and Handler apply resiliency patterns.
+Take retry/back-off as an example, when a Stream observes a failure, it attempts
+to pull again the NEXT Message from its upstream. On the other hand, when a
+Handler sees a failure, it attempts to run again its wrapped-handler on the SAME
+Message.
+
 User defined Stream and Handler
 
-A helper is provided for creating a Stream from a chan.
-
-NewChannelStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewChannelStream)
-
-Users define their own Stream/Handler and compose them with our resilient
+Users can define their own Stream/Handler and compose them with our resilient
 counterpart.
+
+Meanwhile, a helper is provided for creating a Stream from a chan:
+
+  NewChannelStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewChannelStream)
 
 Parallelism
 
@@ -61,7 +70,17 @@ We may want a Stream that fetches many Messages in parallel to achieve higher
 throughput. That's when ConcurrentFetchStream comes into rescue. However, noted
 that higher throughput is at the expense of breaking the order of Messages.
 
-ConcurrentFetchStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#ConcurrentFetchStream)
+  ConcurrentFetchStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#ConcurrentFetchStream)
+
+
+
+External References
+
+Some of our implementations make heavy use of third-party packages. It helps to checkout their documents.
+
+  Circuit-breaker is based on hystrix-go(https://godoc.org/github.com/afex/hystrix-go/hystrix).
+  Rate-limiting is based on ratelimit(https://godoc.org/github.com/juju/ratelimit).
+  Logging is based on log15(https://godoc.org/github.com/inconshreveable/log15).
 
 */
 package gentle
