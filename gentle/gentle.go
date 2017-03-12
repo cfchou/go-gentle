@@ -1,4 +1,4 @@
-package service
+package gentle
 
 import (
 	"github.com/afex/hystrix-go/hystrix"

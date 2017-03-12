@@ -1,4 +1,4 @@
-package service
+package gentle
 
 import (
 	"github.com/hashicorp/golang-lru"

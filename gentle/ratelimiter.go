@@ -1,6 +1,6 @@
 // A wrapper for "github.com/juju/ratelimit".
 
-package service
+package gentle
 
 import (
 	"errors"
