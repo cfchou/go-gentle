@@ -3,6 +3,7 @@ homepage: https://github.com/cfchou/go-gentle
 license: MIT
 excludeDirs:
 - tmp
+- example
 import:
 - package: github.com/juju/ratelimit
 - package: github.com/afex/hystrix-go

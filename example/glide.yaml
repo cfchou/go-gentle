@@ -1,0 +1,16 @@
+package: github.com/cfchou/go-gentle/example
+import:
+- package: github.com/cfchou/go-gentle
+  version: ^1.0.0
+  subpackages:
+  - gentle
+- package: github.com/hashicorp/golang-lru
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: golang.org/x/oauth2
+  subpackages:
+  - google
+- package: google.golang.org/api
+  subpackages:
+  - gmail/v1
