@@ -75,6 +75,7 @@ type gmailListStream struct {
 	messages      []*gmail.Message
 	nextPageToken string
 	page_num      int
+	terminate     chan *struct{}
 }
 
 func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_results int64) *gmailListStream {
@@ -95,6 +96,7 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 		listCall: listCall,
 		lock:     sync.Mutex{},
 		Log:     log.New("mixin", "list"),
+		terminate: make(chan *struct{}),
 	}
 }
 
@@ -109,10 +111,15 @@ func (s *gmailListStream) nextMessage() (*gmailMessage, error) {
 	return msg, nil
 }
 
+func (s *gmailListStream) shutdown() {
+	s.terminate <- &struct{}{}
+}
+
 func (s *gmailListStream) Get() (gentle.Message, error) {
 	s.lock.Lock()
-	defer s.lock.Unlock()
+	//defer s.lock.Unlock()
 	if s.messages != nil && len(s.messages) > 0 {
+		s.lock.Unlock()
 		return s.nextMessage()
 	}
 	if s.nextPageToken != "" {
@@ -120,11 +127,19 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	}
 	resp, err := s.listCall.Do()
 	if err != nil {
-		return nil, err
+		s.lock.Unlock()
+		select {
+		case <-s.terminate:
+			return nil, err
+		}
 	}
 	if resp.NextPageToken == "" && s.nextPageToken == "" {
 		s.Log.Info("EOF, no more pages")
-		return nil, ErrEOF
+		s.lock.Unlock()
+		select {
+		case <-s.terminate:
+			return nil, ErrEOF
+		}
 	}
 	s.messages = resp.Messages
 	s.nextPageToken = resp.NextPageToken
@@ -132,8 +147,13 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken)
 	if len(s.messages) == 0 {
 		s.Log.Info("EOF, no more messages")
-		return nil, ErrEOF
+		s.lock.Unlock()
+		select {
+		case <-s.terminate:
+			return nil, ErrEOF
+		}
 	}
+	defer s.lock.Unlock()
 	s.page_num++
 	return s.nextMessage()
 }
@@ -145,8 +165,7 @@ type gmailMessageHandler struct {
 
 func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gmailMessageHandler {
 	client := appConfig.Client(context.Background(), userTok)
-	// Timeout for a request
-	client.Timeout = time.Second * 30
+	//client.Timeout = time.Second * 30
 	service, err := gmail.New(client)
 	if err != nil {
 		log.Error("gmail.New err", "err", err)
@@ -171,7 +190,6 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 
 func example_list_only(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, log15.StdoutHandler))
 	return lstream
 }
 
@@ -196,6 +214,7 @@ func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gent
 
 	// Gmail per-user throttle is capped at 250 msg/s
 	// googleapi: Error 429: Too many concurrent requests for user, rateLimitExceeded
+	// googleapi: Error 429: User-rate limit exceeded.  Retry after 2017-03-13T19:26:54.011Z, rateLimitExceeded
 	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
 }
 
@@ -206,9 +225,10 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 
 	handler := NewGmailMessageHandler(appConfig, userTok)
 
-	// 4
 	rhandler := gentle.NewRateLimitedHandler("gmail", handler,
-		gentle.NewTokenBucketRateLimit(2, 1))
+		// (1000/request_interval) messages/sec, but the real speed is
+		// most likely lower.
+		gentle.NewTokenBucketRateLimit(1, 1))
 
 	mstream := gentle.NewMappedStream("gmail", lstream, rhandler)
 
@@ -216,37 +236,83 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 }
 
 func main() {
-	h := log15.LvlFilterHandler(log15.LvlDebug, log15.StdoutHandler)
+	h := log15.LvlFilterHandler(log15.LvlDebug,
+		log15.MultiHandler(
+			log15.StdoutHandler,
+			log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
 	log.SetHandler(h)
 	config := getAppSecret(app_secret_file)
 	tok := getTokenFromWeb(config)
 
 	count := 2000
 	total := 0
+	var totalSize int64
 	//stream := example_hit_ratelimit(config, tok)
-	//stream := example_ratelimited(config, tok)
-	stream := example_happy_slow(config, tok)
+	stream := example_ratelimited(config, tok)
+	//stream := example_happy_slow(config, tok)
+	//stream := example_list_only(config, tok)
 
-	begin := time.Now()
+	total_begin := time.Now()
 	mails := make(map[string]bool)
 	for i := 0; i < count; i++ {
-		msg, err := stream.Get()
+		begin := time.Now()
+		msg, err := GetWithTimeout(stream, 10*time.Second)
+		dura := time.Now().Sub(begin)
 		if err != nil {
 			if err == ErrEOF {
-				log.Error("Get() EOF")
+				log.Error("Got() EOF")
 			} else {
-				log.Error("Get() err", "err", err)
+				log.Error("Got() err", "err", err)
 			}
 			break
 		}
+		gmsg := msg.(*gmailMessage).msg
+		log.Debug("Got message", "msg", gmsg.Id,
+			"size", gmsg.SizeEstimate, "dura", dura)
 		total++
-		log.Debug("Got message", "msg", msg.Id())
+		totalSize += gmsg.SizeEstimate
 		// Test duplication
 		if _, existed := mails[msg.Id()]; existed {
-			log.Error("Duplicated Messagge", "msg", msg.Id())
+			log.Error("Duplicated Messagge", "msg", gmsg.Id)
 			break
 		}
 		mails[msg.Id()] = true
 	}
-	fmt.Printf("total messages: %d, take: %s\n", total, time.Now().Sub(begin))
+	fmt.Printf("total messages: %d, size: %d, take: %s\n", total,
+		totalSize, time.Now().Sub(total_begin))
 }
+
+func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message, error) {
+	tm := time.NewTimer(timeout)
+	result := make(chan interface{})
+	go func() {
+		msg, err := stream.Get()
+		if err != nil {
+			log.Error("stream.Get() err", "err", err)
+			result <- err
+		} else {
+			result <- msg
+		}
+	}()
+	var v interface{}
+	select {
+	case <-tm.C:
+		log.Error("timeout expired")
+		return nil, ErrEOF
+	case v = <- result:
+	}
+	if inst, ok := v.(gentle.Message); ok {
+		return inst, nil
+	} else {
+		return nil, v.(error)
+	}
+	/*
+	switch inst := v.(type) {
+	case gentle.Message:
+		return inst, nil
+	case error:
+		return nil, inst
+	}
+	*/
+}
+
