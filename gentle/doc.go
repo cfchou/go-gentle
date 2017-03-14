@@ -80,7 +80,7 @@ Some of our implementations make heavy use of third-party packages. It helps to 
 
   Circuit-breaker is based on hystrix-go(https://godoc.org/github.com/afex/hystrix-go/hystrix).
   Rate-limiting is based on ratelimit(https://godoc.org/github.com/juju/ratelimit).
-  Logging is based on log15(https://godoc.org/github.com/inconshreveable/log15)j
+  Logging is based on log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
 
 */
 package gentle

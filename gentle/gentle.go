@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Package level logger. It uses log15(https://godoc.org/github.com/inconshreveable/log15)
+// Package level logger. It uses log15(gopkg.in/inconshreveable/log15.v2)
 // to provide finer control over logging.
 var Log = log15.New()
 
@@ -49,11 +49,11 @@ func IntToMillis(millis int) time.Duration {
 // GetHystrixDefaultConfig() returns a new hystrix.CommandConfig filled with defaults(https://godoc.org/github.com/afex/hystrix-go/hystrix#pkg-variables):
 func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	return &hystrix.CommandConfig{
-		Timeout: hystrix.DefaultTimeout,
-		MaxConcurrentRequests: hystrix.DefaultMaxConcurrent,
+		Timeout:                hystrix.DefaultTimeout,
+		MaxConcurrentRequests:  hystrix.DefaultMaxConcurrent,
 		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
-		SleepWindow: hystrix.DefaultSleepWindow,
-		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
+		SleepWindow:            hystrix.DefaultSleepWindow,
+		ErrorPercentThreshold:  hystrix.DefaultErrorPercentThreshold,
 	}
 }
 
