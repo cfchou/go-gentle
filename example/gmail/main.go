@@ -22,7 +22,7 @@ const (
 
 var logHandler = log15.MultiHandler(log15.StdoutHandler,
 	log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
-var log = log15.New()
+var log = log15.New("mixin", "main")
 var ErrEOF = errors.New("EOF")
 
 // getTokenFromWeb uses Config to request a Token.
@@ -224,6 +224,34 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 		gentle.NewTokenBucketRateLimit(1, 1))
 
 	mstream := gentle.NewMappedStream("gmail", lstream, rhandler)
+	mstream.Log.SetHandler(logHandler)
+
+	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
+}
+
+func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
+
+	lstream := NewGmailListStream(appConfig, userTok, 500)
+	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, logHandler))
+
+	handler := NewGmailMessageHandler(appConfig, userTok)
+
+	rhandler := gentle.NewRateLimitedHandler("gmail", handler,
+		// (1000/request_interval) messages/sec, but it's an upper
+		// bound, the real speed is likely much lower.
+		gentle.NewTokenBucketRateLimit(1, 1))
+
+	rthandler := gentle.NewRetryHandler("gmail", rhandler,
+		func() []time.Duration {
+			return []time.Duration{
+				20 * time.Millisecond,
+				40 * time.Millisecond,
+				80 * time.Millisecond,
+			}
+		})
+	rthandler.Log.SetHandler(logHandler)
+	mstream := gentle.NewMappedStream("gmail", lstream, rthandler)
+	mstream.Log.SetHandler(logHandler)
 
 	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
 }
@@ -235,11 +263,16 @@ func main() {
 	tok := getTokenFromWeb(config)
 
 	count := 2000
+	// total should be, if gmail Messages.List() doesn't return error, the
+	// total of all gmailListStream emits pluses 1(ErrEOF).
 	total := 0
+	// success_total should be, the number of mails have been successfully
+	// downloaded.
 	success_total := 0
 	var totalSize int64
 	//stream := example_hit_ratelimit(config, tok)
-	stream := example_ratelimited(config, tok)
+	//stream := example_ratelimited(config, tok)
+	stream := example_ratelimited_retry(config, tok)
 	//stream := example_list_only(config, tok)
 
 	total_begin := time.Now()
@@ -259,10 +292,10 @@ func main() {
 				continue
 			}
 		}
-		total_time_success += dura
 		gmsg := msg.(*gmailMessage).msg
 		log.Debug("Got message", "msg", gmsg.Id,
 			"size", gmsg.SizeEstimate, "dura", dura)
+		total_time_success += dura
 		success_total++
 		totalSize += gmsg.SizeEstimate
 		// Test duplication
