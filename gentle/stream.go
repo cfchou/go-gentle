@@ -301,12 +301,12 @@ func (r *MappedStream) Get() (Message, error) {
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get ok, run Handle()", "msg", msg.Id())
-	m, e := r.handler.Handle(msg)
-	if e != nil {
-		r.Log.Error("[Stream] Handle err", "err", err)
-		return nil, e
+	hmsg, herr := r.handler.Handle(msg)
+	if herr != nil {
+		r.Log.Error("[Stream] Handle err", "err", herr)
+		return nil, herr
 	}
 	r.Log.Debug("[Stream] Handle done", "msg_in", msg.Id(),
-		"msg_out", m.Id())
-	return m, nil
+		"msg_out", hmsg.Id())
+	return hmsg, nil
 }
