@@ -2,7 +2,7 @@ package gentle
 
 import (
 	"github.com/afex/hystrix-go/hystrix"
-	"github.com/inconshreveable/log15"
+	log15 "gopkg.in/inconshreveable/log15.v2"
 	"time"
 )
 

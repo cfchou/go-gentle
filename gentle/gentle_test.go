@@ -2,7 +2,7 @@ package gentle
 
 import (
 	"flag"
-	"github.com/inconshreveable/log15"
+	log15 "gopkg.in/inconshreveable/log15.v2"
 	"github.com/stretchr/testify/mock"
 	"testing"
 )

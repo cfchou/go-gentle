@@ -22,10 +22,10 @@ func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 			mm := &mockMsg{}
 			mm.On("Id").Return(fmt.Sprint(count))
 			select {
+			case src <- mm:
 			case <-done:
 				log.Info("[Test] Channel closed")
 				break
-			case src <- mm:
 			}
 		}
 		close(src)

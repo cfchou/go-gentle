@@ -20,6 +20,8 @@ const (
 	app_secret_file = "app_secret.json"
 )
 
+var logHandler = log15.MultiHandler(log15.StdoutHandler,
+	log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
 var log = log15.New()
 var ErrEOF = errors.New("EOF")
 
@@ -75,6 +77,7 @@ type gmailListStream struct {
 	messages      []*gmail.Message
 	nextPageToken string
 	page_num      int
+	page_last     bool
 	terminate     chan *struct{}
 }
 
@@ -96,6 +99,7 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 		listCall: listCall,
 		lock:     sync.Mutex{},
 		Log:     log.New("mixin", "list"),
+		page_last: false,
 		terminate: make(chan *struct{}),
 	}
 }
@@ -117,44 +121,44 @@ func (s *gmailListStream) shutdown() {
 
 func (s *gmailListStream) Get() (gentle.Message, error) {
 	s.lock.Lock()
-	//defer s.lock.Unlock()
+	defer s.lock.Unlock()
 	if s.messages != nil && len(s.messages) > 0 {
-		s.lock.Unlock()
 		return s.nextMessage()
+	}
+	// Messages on this page are consumed, fetch next page
+	if s.page_last {
+		s.Log.Info("EOF, no more messages and pages")
+		select {
+		case <-s.terminate:
+			return nil, ErrEOF
+		}
 	}
 	if s.nextPageToken != "" {
 		s.listCall.PageToken(s.nextPageToken)
 	}
 	resp, err := s.listCall.Do()
 	if err != nil {
-		s.lock.Unlock()
-		select {
-		case <-s.terminate:
-			return nil, err
-		}
+		s.Log.Error("List() err", "err", err)
+		return nil, err
 	}
-	if resp.NextPageToken == "" && s.nextPageToken == "" {
-		s.Log.Info("EOF, no more pages")
-		s.lock.Unlock()
-		select {
-		case <-s.terminate:
-			return nil, ErrEOF
-		}
+
+	if resp.NextPageToken == "" {
+		s.Log.Info("No more pages")
+		s.page_last = true
 	}
+
 	s.messages = resp.Messages
 	s.nextPageToken = resp.NextPageToken
-	s.Log.Info("Read a page", "page", s.page_num+1,
+	s.page_num++
+	s.Log.Info("Read a page", "page", s.page_num,
 		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken)
 	if len(s.messages) == 0 {
 		s.Log.Info("EOF, no more messages")
-		s.lock.Unlock()
 		select {
 		case <-s.terminate:
 			return nil, ErrEOF
 		}
 	}
-	defer s.lock.Unlock()
-	s.page_num++
 	return s.nextMessage()
 }
 
@@ -193,26 +197,15 @@ func example_list_only(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.S
 	return lstream
 }
 
-func example_happy_slow(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
-	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, log15.StdoutHandler))
-
-	mstream := gentle.NewMappedStream("gmail", lstream,
-		NewGmailMessageHandler(appConfig, userTok))
-
-	// Gmail per-user throttle is capped at 250 msg/s
-	return gentle.NewConcurrentFetchStream("gmail", mstream, 100)
-}
-
 func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 
 	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, log15.StdoutHandler))
+	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, logHandler))
 
 	mstream := gentle.NewMappedStream("gmail", lstream,
 		NewGmailMessageHandler(appConfig, userTok))
 
-	// Gmail per-user throttle is capped at 250 msg/s
+	// This is likely to hit error:
 	// googleapi: Error 429: Too many concurrent requests for user, rateLimitExceeded
 	// googleapi: Error 429: User-rate limit exceeded.  Retry after 2017-03-13T19:26:54.011Z, rateLimitExceeded
 	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
@@ -221,13 +214,13 @@ func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gent
 func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 
 	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, log15.StdoutHandler))
+	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, logHandler))
 
 	handler := NewGmailMessageHandler(appConfig, userTok)
 
 	rhandler := gentle.NewRateLimitedHandler("gmail", handler,
-		// (1000/request_interval) messages/sec, but the real speed is
-		// most likely lower.
+		// (1000/request_interval) messages/sec, but it's an upper
+		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
 	mstream := gentle.NewMappedStream("gmail", lstream, rhandler)
@@ -236,40 +229,41 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 }
 
 func main() {
-	h := log15.LvlFilterHandler(log15.LvlDebug,
-		log15.MultiHandler(
-			log15.StdoutHandler,
-			log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
+	h := log15.LvlFilterHandler(log15.LvlDebug, logHandler)
 	log.SetHandler(h)
 	config := getAppSecret(app_secret_file)
 	tok := getTokenFromWeb(config)
 
 	count := 2000
 	total := 0
+	success_total := 0
 	var totalSize int64
 	//stream := example_hit_ratelimit(config, tok)
 	stream := example_ratelimited(config, tok)
-	//stream := example_happy_slow(config, tok)
 	//stream := example_list_only(config, tok)
 
 	total_begin := time.Now()
+	var total_time_success time.Duration
 	mails := make(map[string]bool)
 	for i := 0; i < count; i++ {
+		total++
 		begin := time.Now()
 		msg, err := GetWithTimeout(stream, 10*time.Second)
 		dura := time.Now().Sub(begin)
 		if err != nil {
 			if err == ErrEOF {
 				log.Error("Got() EOF")
+				break
 			} else {
 				log.Error("Got() err", "err", err)
+				continue
 			}
-			break
 		}
+		total_time_success += dura
 		gmsg := msg.(*gmailMessage).msg
 		log.Debug("Got message", "msg", gmsg.Id,
 			"size", gmsg.SizeEstimate, "dura", dura)
-		total++
+		success_total++
 		totalSize += gmsg.SizeEstimate
 		// Test duplication
 		if _, existed := mails[msg.Id()]; existed {
@@ -278,8 +272,14 @@ func main() {
 		}
 		mails[msg.Id()] = true
 	}
-	fmt.Printf("total messages: %d, size: %d, take: %s\n", total,
-		totalSize, time.Now().Sub(total_begin))
+	log.Info("Done", "total", total, "success_total", success_total,
+		"total_size", totalSize,
+		"total_time", time.Now().Sub(total_begin),
+		"success_time", total_time_success)
+	fmt.Printf("total: %d, success_total: %d, size: %d, " +
+		"total_time: %s, success_time: %s\n",
+		total, success_total, totalSize,
+		time.Now().Sub(total_begin), total_time_success)
 }
 
 func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message, error) {
@@ -296,10 +296,10 @@ func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message
 	}()
 	var v interface{}
 	select {
+	case v = <- result:
 	case <-tm.C:
 		log.Error("timeout expired")
 		return nil, ErrEOF
-	case v = <- result:
 	}
 	if inst, ok := v.(gentle.Message); ok {
 		return inst, nil
