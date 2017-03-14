@@ -74,16 +74,16 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 				"msg_out", msg_out.Id())
 			return msg, err
 		}
-		if count == 1 {
-			bk = r.genBackOff()
-			r.Log.Debug("[Handler] generate backoffs",
-				"len", len(bk), "msg_in", msg.Id())
-		}
 		if len(bk) == 0 {
 			// backoffs exhausted
-			r.Log.Error("[Handler] handler err, stop backing off",
-				"err", err, "msg_in", msg.Id())
-			return nil, err
+			bk := r.genBackOff()
+			r.Log.Debug("[Handler] generate backoffs",
+				"len", len(bk), "msg_in", msg.Id())
+			if len(bk) == 0 {
+				r.Log.Error("[Handler] handler err, stop backing off",
+					"err", err, "msg_in", msg.Id())
+				return nil, err
+			}
 		} else {
 			r.Log.Error("[Handler] handler err",
 				"err", err, "msg_in", msg.Id())
