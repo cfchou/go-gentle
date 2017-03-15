@@ -40,10 +40,10 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 // RetryHandler takes an Handler. When Handler.Handle() encounters an error,
 // RetryHandler back off for some time and then retries.
 type RetryHandler struct {
-	Name       string
-	Log        log15.Logger
-	handler    Handler
-	backoffs   []time.Duration
+	Name     string
+	Log      log15.Logger
+	handler  Handler
+	backoffs []time.Duration
 }
 
 func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *RetryHandler {
@@ -51,9 +51,9 @@ func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *Re
 		Log.Warn("NewRetryHandler() len(backoffs) == 0")
 	}
 	return &RetryHandler{
-		Name:       name,
-		Log:        Log.New("mixin", "handler_retry", "name", name),
-		handler:    handler,
+		Name:     name,
+		Log:      Log.New("mixin", "handler_retry", "name", name),
+		handler:  handler,
 		backoffs: backoffs,
 	}
 }
@@ -65,7 +65,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	to_wait := 0 * time.Second
 	for {
 		r.Log.Debug("[Handler] handler...", "count",
-			len(r.backoffs) - len(bk) + 1, "wait", to_wait,
+			len(r.backoffs)-len(bk)+1, "wait", to_wait,
 			"msg_in", msg.Id())
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
@@ -102,7 +102,7 @@ type CircuitBreakerHandler struct {
 // circuit-breaker named $circuit.
 func NewCircuitBreakerHandler(name string, handler Handler, circuit string) *CircuitBreakerHandler {
 	return &CircuitBreakerHandler{
-		Name:    name,
+		Name: name,
 		Log: Log.New("mixin", "handler_circuit", "name", name,
 			"circuit", circuit),
 		Circuit: circuit,

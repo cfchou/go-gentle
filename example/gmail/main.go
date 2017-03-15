@@ -70,7 +70,7 @@ func (m *gmailMessage) Id() string {
 }
 
 type gmailListStream struct {
-	Log log15.Logger
+	Log           log15.Logger
 	service       *gmail.Service
 	listCall      *gmail.UsersMessagesListCall
 	lock          sync.Mutex
@@ -95,10 +95,10 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 	listCall := service.Users.Messages.List("me")
 	listCall.MaxResults(max_results)
 	return &gmailListStream{
-		service:  service,
-		listCall: listCall,
-		lock:     sync.Mutex{},
-		Log:     log.New("mixin", "list"),
+		service:   service,
+		listCall:  listCall,
+		lock:      sync.Mutex{},
+		Log:       log.New("mixin", "list"),
 		page_last: false,
 		terminate: make(chan *struct{}),
 	}
@@ -164,7 +164,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 
 type gmailMessageHandler struct {
 	service *gmail.Service
-	Log log15.Logger
+	Log     log15.Logger
 }
 
 func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gmailMessageHandler {
@@ -189,7 +189,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 		return nil, err
 	}
 	h.Log.Debug("Messages.Get() ok", "size", gmsg.SizeEstimate)
-	return &gmailMessage{ msg:gmsg }, nil
+	return &gmailMessage{msg: gmsg}, nil
 }
 
 func example_list_only(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
@@ -241,8 +241,8 @@ func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) 
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
-	rthandler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration {
-		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond })
+	rthandler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration{
+		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond})
 	rthandler.Log.SetHandler(logHandler)
 
 	mstream := gentle.NewMappedStream("gmail", lstream, rthandler)
@@ -303,7 +303,7 @@ func main() {
 		"total_size", totalSize,
 		"total_time", time.Now().Sub(total_begin),
 		"success_time", total_time_success)
-	fmt.Printf("total: %d, success_total: %d, size: %d, " +
+	fmt.Printf("total: %d, success_total: %d, size: %d, "+
 		"total_time: %s, success_time: %s\n",
 		total, success_total, totalSize,
 		time.Now().Sub(total_begin), total_time_success)
@@ -323,7 +323,7 @@ func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message
 	}()
 	var v interface{}
 	select {
-	case v = <- result:
+	case v = <-result:
 	case <-tm.C:
 		log.Error("timeout expired")
 		return nil, ErrEOF
@@ -334,4 +334,3 @@ func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message
 		return nil, v.(error)
 	}
 }
-

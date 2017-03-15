@@ -41,10 +41,10 @@ func (r *RateLimitedStream) Get() (Message, error) {
 // RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
 type RetryStream struct {
-	Name       string
-	Log        log15.Logger
-	stream     Stream
-	backoffs   []time.Duration
+	Name     string
+	Log      log15.Logger
+	stream   Stream
+	backoffs []time.Duration
 }
 
 func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *RetryStream {
@@ -52,9 +52,9 @@ func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *Retry
 		Log.Warn("NewRetryStream() len(backoffs) == 0")
 	}
 	return &RetryStream{
-		Name:       name,
-		Log:        Log.New("mixin", "stream_retry", "name", name),
-		stream:     stream,
+		Name:     name,
+		Log:      Log.New("mixin", "stream_retry", "name", name),
+		stream:   stream,
 		backoffs: backoffs,
 	}
 }
@@ -65,7 +65,7 @@ func (r *RetryStream) Get() (Message, error) {
 	to_wait := 0 * time.Second
 	for {
 		r.Log.Debug("[Stream] Get ...", "count",
-			len(r.backoffs) - len(bk) + 1, "wait", to_wait)
+			len(r.backoffs)-len(bk)+1, "wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
@@ -135,7 +135,7 @@ type CircuitBreakerStream struct {
 // circuit-breaker named $circuit.
 func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
 	return &CircuitBreakerStream{
-		Name:    name,
+		Name: name,
 		Log: Log.New("mixin", "stream_circuit", "name", name,
 			"circuit", circuit),
 		Circuit: circuit,

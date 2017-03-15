@@ -61,4 +61,3 @@ type tuple struct {
 	fst interface{}
 	snd interface{}
 }
-
