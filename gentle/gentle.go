@@ -34,6 +34,27 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
+type Metric interface {
+	BaseName() string
+	CounterAdd(name string, delta float64)
+	Gauge(name string, value float64)
+
+	//Timer(name string, timing time.Duration)
+	//Histogram(name string, observe float64)
+	//Summary(name string, observe float64)
+	Observe(name string, float64)
+}
+
+func ObserveTime(m Metric, name string, duration time.Duration) {
+	m.Observe(name,
+		float64(duration.Nanoseconds() / int64(time.Microsecond)))
+}
+
+func CountInc(m Metric, name string) {
+	m.CounterAdd(name, 1)
+}
+
+
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or timeout(return
