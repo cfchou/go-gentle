@@ -26,14 +26,14 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 
 // Handle() is blocked when the limit is exceeded.
 func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] Handle()")
+	r.Log.Debug("[Handler] Handle() ...")
 	r.limiter.Wait(1, 0)
 	msg, err := r.handler.Handle(msg)
 	if err != nil {
-		r.Log.Error("[Handler] Handle err", "err", err)
+		r.Log.Error("[Handler] Handle() err", "err", err)
 		return nil, err
 	}
-	r.Log.Debug("[Handler] Handler ok", "msg_out", msg.Id())
+	r.Log.Debug("[Handler] Handle() ok", "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -59,12 +59,10 @@ func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *Re
 }
 
 func (r *RetryHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] ",
-		"msg_in", msg.Id())
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
-		r.Log.Debug("[Handler] handler...", "count",
+		r.Log.Debug("[Handler] Handle() ...", "count",
 			len(r.backoffs)-len(bk)+1, "wait", to_wait,
 			"msg_in", msg.Id())
 		// A negative or zero duration causes Sleep to return immediately.
@@ -72,16 +70,16 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 		// assert end_allowed.Sub(now) != 0
 		msg_out, err := r.handler.Handle(msg)
 		if err == nil {
-			r.Log.Debug("[Handler] handler ok", "msg_in", msg.Id(),
+			r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 				"msg_out", msg_out.Id())
 			return msg, err
 		}
 		if len(bk) == 0 {
-			r.Log.Error("[Handler] handler err and no more backing off",
+			r.Log.Error("[Handler] Handle() err and no more backing off",
 				"err", err, "msg_in", msg.Id())
 			return nil, err
 		} else {
-			r.Log.Error("[Handler] handler err",
+			r.Log.Error("[Handler] Handle() err, backing off ...",
 				"err", err, "msg_in", msg.Id())
 			to_wait = bk[0]
 			bk = bk[1:]
@@ -111,19 +109,19 @@ func NewCircuitBreakerHandler(name string, handler Handler, circuit string) *Cir
 }
 
 func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] Handle()")
+	r.Log.Debug("[Handler] Handle() ...")
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg_out, err := r.handler.Handle(msg)
 		if err != nil {
-			r.Log.Error("[Handler] Handle err", "err", err)
+			r.Log.Error("[Handler] Handle() err", "err", err)
 			result <- &tuple{
 				fst: msg_out,
 				snd: err,
 			}
 			return err
 		}
-		r.Log.Debug("[Handler] Handle ok", "msg_out", msg_out.Id())
+		r.Log.Debug("[Handler] Handle() ok", "msg_out", msg_out.Id())
 		result <- &tuple{
 			fst: msg_out,
 			snd: err,
@@ -177,10 +175,10 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	defer func() { <-r.semaphore }()
 	msg_out, err := r.handler.Handle(msg)
 	if err != nil {
-		r.Log.Error("[Handler] Handle err", "err", err, "msg_in",
+		r.Log.Error("[Handler] Handle() err", "err", err, "msg_in",
 			msg.Id())
 	} else {
-		r.Log.Debug("[Handler] handler ok", "msg_in", msg.Id(),
+		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 			"msg_out", msg_out.Id())
 	}
 	return msg_out, err
