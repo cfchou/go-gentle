@@ -46,6 +46,8 @@ func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) 
 
 ## Install
 
+The master branch is considered unstable. Use semantic versioning and verdor this library.
+
 If you're using [glide](https://glide.sh/), simply run:
 
 ```
@@ -53,9 +55,10 @@ glide get gopkg.in/cfchou/go-gentle.v1
 glide update
 ```
 
-If you're using other package management tools or not using them at all, then
-you have to install dependencies by yourself. The dependencies are described in
-[glide.yaml](https://github.com/cfchou/go-gentle/blob/master/glide.yaml)
+If you're not using package management tools, then
+```
+go get http://gopkg.in/cfchou/go-gentle.v1/gentle
+```
 
 
 

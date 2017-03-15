@@ -5,11 +5,11 @@ import (
 	"io/ioutil"
 
 	"errors"
-	"github.com/cfchou/go-gentle/gentle"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
+	"gopkg.in/cfchou/go-gentle.v1/gentle"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"os"
 	"sync"
