@@ -33,9 +33,7 @@ func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) 
 	upstream := NewRetryStream(name,
 		NewRateLimitedStream(name, userDefinedStream,
 			NewTokenBucketRateLimit(100, 1)),
-		func() []time.Duration {
-			return []time.Duration{time.Second, time.Second}
-		})
+		[]time.Duration{time.Second, 2*time.Second, 4*time.Second})
 	return NewMappedStream(name, upstream,
 		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
 }
@@ -46,10 +44,9 @@ func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) 
 
 ## Install
 
-The master branch is considered unstable. Use semantic versioning and verdor this library.
+The master branch is considered unstable. Use [semantic versioning](http://gopkg.in/cfchou/go-gentle.v1/gentle) and verdor this library.
 
 If you're using [glide](https://glide.sh/), simply run:
-
 ```
 glide get gopkg.in/cfchou/go-gentle.v1
 glide update

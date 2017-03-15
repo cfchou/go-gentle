@@ -72,7 +72,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 		if err == nil {
 			r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 				"msg_out", msg_out.Id())
-			return msg, err
+			return msg_out, err
 		}
 		if len(bk) == 0 {
 			r.Log.Error("[Handler] Handle() err and no more backing off",
