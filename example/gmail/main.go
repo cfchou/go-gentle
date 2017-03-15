@@ -105,21 +105,20 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 }
 
 func (s *gmailListStream) nextMessage() (*gmailMessage, error) {
-	// assert s.lock is Locked
+	// assert s.lock is already Locked
 	if s.messages == nil || len(s.messages) == 0 {
 		s.Log.Error("Invalid state")
 		os.Exit(1)
 	}
 	msg := &gmailMessage{msg: s.messages[0]}
 	s.messages = s.messages[1:]
+	s.Log.Debug("List() nextMessge", "msg", msg.Id(), "page", s.page_num,
+		"len_msgs_left", len(s.messages))
 	return msg, nil
 }
 
-func (s *gmailListStream) shutdown() {
-	s.terminate <- &struct{}{}
-}
-
 func (s *gmailListStream) Get() (gentle.Message, error) {
+	s.Log.Debug("List() ...")
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.messages != nil && len(s.messages) > 0 {
@@ -127,7 +126,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	}
 	// Messages on this page are consumed, fetch next page
 	if s.page_last {
-		s.Log.Info("EOF, no more messages and pages")
+		s.Log.Info("List() EOF, no more messages and pages")
 		select {
 		case <-s.terminate:
 			return nil, ErrEOF
@@ -143,17 +142,17 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	}
 
 	if resp.NextPageToken == "" {
-		s.Log.Info("No more pages")
+		s.Log.Info("List() No more pages")
 		s.page_last = true
 	}
 
 	s.messages = resp.Messages
 	s.nextPageToken = resp.NextPageToken
 	s.page_num++
-	s.Log.Info("Read a page", "page", s.page_num,
+	s.Log.Info("List() Read a page", "page", s.page_num,
 		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken)
 	if len(s.messages) == 0 {
-		s.Log.Info("EOF, no more messages")
+		s.Log.Info("List() EOF, no more messages")
 		select {
 		case <-s.terminate:
 			return nil, ErrEOF
@@ -182,13 +181,16 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gm
 }
 
 func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error) {
+	h.Log.Debug("Message.Get() ...", "msg_in", msg.Id())
 	getCall := h.service.Users.Messages.Get("me", msg.Id())
 	gmsg, err := getCall.Do()
 	if err != nil {
-		h.Log.Error("Messages.Get() err", "err", err)
+		h.Log.Error("Messages.Get() err", "msg_in", msg.Id(),
+			"err", err)
 		return nil, err
 	}
-	h.Log.Debug("Messages.Get() ok", "size", gmsg.SizeEstimate)
+	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
+		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
 }
 
@@ -288,7 +290,10 @@ func main() {
 		}
 		gmsg := msg.(*gmailMessage).msg
 		log.Debug("Got message", "msg", gmsg.Id,
-			"size", gmsg.SizeEstimate, "dura", dura)
+			"size", gmsg.SizeEstimate)
+		// NOTE: if stream is ConcurrentFetchStream, the travel time of
+		// this msg is NOT dura. Because msg is asynchronously processed
+		// in parallel. However, the total_time_success is still valid.
 		total_time_success += dura
 		success_total++
 		totalSize += gmsg.SizeEstimate
