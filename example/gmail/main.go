@@ -241,15 +241,10 @@ func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) 
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
-	rthandler := gentle.NewRetryHandler("gmail", rhandler,
-		func() []time.Duration {
-			return []time.Duration{
-				20 * time.Millisecond,
-				40 * time.Millisecond,
-				80 * time.Millisecond,
-			}
-		})
+	rthandler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration {
+		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond })
 	rthandler.Log.SetHandler(logHandler)
+
 	mstream := gentle.NewMappedStream("gmail", lstream, rthandler)
 	mstream.Log.SetHandler(logHandler)
 
@@ -273,7 +268,6 @@ func main() {
 	//stream := example_hit_ratelimit(config, tok)
 	//stream := example_ratelimited(config, tok)
 	stream := example_ratelimited_retry(config, tok)
-	//stream := example_list_only(config, tok)
 
 	total_begin := time.Now()
 	var total_time_success time.Duration
@@ -339,13 +333,5 @@ func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message
 	} else {
 		return nil, v.(error)
 	}
-	/*
-	switch inst := v.(type) {
-	case gentle.Message:
-		return inst, nil
-	case error:
-		return nil, inst
-	}
-	*/
 }
 

@@ -43,28 +43,30 @@ type RetryHandler struct {
 	Name       string
 	Log        log15.Logger
 	handler    Handler
-	genBackOff GenBackOff
+	backoffs   []time.Duration
 }
 
-func NewRetryHandler(name string, handler Handler, genBackOff GenBackOff) *RetryHandler {
+func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *RetryHandler {
+	if len(backoffs) == 0 {
+		Log.Warn("NewRetryHandler() len(backoffs) == 0")
+	}
 	return &RetryHandler{
 		Name:       name,
 		Log:        Log.New("mixin", "handler_retry", "name", name),
 		handler:    handler,
-		genBackOff: genBackOff,
+		backoffs: backoffs,
 	}
 }
 
 func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	r.Log.Debug("[Handler] ",
 		"msg_in", msg.Id())
-	var bk []time.Duration
+	bk := r.backoffs
 	to_wait := 0 * time.Second
-	count := 0
 	for {
-		count += 1
-		r.Log.Debug("[Handler] handler...", "count", count,
-			"wait", to_wait, "msg_in", msg.Id())
+		r.Log.Debug("[Handler] handler...", "count",
+			len(r.backoffs) - len(bk) + 1, "wait", to_wait,
+			"msg_in", msg.Id())
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
@@ -75,21 +77,15 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 			return msg, err
 		}
 		if len(bk) == 0 {
-			// backoffs exhausted
-			bk := r.genBackOff()
-			r.Log.Debug("[Handler] generate backoffs",
-				"len", len(bk), "msg_in", msg.Id())
-			if len(bk) == 0 {
-				r.Log.Error("[Handler] handler err, stop backing off",
-					"err", err, "msg_in", msg.Id())
-				return nil, err
-			}
+			r.Log.Error("[Handler] handler err and no more backing off",
+				"err", err, "msg_in", msg.Id())
+			return nil, err
 		} else {
 			r.Log.Error("[Handler] handler err",
 				"err", err, "msg_in", msg.Id())
+			to_wait = bk[0]
+			bk = bk[1:]
 		}
-		to_wait = bk[0]
-		bk = bk[1:]
 	}
 }
 

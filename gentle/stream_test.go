@@ -107,8 +107,7 @@ func TestRetryStream_Get(t *testing.T) {
 		}
 		return dura_sum
 	}(backoffs)
-	stream := NewRetryStream("retry", mstream,
-		func() []time.Duration { return backoffs })
+	stream := NewRetryStream("retry", mstream, backoffs)
 
 	// 1st: ok
 	mm := &mockMsg{}

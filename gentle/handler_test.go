@@ -52,9 +52,7 @@ func TestRetryHandler_Handle(t *testing.T) {
 	}(backoffs)
 
 	mhandler := &mockHandler{}
-	handler := NewRetryHandler("test", mhandler, func() []time.Duration {
-		return backoffs
-	})
+	handler := NewRetryHandler("test", mhandler, backoffs)
 
 	mm := &mockMsg{}
 
