@@ -60,6 +60,7 @@ func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *Retry
 }
 
 func (r *RetryStream) Get() (Message, error) {
+	begin := time.Now()
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
@@ -70,16 +71,17 @@ func (r *RetryStream) Get() (Message, error) {
 		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
 		if err == nil {
-			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
+			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+				"timespan", time.Now().Sub(begin))
 			return msg, err
 		}
 		if len(bk) == 0 {
 			r.Log.Error("[Streamer] Get() err and no more backing off",
-				"err", err)
+				"err", err, "timespan", time.Now().Sub(begin))
 			return nil, err
 		} else {
 			r.Log.Error("[Stream] Get() err, backing off ...",
-				"err", err)
+				"err", err, "timespan", time.Now().Sub(begin))
 			to_wait = bk[0]
 			bk = bk[1:]
 		}

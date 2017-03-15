@@ -59,28 +59,31 @@ func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *Re
 }
 
 func (r *RetryHandler) Handle(msg Message) (Message, error) {
+	begin := time.Now()
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
-		r.Log.Debug("[Handler] Handle() ...", "count",
-			len(r.backoffs)-len(bk)+1, "wait", to_wait,
-			"msg_in", msg.Id())
+		r.Log.Debug("[Handler] Handle() ...","msg_in", msg.Id(),
+			"count", len(r.backoffs)-len(bk)+1, "wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
 		msg_out, err := r.handler.Handle(msg)
 		if err == nil {
 			r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-				"msg_out", msg_out.Id())
+				"msg_out", msg_out.Id(),
+				"timespan", time.Now().Sub(begin))
 			return msg_out, err
 		}
 		if len(bk) == 0 {
 			r.Log.Error("[Handler] Handle() err and no more backing off",
-				"err", err, "msg_in", msg.Id())
+				"err", err, "msg_in", msg.Id(),
+				"timespan", time.Now().Sub(begin))
 			return nil, err
 		} else {
 			r.Log.Error("[Handler] Handle() err, backing off ...",
-				"err", err, "msg_in", msg.Id())
+				"err", err, "msg_in", msg.Id(),
+				"timespan", time.Now().Sub(begin))
 			to_wait = bk[0]
 			bk = bk[1:]
 		}
