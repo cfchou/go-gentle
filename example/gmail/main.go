@@ -174,7 +174,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 		gmailCallHist.With(
 			prom.Labels{
 				"api": "list",
-				"status": string(err.(*googleapi.Error).Code),
+				"status": toGoogleApiErrorCode(err),
 			}).Observe(time.Now().Sub(callStart).Seconds())
 		s.Log.Error("List() err", "err", err)
 		return nil, err
@@ -182,7 +182,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	gmailCallHist.With(
 		prom.Labels{
 			"api": "list",
-			"status": string(resp.HTTPStatusCode),
+			"status": strconv.Itoa(resp.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
 
 	if resp.NextPageToken == "" {
@@ -227,7 +227,6 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gm
 func toGoogleApiErrorCode(err error) string {
 	if gerr, ok := err.(*googleapi.Error); ok {
 		return strconv.Itoa(gerr.Code)
-
 	}
 	return err.Error()
 }
@@ -250,8 +249,9 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	gmailCallHist.With(
 		prom.Labels{
 			"api": "get",
-			"status": string(gmsg.HTTPStatusCode),
+			"status": strconv.Itoa(gmsg.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
+	gmailMessageSizeCounter.Add(float64(gmsg.SizeEstimate))
 	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
@@ -260,7 +260,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 func listStream(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 	// max. 500 mail ids per page
 	stream := NewGmailListStream(appConfig, userTok, 500)
-	stream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, logHandler))
+	stream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, logHandler))
 	return stream
 }
 
@@ -320,7 +320,7 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 	success_total := 0
 	var total_size int64
 
-	result := make(chan *timedResult, count)
+	result := make(chan *timedResult, max_concurrency)
 	total_begin := time.Now()
 	// Caller calls BulkheadStream.Get() concurrently.
 	for i := 0; i < count; i++ {
