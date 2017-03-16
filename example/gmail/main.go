@@ -14,16 +14,49 @@ import (
 	"os"
 	"sync"
 	"time"
+	"sync/atomic"
+	prom "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
+	"google.golang.org/api/googleapi"
+	"strconv"
 )
 
 const (
 	app_secret_file = "app_secret.json"
 )
 
-var logHandler = log15.MultiHandler(log15.StdoutHandler,
-	log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
-var log = log15.New("mixin", "main")
-var ErrEOF = errors.New("EOF")
+var (
+	logHandler = log15.MultiHandler(log15.StdoutHandler,
+		log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
+	log = log15.New("mixin", "main")
+	ErrEOF = errors.New("EOF")
+	/*
+	gmailCallCounter = prom.NewCounterVec(
+		prom.CounterOpts{
+			Name:"gmail_call",
+			Help:"Gmail API calls",
+		},
+		[]string{"list", "get", "status"})
+		*/
+	gmailCallHist = prom.NewHistogramVec(
+		prom.HistogramOpts {
+			Name:"gmail_call",
+			Help:"Gmail API calls",
+			Buckets: prom.DefBuckets,
+		},
+		[]string{"api", "status"})
+	gmailMessageSizeCounter = prom.NewCounter(
+		prom.CounterOpts{
+			Name:"gmail_message_size",
+			Help:"Gmail raw message size",
+		})
+)
+
+func init() {
+	prom.MustRegister(gmailCallHist)
+	prom.MustRegister(gmailMessageSizeCounter)
+}
 
 // getTokenFromWeb uses Config to request a Token.
 // It returns the retrieved Token.
@@ -135,11 +168,22 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	if s.nextPageToken != "" {
 		s.listCall.PageToken(s.nextPageToken)
 	}
+	callStart := time.Now()
 	resp, err := s.listCall.Do()
 	if err != nil {
+		gmailCallHist.With(
+			prom.Labels{
+				"api": "list",
+				"status": string(err.(*googleapi.Error).Code),
+			}).Observe(time.Now().Sub(callStart).Seconds())
 		s.Log.Error("List() err", "err", err)
 		return nil, err
 	}
+	gmailCallHist.With(
+		prom.Labels{
+			"api": "list",
+			"status": string(resp.HTTPStatusCode),
+		}).Observe(time.Now().Sub(callStart).Seconds())
 
 	if resp.NextPageToken == "" {
 		s.Log.Info("List() No more pages")
@@ -180,77 +224,211 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gm
 	}
 }
 
+func toGoogleApiErrorCode(err error) string {
+	if gerr, ok := err.(*googleapi.Error); ok {
+		return strconv.Itoa(gerr.Code)
+
+	}
+	return err.Error()
+}
+
 func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	h.Log.Debug("Message.Get() ...", "msg_in", msg.Id())
 	getCall := h.service.Users.Messages.Get("me", msg.Id())
+	callStart := time.Now()
 	gmsg, err := getCall.Do()
 	if err != nil {
+		gmailCallHist.With(
+			prom.Labels{
+				"api": "get",
+				"status": toGoogleApiErrorCode(err),
+			}).Observe(time.Now().Sub(callStart).Seconds())
 		h.Log.Error("Messages.Get() err", "msg_in", msg.Id(),
 			"err", err)
 		return nil, err
 	}
+	gmailCallHist.With(
+		prom.Labels{
+			"api": "get",
+			"status": string(gmsg.HTTPStatusCode),
+		}).Observe(time.Now().Sub(callStart).Seconds())
 	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
 }
 
-func example_list_only(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
-	lstream := NewGmailListStream(appConfig, userTok, 500)
-	return lstream
+func listStream(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
+	// max. 500 mail ids per page
+	stream := NewGmailListStream(appConfig, userTok, 500)
+	stream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, logHandler))
+	return stream
 }
 
 func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
-
-	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, logHandler))
-
-	mstream := gentle.NewMappedStream("gmail", lstream,
+	lstream := listStream(appConfig, userTok)
+	stream := gentle.NewMappedStream("gmail", lstream,
 		NewGmailMessageHandler(appConfig, userTok))
 
-	// This is likely to hit error:
-	// googleapi: Error 429: Too many concurrent requests for user, rateLimitExceeded
-	// googleapi: Error 429: User-rate limit exceeded.  Retry after 2017-03-13T19:26:54.011Z, rateLimitExceeded
-	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
+	return stream
 }
 
 func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
-
-	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, logHandler))
-
-	handler := NewGmailMessageHandler(appConfig, userTok)
-
-	rhandler := gentle.NewRateLimitedHandler("gmail", handler,
+	lstream := listStream(appConfig, userTok)
+	handler := gentle.NewRateLimitedHandler("gmail",
+		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
-	mstream := gentle.NewMappedStream("gmail", lstream, rhandler)
-	mstream.Log.SetHandler(logHandler)
+	stream := gentle.NewMappedStream("gmail", lstream, handler)
+	stream.Log.SetHandler(logHandler)
 
-	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
+	return stream
 }
 
 func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
-
-	lstream := NewGmailListStream(appConfig, userTok, 500)
-	lstream.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, logHandler))
-
-	handler := NewGmailMessageHandler(appConfig, userTok)
-
-	rhandler := gentle.NewRateLimitedHandler("gmail", handler,
+	lstream := listStream(appConfig, userTok)
+	rhandler := gentle.NewRateLimitedHandler("gmail",
+		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
-	rthandler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration{
+	handler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration{
 		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond})
-	rthandler.Log.SetHandler(logHandler)
+	handler.Log.SetHandler(logHandler)
 
-	mstream := gentle.NewMappedStream("gmail", lstream, rthandler)
-	mstream.Log.SetHandler(logHandler)
+	stream := gentle.NewMappedStream("gmail", lstream, handler)
+	stream.Log.SetHandler(logHandler)
+	return stream
+}
 
-	return gentle.NewConcurrentFetchStream("gmail", mstream, 300)
+type timedResult struct {
+	msg gentle.Message
+	dura time.Duration
+}
+
+func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count int) {
+	stream := gentle.NewBulkheadStream("gmail", upstream, max_concurrency)
+
+	// total should be, if gmail Messages.List() doesn't return error,
+	// the total of all gmailListStream emits pluses 1(ErrEOF).
+	// total is no more than count.
+	var total int64
+	// success_total should be, the number of mails have been successfully
+	// downloaded.
+	success_total := 0
+	var total_size int64
+
+	result := make(chan *timedResult, count)
+	total_begin := time.Now()
+	// Caller calls BulkheadStream.Get() concurrently.
+	for i := 0; i < count; i++ {
+		go func() {
+			begin := time.Now()
+			msg, err := stream.Get()
+			atomic.AddInt64(&total, 1)
+			if err != nil {
+				log.Error("Get() err", "err", err)
+				return
+			}
+			result <- &timedResult{
+				msg: msg,
+				dura: time.Now().Sub(begin),
+			}
+		}()
+	}
+	mails := make(map[string]bool)
+	tm := time.NewTimer(10 * time.Second)
+	var total_end time.Time
+	LOOP:
+		for {
+			select {
+			case tr := <-result:
+				gmsg := tr.msg.(*gmailMessage).msg
+				log.Debug("Got message", "msg", gmsg.Id,
+					"size", gmsg.SizeEstimate)
+				total_end = time.Now()
+				success_total++
+				total_size += gmsg.SizeEstimate
+				// Test duplication
+				if _, existed := mails[gmsg.Id]; existed {
+					log.Error("Duplicated Messagge", "msg", gmsg.Id)
+					break LOOP
+				}
+				mails[gmsg.Id] = true
+			case <- tm.C:
+				log.Debug("break ...")
+				break LOOP
+			}
+		}
+	total_time := total_end.Sub(total_begin)
+	log.Info("Done", "total", total, "success_total", success_total,
+		"total_size", total_size,
+		"total_time", total_time)
+}
+
+
+func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, count int) {
+	stream := gentle.NewConcurrentFetchStream("gmail", upstream, max_concurrency)
+
+	// total should be, if gmail Messages.List() doesn't return error,
+	// the total of all gmailListStream emits pluses 1(ErrEOF).
+	// total is no more than count.
+	total := 0
+	// success_total should be, the number of mails have been successfully
+	// downloaded.
+	success_total := 0
+	var total_size int64
+
+	total_begin := time.Now()
+	var total_end time.Time
+	mails := make(map[string]bool)
+	// From caller's point of view, ConcurrentFetchStream.Get() is
+	// called sequentially. But under the hood, there's a loop running in
+	// parallel to asynchronously fetch Messages from upstream.
+	LOOP:
+		for i := 0; i < count; i++ {
+			// essentially sequencing stream.Get()
+			result := make(chan interface{}, 1)
+			tm := time.NewTimer(10 * time.Second)
+			go func() {
+				msg, err := stream.Get()
+				if err != nil {
+					log.Error("Get() err", "err", err)
+					result <- err
+				}
+				result <- msg
+			}()
+			var v interface{}
+			select {
+			case v = <- result:
+			case <- tm.C:
+				log.Info("Get() timeout")
+				break LOOP
+			}
+			// sequenced stream.Get() finished
+
+			total += 1
+			total_end = time.Now()
+			if msg, ok := v.(gentle.Message); ok {
+				success_total++
+				gmsg := msg.(*gmailMessage).msg
+				log.Debug("Got message", "msg", gmsg.Id,
+					"size", gmsg.SizeEstimate)
+				total_size += gmsg.SizeEstimate
+				// Test duplication
+				if _, existed := mails[gmsg.Id]; existed {
+					log.Error("Duplicated Messagge", "msg", gmsg.Id)
+					break
+				}
+				mails[gmsg.Id] = true
+			}
+		}
+	total_time := total_end.Sub(total_begin)
+	log.Info("Done", "total", total, "success_total", success_total,
+		"total_size", total_size,
+		"total_time", total_time)
 }
 
 func main() {
@@ -259,83 +437,24 @@ func main() {
 	config := getAppSecret(app_secret_file)
 	tok := getTokenFromWeb(config)
 
-	count := 2000
-	// total should be, if gmail Messages.List() doesn't return error, the
-	// total of all gmailListStream emits pluses 1(ErrEOF).
-	total := 0
-	// success_total should be, the number of mails have been successfully
-	// downloaded.
-	success_total := 0
-	var totalSize int64
+	// likely to hit error like:
+	// googleapi: Error 429: Too many concurrent requests for user, rateLimitExceeded
+	// googleapi: Error 429: User-rate limit exceeded.  Retry after 2017-03-13T19:26:54.011Z, rateLimitExceeded
+
+	// Try different resiliency configurations:
 	//stream := example_hit_ratelimit(config, tok)
 	//stream := example_ratelimited(config, tok)
 	stream := example_ratelimited_retry(config, tok)
 
-	total_begin := time.Now()
-	var total_time_success time.Duration
-	mails := make(map[string]bool)
-	for i := 0; i < count; i++ {
-		total++
-		begin := time.Now()
-		msg, err := GetWithTimeout(stream, 10*time.Second)
-		dura := time.Now().Sub(begin)
-		if err != nil {
-			if err == ErrEOF {
-				log.Error("Got() EOF")
-				break
-			} else {
-				log.Error("Got() err", "err", err)
-				continue
-			}
-		}
-		gmsg := msg.(*gmailMessage).msg
-		log.Debug("Got message", "msg", gmsg.Id,
-			"size", gmsg.SizeEstimate)
-		// NOTE: if stream is ConcurrentFetchStream, the travel time of
-		// this msg is NOT dura. Because msg is asynchronously processed
-		// in parallel. However, the total_time_success is still valid.
-		total_time_success += dura
-		success_total++
-		totalSize += gmsg.SizeEstimate
-		// Test duplication
-		if _, existed := mails[msg.Id()]; existed {
-			log.Error("Duplicated Messagge", "msg", gmsg.Id)
-			break
-		}
-		mails[msg.Id()] = true
-	}
-	log.Info("Done", "total", total, "success_total", success_total,
-		"total_size", totalSize,
-		"total_time", time.Now().Sub(total_begin),
-		"success_time", total_time_success)
-	fmt.Printf("total: %d, success_total: %d, size: %d, "+
-		"total_time: %s, success_time: %s\n",
-		total, success_total, totalSize,
-		time.Now().Sub(total_begin), total_time_success)
+	// ConcurrentFetchStream and BulkheadStream can be used to increase
+	// throughput. The difference is, from caller's perspective, whether
+	// concurrency and/or the order of messages need to be manually
+	// maintained.
+
+	//RunWithConcurrentFetchStream(stream, 300, 2000)
+	RunWithBulkheadStream(stream, 300, 2000)
+	http.Handle("/metrics", promhttp.Handler())
+	err := http.ListenAndServe(":8080", nil)
+	log.Crit("Promhttp stoped", "err", err)
 }
 
-func GetWithTimeout(stream gentle.Stream, timeout time.Duration) (gentle.Message, error) {
-	tm := time.NewTimer(timeout)
-	result := make(chan interface{})
-	go func() {
-		msg, err := stream.Get()
-		if err != nil {
-			log.Error("stream.Get() err", "err", err)
-			result <- err
-		} else {
-			result <- msg
-		}
-	}()
-	var v interface{}
-	select {
-	case v = <-result:
-	case <-tm.C:
-		log.Error("timeout expired")
-		return nil, ErrEOF
-	}
-	if inst, ok := v.(gentle.Message); ok {
-		return inst, nil
-	} else {
-		return nil, v.(error)
-	}
-}
