@@ -39,23 +39,30 @@ var (
 		},
 		[]string{"list", "get", "status"})
 		*/
-	gmailCallHist = prom.NewHistogramVec(
+	gmailCallsHist = prom.NewHistogramVec(
 		prom.HistogramOpts {
-			Name:"gmail_call",
+			Name:"gmail_api_calls",
 			Help:"Gmail API calls",
 			Buckets: prom.DefBuckets,
 		},
 		[]string{"api", "status"})
-	gmailMessageSizeCounter = prom.NewCounter(
-		prom.CounterOpts{
+	gmailMessageBytesTotalCounter = prom.NewCounter(
+		prom.CounterOpts {
+			Name:"gmail_message_bytes_total",
+			Help:"Gmail raw messages size in total",
+		})
+	/*
+	gmailMessageSizeGauge = prom.NewGauge(
+		prom.GaugeOpts{
 			Name:"gmail_message_size",
 			Help:"Gmail raw message size",
 		})
+	*/
 )
 
 func init() {
-	prom.MustRegister(gmailCallHist)
-	prom.MustRegister(gmailMessageSizeCounter)
+	prom.MustRegister(gmailCallsHist)
+	prom.MustRegister(gmailMessageBytesTotalCounter)
 }
 
 // getTokenFromWeb uses Config to request a Token.
@@ -171,7 +178,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	callStart := time.Now()
 	resp, err := s.listCall.Do()
 	if err != nil {
-		gmailCallHist.With(
+		gmailCallsHist.With(
 			prom.Labels{
 				"api": "list",
 				"status": toGoogleApiErrorCode(err),
@@ -179,7 +186,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 		s.Log.Error("List() err", "err", err)
 		return nil, err
 	}
-	gmailCallHist.With(
+	gmailCallsHist.With(
 		prom.Labels{
 			"api": "list",
 			"status": strconv.Itoa(resp.HTTPStatusCode),
@@ -237,7 +244,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	callStart := time.Now()
 	gmsg, err := getCall.Do()
 	if err != nil {
-		gmailCallHist.With(
+		gmailCallsHist.With(
 			prom.Labels{
 				"api": "get",
 				"status": toGoogleApiErrorCode(err),
@@ -246,12 +253,12 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 			"err", err)
 		return nil, err
 	}
-	gmailCallHist.With(
+	gmailCallsHist.With(
 		prom.Labels{
 			"api": "get",
 			"status": strconv.Itoa(gmsg.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
-	gmailMessageSizeCounter.Add(float64(gmsg.SizeEstimate))
+	gmailMessageBytesTotalCounter.Add(float64(gmsg.SizeEstimate))
 	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
@@ -451,8 +458,8 @@ func main() {
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
 
-	//RunWithConcurrentFetchStream(stream, 300, 2000)
-	RunWithBulkheadStream(stream, 300, 2000)
+	go RunWithConcurrentFetchStream(stream, 300, 2000)
+	//go RunWithBulkheadStream(stream, 300, 2000)
 	http.Handle("/metrics", promhttp.Handler())
 	err := http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
