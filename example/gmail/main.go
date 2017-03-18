@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"google.golang.org/api/googleapi"
 	"strconv"
+	"encoding/base64"
+	"io"
+	"path/filepath"
 )
 
 const (
@@ -135,10 +138,10 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 	listCall := service.Users.Messages.List("me")
 	listCall.MaxResults(max_results)
 	return &gmailListStream{
+		Log:       log.New("mixin", "list"),
 		service:   service,
 		listCall:  listCall,
 		lock:      sync.Mutex{},
-		Log:       log.New("mixin", "list"),
 		page_last: false,
 		terminate: make(chan *struct{}),
 	}
@@ -212,9 +215,17 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	return s.nextMessage()
 }
 
+func toGoogleApiErrorCode(err error) string {
+	if gerr, ok := err.(*googleapi.Error); ok {
+		return strconv.Itoa(gerr.Code)
+	}
+	return err.Error()
+}
+
 type gmailMessageHandler struct {
-	service *gmail.Service
 	Log     log15.Logger
+	service *gmail.Service
+	decoder io.Reader
 }
 
 func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gmailMessageHandler {
@@ -226,21 +237,15 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gm
 		os.Exit(1)
 	}
 	return &gmailMessageHandler{
-		service: service,
 		Log:     log.New("mixin", "download"),
+		service: service,
 	}
-}
-
-func toGoogleApiErrorCode(err error) string {
-	if gerr, ok := err.(*googleapi.Error); ok {
-		return strconv.Itoa(gerr.Code)
-	}
-	return err.Error()
 }
 
 func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	h.Log.Debug("Message.Get() ...", "msg_in", msg.Id())
 	getCall := h.service.Users.Messages.Get("me", msg.Id())
+	getCall.Format("raw")
 	callStart := time.Now()
 	gmsg, err := getCall.Do()
 	if err != nil {
@@ -253,12 +258,29 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 			"err", err)
 		return nil, err
 	}
+
 	gmailCallsHist.With(
 		prom.Labels{
 			"api": "get",
 			"status": strconv.Itoa(gmsg.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
 	gmailMessageBytesTotalCounter.Add(float64(gmsg.SizeEstimate))
+
+	go func () {
+		content, err := base64.URLEncoding.DecodeString(gmsg.Raw)
+		if err != nil {
+			h.Log.Error("DecodeString err","msg_out", gmsg.Id,
+				"err", err)
+			return
+		}
+		err = ioutil.WriteFile(filepath.Join("tmp", gmsg.Id), content,
+			0644)
+		if err != nil {
+			h.Log.Error("WriteFile err","msg_out", gmsg.Id,
+				"err", err)
+		}
+	}()
+
 	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
@@ -345,7 +367,7 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 			}
 		}()
 	}
-	mails := make(map[string]bool)
+	mails := make(map[string]string)
 	tm := time.NewTimer(10 * time.Second)
 	var total_end time.Time
 	LOOP:
@@ -363,7 +385,7 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 					log.Error("Duplicated Messagge", "msg", gmsg.Id)
 					break LOOP
 				}
-				mails[gmsg.Id] = true
+				mails[gmsg.Id] = gmsg.Raw
 			case <- tm.C:
 				log.Debug("break ...")
 				break LOOP
@@ -439,6 +461,11 @@ func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, c
 }
 
 func main() {
+	err := os.Mkdir("tmp", os.ModeDir | 0755)
+	if err != nil && !os.IsExist(err) {
+		log.Error("Mkdir err", "err", err)
+		return
+	}
 	h := log15.LvlFilterHandler(log15.LvlDebug, logHandler)
 	log.SetHandler(h)
 	config := getAppSecret(app_secret_file)
@@ -458,10 +485,10 @@ func main() {
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
 
-	go RunWithConcurrentFetchStream(stream, 300, 2000)
-	//go RunWithBulkheadStream(stream, 300, 2000)
+	//go RunWithConcurrentFetchStream(stream, 300, 2000)
+	go RunWithBulkheadStream(stream, 300, 10)
 	http.Handle("/metrics", promhttp.Handler())
-	err := http.ListenAndServe(":8080", nil)
+	err = http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
 }
 
