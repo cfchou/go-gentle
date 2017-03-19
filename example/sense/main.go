@@ -262,11 +262,6 @@ func runOne() {
 	fmt.Println(string(hresp.content))
 }
 
-type timedResult struct {
-	msg gentle.Message
-	dura time.Duration
-}
-
 func runStream(stream gentle.Stream, concurrent_num int, count int64) {
 	var total int64
 	var success_total int64
