@@ -15,3 +15,11 @@ import:
   - gentle
 - package: gopkg.in/inconshreveable/log15.v2
   version: ^2.11.0
+- package: github.com/hashicorp/go-cleanhttp
+- package: github.com/spf13/pflag
+- package: github.com/davecgh/go-spew
+  version: ^1.1.0
+- package: github.com/pborman/uuid
+  version: ^1.0.0
+- package: github.com/rs/xid
+  version: ^1.0.0
