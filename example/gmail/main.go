@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"io"
 	"path/filepath"
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -34,6 +35,10 @@ var (
 		log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
 	log = log15.New("mixin", "main")
 	ErrEOF = errors.New("EOF")
+	// command line options
+	dir       = pflag.String("dir", "mails", "directory contains mails")
+
+	// instrument
 	/*
 	gmailCallCounter = prom.NewCounterVec(
 		prom.CounterOpts{
@@ -273,7 +278,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 				"err", err)
 			return
 		}
-		err = ioutil.WriteFile(filepath.Join("tmp", gmsg.Id), content,
+		err = ioutil.WriteFile(filepath.Join(*dir, gmsg.Id), content,
 			0644)
 		if err != nil {
 			h.Log.Error("WriteFile err","msg_out", gmsg.Id,
