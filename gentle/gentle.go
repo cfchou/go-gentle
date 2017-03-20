@@ -34,26 +34,37 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
-type Metric interface {
+// Metrics
+type Metrics interface {
 	BaseName() string
-	CounterAdd(name string, delta float64)
-	Gauge(name string, value float64)
-
-	//Timer(name string, timing time.Duration)
-	//Histogram(name string, observe float64)
-	//Summary(name string, observe float64)
-	Observe(name string, float64)
 }
 
-func ObserveTime(m Metric, name string, duration time.Duration) {
-	m.Observe(name,
-		float64(duration.Nanoseconds() / int64(time.Microsecond)))
+type Counter interface {
+	Metrics
+	Add(delta float64)
+	AddWithLabels(delta float64, kv map[string]string)
 }
 
-func CountInc(m Metric, name string) {
-	m.CounterAdd(name, 1)
+type Gauge interface {
+	Set(value float64)
+	SetWithLabels(value float64, kv map[string]string)
+	Add(delta float64)
+	AddWithLabels(delta float64, kv map[string]string)
 }
 
+type Histogram interface {
+	Metrics
+	Observe(value float64)
+	ObserveWithLabels(value float64, kv map[string]string)
+}
+
+func DurationInMillis(duration time.Duration) float64 {
+	return float64(duration.Nanoseconds() / int64(time.Millisecond))
+}
+
+func DurationInMicros(duration time.Duration) float64 {
+	return float64(duration.Nanoseconds() / int64(time.Microsecond))
+}
 
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
@@ -63,7 +74,7 @@ type RateLimit interface {
 }
 
 // Converts $millis of int to time.Duration.
-func IntToMillis(millis int) time.Duration {
+func MillisToDuration(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
 

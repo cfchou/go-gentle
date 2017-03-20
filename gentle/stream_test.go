@@ -286,7 +286,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
-	time.Sleep(IntToMillis(conf.SleepWindow))
+	time.Sleep(MillisToDuration(conf.SleepWindow))
 	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = stream.Get()
@@ -336,7 +336,7 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
-	time.Sleep(IntToMillis(conf.SleepWindow))
+	time.Sleep(MillisToDuration(conf.SleepWindow))
 	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = stream.Get()
