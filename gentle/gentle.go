@@ -58,14 +58,6 @@ type Histogram interface {
 	ObserveWithLabels(value float64, kv map[string]string)
 }
 
-func DurationInMillis(duration time.Duration) float64 {
-	return float64(duration.Nanoseconds() / int64(time.Millisecond))
-}
-
-func DurationInMicros(duration time.Duration) float64 {
-	return float64(duration.Nanoseconds() / int64(time.Microsecond))
-}
-
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or timeout(return

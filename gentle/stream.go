@@ -15,8 +15,8 @@ var (
 		prom.HistogramOpts {
 			Namespace: "stream",
 			Subsystem: "get",
-			Name:"duration_millis",
-			Help:"Duration of Stream.Get() in millis",
+			Name:"duration_seconds",
+			Help:"Duration of Stream.Get() in seconds",
 			Buckets: prom.DefBuckets,
 		},
 		[]string{"mixin", "name", "result"})
@@ -48,8 +48,8 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 		Log:     Log.New("mixin", mixin_s_rate, "name", name),
 		stream:  stream,
 		limiter: limiter,
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_rate, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_rate, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_rate, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_rate, name, "err"),
 	}
 }
 
@@ -61,11 +61,11 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return msg, nil
 }
 
@@ -89,8 +89,8 @@ func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *Retry
 		Log:      Log.New("mixin", mixin_s_retry, "name", name),
 		stream:   stream,
 		backoffs: backoffs,
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_retry, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_retry, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_retry, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_retry, name, "err"),
 	}
 }
 
@@ -106,17 +106,17 @@ func (r *RetryStream) Get() (Message, error) {
 		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
 		if err == nil {
-			timespan := time.Now().Sub(begin)
+			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 				"timespan", timespan)
-			r.hist_ok.Observe(DurationInMillis(timespan))
+			r.hist_ok.Observe(timespan)
 			return msg, nil
 		}
 		if len(bk) == 0 {
-			timespan := time.Now().Sub(begin)
+			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
 				"err", err, "timespan", timespan)
-			r.hist_err.Observe(DurationInMillis(timespan))
+			r.hist_err.Observe(timespan)
 			return nil, err
 		} else {
 			timespan := time.Now().Sub(begin)
@@ -149,8 +149,8 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 		Log:       Log.New("mixin", mixin_s_bulk, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_bulk, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_bulk, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_bulk, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_bulk, name, "err"),
 	}
 }
 
@@ -163,12 +163,12 @@ func (r *BulkheadStream) Get() (Message, error) {
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
 		<-r.semaphore
-		r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	<-r.semaphore
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return msg, nil
 }
 
@@ -192,8 +192,8 @@ func NewCircuitBreakerStream(name string, stream Stream, circuit string) *Circui
 			"circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_cb, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_cb, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_cb, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_cb, name, "err"),
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Get()'s err.
-			r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+			r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 			return nil, err
 		}
 	}
@@ -233,7 +233,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	if tp.snd == nil {
 		return tp.fst.(Message), nil
 	}
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return nil, tp.snd.(error)
 }
 
@@ -251,7 +251,7 @@ func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 		Name:    name,
 		Log:     Log.New("mixin", mixin_s_ch, "name", name),
 		channel: channel,
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_ch, "ok"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_ch, name, "ok"),
 	}
 }
 
@@ -260,7 +260,7 @@ func (r *ChannelStream) Get() (Message, error) {
 	r.Log.Debug("[Stream] Get() ...")
 	msg := <-r.channel
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return msg, nil
 }
 
@@ -288,8 +288,8 @@ func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_con, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_con, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_con, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_con, name, "err"),
 	}
 }
 
@@ -329,12 +329,12 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	if tp.snd != nil {
 		err := tp.snd.(error)
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 		return nil, err
 	}
 	msg := tp.fst.(Message)
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return msg, nil
 }
 
@@ -355,8 +355,8 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 		Log:     Log.New("mixin", mixin_s_map, "name", name),
 		stream:  stream,
 		handler: handler,
-		hist_ok: HistVec.WithLabelValues(name, mixin_s_map, "ok"),
-		hist_err: HistVec.WithLabelValues(name, mixin_s_map, "err"),
+		hist_ok: HistVec.WithLabelValues(mixin_s_map, name, "ok"),
+		hist_err: HistVec.WithLabelValues(mixin_s_map, name, "err"),
 	}
 }
 
@@ -366,18 +366,18 @@ func (r *MappedStream) Get() (Message, error) {
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
 	if herr != nil {
 		r.Log.Error("[Stream] Handle() err", "err", herr)
-		r.hist_err.Observe(DurationInMillis(time.Now().Sub(begin)))
+		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
 		return nil, herr
 	}
 	r.Log.Debug("[Stream] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", hmsg.Id())
-	r.hist_ok.Observe(DurationInMillis(time.Now().Sub(begin)))
+	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
 	return hmsg, nil
 }

@@ -41,8 +41,9 @@ var (
 	*/
 	gmailCallsHist = prom.NewHistogramVec(
 		prom.HistogramOpts{
-			Name:    "gmail_api_calls",
-			Help:    "Gmail API calls",
+			Namespace: "gmailapi",
+			Name:    "duration_seconds",
+			Help:"Duration of Gmail API in seconds",
 			Buckets: prom.DefBuckets,
 		},
 		[]string{"api", "status"})
@@ -63,6 +64,7 @@ var (
 func init() {
 	prom.MustRegister(gmailCallsHist)
 	prom.MustRegister(gmailMessageBytesTotalCounter)
+	prom.MustRegister(gentle.HistVec)
 }
 
 // getTokenFromWeb uses Config to request a Token.
@@ -451,15 +453,21 @@ func main() {
 	// Try different resiliency configurations:
 	//stream := example_hit_ratelimit(config, tok)
 	//stream := example_ratelimited(config, tok)
-	stream := example_ratelimited_retry(config, tok)
 
 	// ConcurrentFetchStream and BulkheadStream can be used to increase
 	// throughput. The difference is, from caller's perspective, whether
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
 
-	go RunWithConcurrentFetchStream(stream, 300, 2000)
-	//go RunWithBulkheadStream(stream, 300, 2000)
+	go func() {
+		for {
+			stream := example_ratelimited_retry(config, tok)
+			RunWithBulkheadStream(stream, 300, 2000)
+			//go RunWithConcurrentFetchStream(stream, 300, 2000)
+			time.Sleep(time.Minute)
+			log.Info("Run again")
+		}
+	}()
 	http.Handle("/metrics", promhttp.Handler())
 	err := http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
