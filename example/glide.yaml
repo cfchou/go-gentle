@@ -23,3 +23,5 @@ import:
   version: ^1.0.0
 - package: github.com/rs/xid
   version: ^1.0.0
+- package: gopkg.in/redis.v5
+  version: ^5.2.9

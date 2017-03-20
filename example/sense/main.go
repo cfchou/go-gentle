@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/pborman/uuid"
-	"github.com/rs/xid"
 	"github.com/spf13/pflag"
 	"gopkg.in/cfchou/go-gentle.v1/gentle"
 	"gopkg.in/inconshreveable/log15.v2"
+	"gopkg.in/redis.v5"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -20,6 +20,7 @@ import (
 	"time"
 	"sync/atomic"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"strconv"
 )
 
 const max_int64 = int64(^uint64(0) >> 1)
@@ -31,9 +32,11 @@ var (
 	// command line options
 	url       = pflag.String("url", "http://127.0.0.1:8080", "HES url")
 	dir       = pflag.String("dir", "mails", "directory contains mails")
+	redis_key = pflag.String("redis-key", "sense", "the key of a set in redis")
 	isDryRun  = pflag.BoolP("dryrun", "d", false, "dry run doesn't send reqests")
 	max_concurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	max_mails = pflag.Int64("max-mails", max_int64, "max number of emails")
+
 )
 
 func init() {
@@ -42,6 +45,7 @@ func init() {
 
 type hesScanReq struct {
 	id      string
+	mailId	string
 	content []byte
 }
 
@@ -63,30 +67,40 @@ type HesSend struct {
 	Log    log15.Logger
 	client *http.Client
 	url    string
+	rd	*redis.Client
 }
 
-func NewHesSend(url string) *HesSend {
+func NewHesSend(url string, opt *redis.Options) *HesSend {
 	// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 	return &HesSend{
 		Log:    log.New("mixin", "hes_send"),
 		client: cleanhttp.DefaultPooledClient(),
 		url:    url,
+		rd: redis.NewClient(opt),
 	}
 }
 
 func (s *HesSend) Handle(msg gentle.Message) (gentle.Message, error) {
 	s.Log.Debug("Handle() ...", "msg_in", msg.Id())
-	var content []byte
-	if hmsg, ok := msg.(*hesScanReq); !ok {
+	hmsg, ok := msg.(*hesScanReq)
+	if !ok {
 		s.Log.Error("Invalid message type", "msg_in", msg.Id(),
 			"type", reflect.TypeOf(msg),
 			"err", ErrMessageType)
 		return nil, ErrMessageType
-	} else {
-		content = hmsg.content
 	}
+	//
+	s.rd.SAdd(*redis_key, hmsg.Id())
+	hmsg_data := map[string]string{"mail_id": hmsg.mailId}
+	//
+	begin := time.Now()
 	resp, err := s.client.Post(s.url, "application/octet-stream",
-		bytes.NewReader(content))
+		bytes.NewReader(hmsg.content))
+	hmsg_data["scan_req_dura"] = strconv.FormatFloat(
+		time.Now().Sub(begin).Seconds(), 'f',3, 64)
+
+	s.rd.HMSet(hmsg.Id(), hmsg_data)
+
 	if err != nil {
 		s.Log.Error("Post() err", "msg_in", msg.Id(), "err", err)
 		return nil, err
@@ -206,7 +220,7 @@ func (r *RequestProvider) addMeta(id string, content []byte) []byte {
 	enc := xml.NewEncoder(meta_writer)
 	data := &metaData{
 		TaskIdChain: &TaskIdChain{
-			TaskId: []string{uuid.New()},
+			TaskId: []string{id},
 		},
 		UserData: r.userData,
 	}
@@ -218,8 +232,7 @@ func (r *RequestProvider) addMeta(id string, content []byte) []byte {
 	meta_writer.Flush()
 
 	payload := fmt.Sprintf("%08x%s00000002META%08x",
-		len(data.TaskIdChain.TaskId[0]),
-		data.TaskIdChain.TaskId[0], meta_buf.Len())
+		len(id), id, meta_buf.Len())
 
 	meta_writer.WriteString(fmt.Sprintf("TASK%08x", len(content)))
 	meta_writer.Write(content)
@@ -230,17 +243,17 @@ func (r *RequestProvider) addMeta(id string, content []byte) []byte {
 	all_bytes := []byte(payload)
 	all_bytes = append(all_bytes, meta_buf.Bytes()[:]...)
 	// correlate msg.Id & task id in log
-	r.Log.Debug("addMeta ok", "msg", id, "task", data.TaskIdChain.TaskId[0],
-		"all_len", len(all_bytes))
+	r.Log.Debug("addMeta ok", "msg", id, "all_len", len(all_bytes))
 	return all_bytes
 }
 
 func (r *RequestProvider) Get() (gentle.Message, error) {
-	id := xid.New().String()
-	key := r.names[r.gen.Intn(len(r.names))]
+	id := uuid.New()
+	mailId := r.names[r.gen.Intn(len(r.names))]
 	return &hesScanReq{
 		id:      id,
-		content: r.addMeta(id, r.requests[key]),
+		mailId:	mailId,
+		content: r.addMeta(id, r.requests[mailId]),
 	}, nil
 }
 
@@ -253,7 +266,13 @@ func runOne() {
 		return
 	}
 
-	hes := NewHesSend(*url + "/scanner/mail")
+	opt := &redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	}
+
+	hes := NewHesSend(*url + "/scanner/mail", opt)
 	hmsg, err := hes.Handle(hreq)
 	if err != nil {
 		log.Error("Handle err", "err", err)
@@ -292,7 +311,12 @@ func main() {
 	gentle.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))
 
 	provider := NewRequestProvider(*dir)
-	hes := NewHesSend(*url + "/scanner/mail")
+	opt := &redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	}
+	hes := NewHesSend(*url + "/scanner/mail", opt)
 	stream := gentle.NewMappedStream("sense", provider, hes)
 	go runStream(stream, *max_concurrency, *max_mails)
 	http.Handle("/metrics", promhttp.Handler())
