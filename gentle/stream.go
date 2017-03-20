@@ -11,7 +11,7 @@ import (
 
 var (
 	// Histogram used by all Streams
-	histVec = prom.NewHistogramVec(
+	HistVec = prom.NewHistogramVec(
 		prom.HistogramOpts {
 			Namespace: "stream",
 			Subsystem: "get",
@@ -48,8 +48,8 @@ func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLi
 		Log:     Log.New("mixin", mixin_s_rate, "name", name),
 		stream:  stream,
 		limiter: limiter,
-		hist_ok: histVec.WithLabelValues(name, mixin_s_rate, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_rate, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_rate, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_rate, "err"),
 	}
 }
 
@@ -89,8 +89,8 @@ func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *Retry
 		Log:      Log.New("mixin", mixin_s_retry, "name", name),
 		stream:   stream,
 		backoffs: backoffs,
-		hist_ok: histVec.WithLabelValues(name, mixin_s_retry, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_retry, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_retry, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_retry, "err"),
 	}
 }
 
@@ -149,8 +149,8 @@ func NewBulkheadStream(name string, stream Stream, max_concurrency int) *Bulkhea
 		Log:       Log.New("mixin", mixin_s_bulk, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: histVec.WithLabelValues(name, mixin_s_bulk, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_bulk, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_bulk, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_bulk, "err"),
 	}
 }
 
@@ -192,8 +192,8 @@ func NewCircuitBreakerStream(name string, stream Stream, circuit string) *Circui
 			"circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		hist_ok: histVec.WithLabelValues(name, mixin_s_cb, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_cb, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_cb, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_cb, "err"),
 	}
 }
 
@@ -251,7 +251,7 @@ func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
 		Name:    name,
 		Log:     Log.New("mixin", mixin_s_ch, "name", name),
 		channel: channel,
-		hist_ok: histVec.WithLabelValues(name, mixin_s_ch, "ok"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_ch, "ok"),
 	}
 }
 
@@ -288,8 +288,8 @@ func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: histVec.WithLabelValues(name, mixin_s_con, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_con, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_con, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_con, "err"),
 	}
 }
 
@@ -355,8 +355,8 @@ func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream 
 		Log:     Log.New("mixin", mixin_s_map, "name", name),
 		stream:  stream,
 		handler: handler,
-		hist_ok: histVec.WithLabelValues(name, mixin_s_map, "ok"),
-		hist_err: histVec.WithLabelValues(name, mixin_s_map, "err"),
+		hist_ok: HistVec.WithLabelValues(name, mixin_s_map, "ok"),
+		hist_err: HistVec.WithLabelValues(name, mixin_s_map, "err"),
 	}
 }
 
