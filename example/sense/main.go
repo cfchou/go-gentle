@@ -90,28 +90,40 @@ func (s *HesSend) Handle(msg gentle.Message) (gentle.Message, error) {
 		return nil, ErrMessageType
 	}
 	//
-	s.rd.SAdd(*redis_key, hmsg.Id())
+	err := s.rd.SAdd(*redis_key, hmsg.Id()).Err()
+	if err != nil {
+		return nil, err
+	}
 	hmsg_data := map[string]string{"mail_id": hmsg.mailId}
-	//
+	// use redis' server time as the scan_begin
+	rdtime, err := s.rd.Time().Result()
+	if err != nil {
+		return nil, err
+	}
+	hmsg_data["scan_req_begin"] = strconv.FormatInt(rdtime.Unix(), 10)
 	begin := time.Now()
 	resp, err := s.client.Post(s.url, "application/octet-stream",
 		bytes.NewReader(hmsg.content))
+
+	defer s.rd.HMSet(hmsg.Id(), hmsg_data).Result()
+
 	hmsg_data["scan_req_dura"] = strconv.FormatFloat(
 		time.Now().Sub(begin).Seconds(), 'f',3, 64)
-
-	s.rd.HMSet(hmsg.Id(), hmsg_data)
-
 	if err != nil {
 		s.Log.Error("Post() err", "msg_in", msg.Id(), "err", err)
+		hmsg_data["scan_resp_status"] = resp.Status
 		return nil, err
 	}
+	hmsg_data["scan_resp_status"] = resp.Status
 	//fmt.Println(resp.Status)
+
 	body_content, err := ioutil.ReadAll(resp.Body)
 	//fmt.Println(string(body_content))
 	if err != nil {
 		s.Log.Error("ReadAll() err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
+
 	//s.Log.Debug("ReadAll() ok", "msg_in", msg.Id())
 	s.Log.Debug("ReadAll() ok", "msg_in", msg.Id(),
 		"resp", string(body_content))
