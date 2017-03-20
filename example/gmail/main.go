@@ -5,21 +5,21 @@ import (
 	"io/ioutil"
 
 	"errors"
+	prom "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/googleapi"
 	"gopkg.in/cfchou/go-gentle.v1/gentle"
 	log15 "gopkg.in/inconshreveable/log15.v2"
-	"os"
-	"sync"
-	"time"
-	"sync/atomic"
-	prom "github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
-	"google.golang.org/api/googleapi"
+	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const (
@@ -29,34 +29,34 @@ const (
 var (
 	logHandler = log15.MultiHandler(log15.StdoutHandler,
 		log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
-	log = log15.New("mixin", "main")
+	log    = log15.New("mixin", "main")
 	ErrEOF = errors.New("EOF")
 	/*
-	gmailCallCounter = prom.NewCounterVec(
-		prom.CounterOpts{
-			Name:"gmail_call",
-			Help:"Gmail API calls",
-		},
-		[]string{"list", "get", "status"})
-		*/
+		gmailCallCounter = prom.NewCounterVec(
+			prom.CounterOpts{
+				Name:"gmail_call",
+				Help:"Gmail API calls",
+			},
+			[]string{"list", "get", "status"})
+	*/
 	gmailCallsHist = prom.NewHistogramVec(
-		prom.HistogramOpts {
-			Name:"gmail_api_calls",
-			Help:"Gmail API calls",
+		prom.HistogramOpts{
+			Name:    "gmail_api_calls",
+			Help:    "Gmail API calls",
 			Buckets: prom.DefBuckets,
 		},
 		[]string{"api", "status"})
 	gmailMessageBytesTotalCounter = prom.NewCounter(
-		prom.CounterOpts {
-			Name:"gmail_message_bytes_total",
-			Help:"Gmail raw messages size in total",
+		prom.CounterOpts{
+			Name: "gmail_message_bytes_total",
+			Help: "Gmail raw messages size in total",
 		})
 	/*
-	gmailMessageSizeGauge = prom.NewGauge(
-		prom.GaugeOpts{
-			Name:"gmail_message_size",
-			Help:"Gmail raw message size",
-		})
+		gmailMessageSizeGauge = prom.NewGauge(
+			prom.GaugeOpts{
+				Name:"gmail_message_size",
+				Help:"Gmail raw message size",
+			})
 	*/
 )
 
@@ -135,10 +135,10 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token, max_res
 	listCall := service.Users.Messages.List("me")
 	listCall.MaxResults(max_results)
 	return &gmailListStream{
+		Log:       log.New("mixin", "list"),
 		service:   service,
 		listCall:  listCall,
 		lock:      sync.Mutex{},
-		Log:       log.New("mixin", "list"),
 		page_last: false,
 		terminate: make(chan *struct{}),
 	}
@@ -180,7 +180,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	if err != nil {
 		gmailCallsHist.With(
 			prom.Labels{
-				"api": "list",
+				"api":    "list",
 				"status": toGoogleApiErrorCode(err),
 			}).Observe(time.Now().Sub(callStart).Seconds())
 		s.Log.Error("List() err", "err", err)
@@ -188,7 +188,7 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	}
 	gmailCallsHist.With(
 		prom.Labels{
-			"api": "list",
+			"api":    "list",
 			"status": strconv.Itoa(resp.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
 
@@ -212,9 +212,16 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	return s.nextMessage()
 }
 
+func toGoogleApiErrorCode(err error) string {
+	if gerr, ok := err.(*googleapi.Error); ok {
+		return strconv.Itoa(gerr.Code)
+	}
+	return err.Error()
+}
+
 type gmailMessageHandler struct {
-	service *gmail.Service
 	Log     log15.Logger
+	service *gmail.Service
 }
 
 func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gmailMessageHandler {
@@ -226,27 +233,21 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token) *gm
 		os.Exit(1)
 	}
 	return &gmailMessageHandler{
-		service: service,
 		Log:     log.New("mixin", "download"),
+		service: service,
 	}
-}
-
-func toGoogleApiErrorCode(err error) string {
-	if gerr, ok := err.(*googleapi.Error); ok {
-		return strconv.Itoa(gerr.Code)
-	}
-	return err.Error()
 }
 
 func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	h.Log.Debug("Message.Get() ...", "msg_in", msg.Id())
 	getCall := h.service.Users.Messages.Get("me", msg.Id())
+	getCall.Format("raw")
 	callStart := time.Now()
 	gmsg, err := getCall.Do()
 	if err != nil {
 		gmailCallsHist.With(
 			prom.Labels{
-				"api": "get",
+				"api":    "get",
 				"status": toGoogleApiErrorCode(err),
 			}).Observe(time.Now().Sub(callStart).Seconds())
 		h.Log.Error("Messages.Get() err", "msg_in", msg.Id(),
@@ -255,11 +256,11 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	}
 	gmailCallsHist.With(
 		prom.Labels{
-			"api": "get",
+			"api":    "get",
 			"status": strconv.Itoa(gmsg.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
 	gmailMessageBytesTotalCounter.Add(float64(gmsg.SizeEstimate))
-	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
+	h.Log.Debug("Messages.Get() ok", "msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
 }
@@ -311,7 +312,7 @@ func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) 
 }
 
 type timedResult struct {
-	msg gentle.Message
+	msg  gentle.Message
 	dura time.Duration
 }
 
@@ -340,7 +341,7 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 				return
 			}
 			result <- &timedResult{
-				msg: msg,
+				msg:  msg,
 				dura: time.Now().Sub(begin),
 			}
 		}()
@@ -348,33 +349,32 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 	mails := make(map[string]bool)
 	tm := time.NewTimer(10 * time.Second)
 	var total_end time.Time
-	LOOP:
-		for {
-			select {
-			case tr := <-result:
-				gmsg := tr.msg.(*gmailMessage).msg
-				log.Debug("Got message", "msg", gmsg.Id,
-					"size", gmsg.SizeEstimate)
-				total_end = time.Now()
-				success_total++
-				total_size += gmsg.SizeEstimate
-				// Test duplication
-				if _, existed := mails[gmsg.Id]; existed {
-					log.Error("Duplicated Messagge", "msg", gmsg.Id)
-					break LOOP
-				}
-				mails[gmsg.Id] = true
-			case <- tm.C:
-				log.Debug("break ...")
+LOOP:
+	for {
+		select {
+		case tr := <-result:
+			gmsg := tr.msg.(*gmailMessage).msg
+			log.Debug("Got message", "msg", gmsg.Id,
+				"size", gmsg.SizeEstimate)
+			total_end = time.Now()
+			success_total++
+			total_size += gmsg.SizeEstimate
+			// Test duplication
+			if _, existed := mails[gmsg.Id]; existed {
+				log.Error("Duplicated Messagge", "msg", gmsg.Id)
 				break LOOP
 			}
+			mails[gmsg.Id] = true
+		case <-tm.C:
+			log.Debug("break ...")
+			break LOOP
 		}
+	}
 	total_time := total_end.Sub(total_begin)
 	log.Info("Done", "total", total, "success_total", success_total,
 		"total_size", total_size,
 		"total_time", total_time)
 }
-
 
 func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, count int) {
 	stream := gentle.NewConcurrentFetchStream("gmail", upstream, max_concurrency)
@@ -394,44 +394,44 @@ func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, c
 	// From caller's point of view, ConcurrentFetchStream.Get() is
 	// called sequentially. But under the hood, there's a loop running in
 	// parallel to asynchronously fetch Messages from upstream.
-	LOOP:
-		for i := 0; i < count; i++ {
-			// essentially sequencing stream.Get()
-			result := make(chan interface{}, 1)
-			tm := time.NewTimer(10 * time.Second)
-			go func() {
-				msg, err := stream.Get()
-				if err != nil {
-					log.Error("Get() err", "err", err)
-					result <- err
-				}
-				result <- msg
-			}()
-			var v interface{}
-			select {
-			case v = <- result:
-			case <- tm.C:
-				log.Info("Get() timeout")
-				break LOOP
+LOOP:
+	for i := 0; i < count; i++ {
+		// essentially sequencing stream.Get()
+		result := make(chan interface{}, 1)
+		tm := time.NewTimer(10 * time.Second)
+		go func() {
+			msg, err := stream.Get()
+			if err != nil {
+				log.Error("Get() err", "err", err)
+				result <- err
 			}
-			// sequenced stream.Get() finished
-
-			total += 1
-			total_end = time.Now()
-			if msg, ok := v.(gentle.Message); ok {
-				success_total++
-				gmsg := msg.(*gmailMessage).msg
-				log.Debug("Got message", "msg", gmsg.Id,
-					"size", gmsg.SizeEstimate)
-				total_size += gmsg.SizeEstimate
-				// Test duplication
-				if _, existed := mails[gmsg.Id]; existed {
-					log.Error("Duplicated Messagge", "msg", gmsg.Id)
-					break
-				}
-				mails[gmsg.Id] = true
-			}
+			result <- msg
+		}()
+		var v interface{}
+		select {
+		case v = <-result:
+		case <-tm.C:
+			log.Info("Get() timeout")
+			break LOOP
 		}
+		// sequenced stream.Get() finished
+
+		total += 1
+		total_end = time.Now()
+		if msg, ok := v.(gentle.Message); ok {
+			success_total++
+			gmsg := msg.(*gmailMessage).msg
+			log.Debug("Got message", "msg", gmsg.Id,
+				"size", gmsg.SizeEstimate)
+			total_size += gmsg.SizeEstimate
+			// Test duplication
+			if _, existed := mails[gmsg.Id]; existed {
+				log.Error("Duplicated Messagge", "msg", gmsg.Id)
+				break
+			}
+			mails[gmsg.Id] = true
+		}
+	}
 	total_time := total_end.Sub(total_begin)
 	log.Info("Done", "total", total, "success_total", success_total,
 		"total_size", total_size,
@@ -464,4 +464,3 @@ func main() {
 	err := http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
 }
-
