@@ -98,8 +98,8 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 		scan_req_begin: 1490064094,	// int, redis server's unix timestamp in secs
 
 		// Following are not guaranteed to be available.
-		scan_req_len: 1024		// int, req content-length in bytes
 		scan_req_dura: 1.001, 		// float, in secs
+		scan_req_len: 1024		// int, req content-length in bytes
 		scan_resp_status: "200"		// string, HTTP response status
 		scan_resp_hes_state: "2"	// string, HES info
 		scan_resp_hes_in: "1"		// string, HES info
@@ -136,9 +136,9 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 		"begin", begin.Format(time.StampMilli),
 		"timespan", timespan)
 
-	scanData["scan_req_len"] = strconv.FormatInt(resp.Request.ContentLength, 10)
 	scanData["scan_req_dura"] = strconv.FormatFloat(timespan.Seconds(), 'f',
 		3, 64)
+	scanData["scan_req_len"] = strconv.FormatInt(resp.Request.ContentLength, 10)
 	if err != nil {
 		s.Log.Error("POST err", "msg_in", msg.Id(), "err", err)
 		return nil, err
