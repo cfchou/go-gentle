@@ -19,7 +19,6 @@ import (
 	"reflect"
 	"time"
 	"sync/atomic"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"strconv"
 	"strings"
 )
@@ -38,7 +37,7 @@ var (
 	isDryRun        = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
 	max_concurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	max_scans = pflag.Int64("max-scans", max_int64, "max scan requests to HES")
-	max_scans_sec	= pflag.Int("max-scans-sec", 1000, "rate limit of max scans per second")
+	max_scans_sec	= pflag.Int("max-scans-sec", 10, "rate limit of max scans per second")
 )
 
 func init() {
@@ -95,10 +94,12 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	Create a hash on redis:
 	hmsg.id: {
 		mail_id: "the email's unique file name"
-		scan_req_begin: 1490064094,	// int, redis server's unix timestamp in sec
+		scan_mail_sz: 12345		// int, mail size in bytes
+		scan_req_begin: 1490064094,	// int, redis server's unix timestamp in secs
 
 		// Following are not guaranteed to be available.
-		scan_req_dura: 1.001, 		// float, in sec
+		scan_req_len: 1024		// int, req content-length in bytes
+		scan_req_dura: 1.001, 		// float, in secs
 		scan_resp_status: "200"		// string, HTTP response status
 		scan_resp_hes_state: "2"	// string, HES info
 		scan_resp_hes_in: "1"		// string, HES info
@@ -116,23 +117,30 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	scanData["scan_req_begin"] = strconv.FormatInt(rdtime.Unix(), 10)
 
 	defer func() {
-		// Send scanData, note some fields might not be available
-		s.Log.Debug("Send to Redis", "msg_in", msg.Id())
-		s.rd.HMSet(hmsg.Id(), scanData).Result()
+		go func () {
+			// Send scanData, note some fields might not be available
+			_, err := s.rd.HMSet(hmsg.Id(), scanData).Result()
+			if err != nil {
+				s.Log.Debug("HMSet err", "msg_in", msg.Id(), "err", err)
+			} else {
+				s.Log.Debug("HMSet ok", "msg_in", msg.Id())
+			}
+		}()
 	}()
 
 	begin := time.Now()
 	resp, err := s.client.Post(s.url, "application/octet-stream",
 		bytes.NewReader(hmsg.content))
 	timespan := time.Now().Sub(begin)
-	log.Debug("Post() timespan", "msg_in", msg.Id(),
+	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
 		"begin", begin.Format(time.StampMilli),
 		"timespan", timespan)
 
+	scanData["scan_req_len"] = strconv.FormatInt(resp.Request.ContentLength, 10)
 	scanData["scan_req_dura"] = strconv.FormatFloat(timespan.Seconds(), 'f',
 		3, 64)
 	if err != nil {
-		s.Log.Error("Post() err", "msg_in", msg.Id(), "err", err)
+		s.Log.Error("POST err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
 
@@ -185,7 +193,7 @@ func parse_hes_info(key string, body string) (string, bool) {
 	return body[si:sj], true
 }
 
-type RequestProvider struct {
+type RequestStream struct {
 	Log      log15.Logger
 	gen      *rand.Rand
 	names    []string
@@ -193,7 +201,7 @@ type RequestProvider struct {
 	userData *UserData
 }
 
-func NewRequestStream(dirname string) *RequestProvider {
+func NewRequestStream(dirname string) *RequestStream {
 	// Reads all files into the memory
 	fs, err := ioutil.ReadDir(dirname)
 	if err != nil {
@@ -214,8 +222,8 @@ func NewRequestStream(dirname string) *RequestProvider {
 		}
 	}
 
-	return &RequestProvider{
-		Log:      log.New("mixin", "provider"),
+	return &RequestStream {
+		Log:      log.New("mixin", "request"),
 		gen:      rand.New(rand.NewSource(time.Now().UnixNano())),
 		names:    names,
 		requests: requests,
@@ -268,20 +276,20 @@ type Policy struct {
 	PolicyRules  []string `xml:"policy_rules>policy_rule"`
 }
 
-type metaData struct {
+type MetaData struct {
 	XMLName     xml.Name `xml:"meta-data"`
 	TaskIdChain *TaskIdChain
 	UserData    *UserData
 }
 
-func (r *RequestProvider) addMeta(id string, content []byte) []byte {
+func (r *RequestStream) addMeta(id string, content []byte) []byte {
 	var meta_buf bytes.Buffer
 	meta_writer := bufio.NewWriter(&meta_buf)
 
 	//enc := xml.NewEncoder(os.Stdout)
 	//enc := xml.NewEncoder(meta_buf)
 	enc := xml.NewEncoder(meta_writer)
-	data := &metaData{
+	data := &MetaData{
 		TaskIdChain: &TaskIdChain{
 			TaskId: []string{id},
 		},
@@ -310,7 +318,7 @@ func (r *RequestProvider) addMeta(id string, content []byte) []byte {
 	return all_bytes
 }
 
-func (r *RequestProvider) Get() (gentle.Message, error) {
+func (r *RequestStream) Get() (gentle.Message, error) {
 	id := uuid.New()
 	mailId := r.names[r.gen.Intn(len(r.names))]
 	content := r.addMeta(id, r.requests[mailId])
@@ -347,12 +355,13 @@ func runLoop() {
 	scans := NewRequestStream(*dir)
 	rd := createRedisClient()
 	var handler gentle.Handler
-	ratelimit := 1000 / (*max_scans_sec)
-	if ratelimit > 0 {
-		log.Debug("Rate limit enabled, pause in millis between every scan", "pause", ratelimit)
+	interval := 1000 / (*max_scans_sec)
+	if interval > 0 {
+		log.Debug("Rate limit enabled, pause in millis between every scan",
+			"pause", interval)
 		handler = gentle.NewRateLimitedHandler("sense",
 			NewHesSendHandler(*url + "/scanner/mail", rd),
-			gentle.NewTokenBucketRateLimit(ratelimit, 1))
+			gentle.NewTokenBucketRateLimit(interval, 1))
 	} else {
 		handler = NewHesSendHandler(*url + "/scanner/mail", rd)
 	}
@@ -396,14 +405,14 @@ func createRedisClient() *redis.Client {
 
 func main() {
 	h := log15.MultiHandler(log15.StdoutHandler,
-		log15.Must.FileHandler("./test.log", log15.LogfmtFormat()))
+		log15.Must.FileHandler("./sense.log", log15.LogfmtFormat()))
 	log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))
 	gentle.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))
 
 	//runOne()
-	go runLoop()
+	runLoop()
 
-	http.Handle("/metrics", promhttp.Handler())
-	err := http.ListenAndServe(":8080", nil)
-	log.Crit("Promhttp stoped", "err", err)
+	// block until keyboard interrupt
+	var block <-chan *struct{}
+	<-block
 }
