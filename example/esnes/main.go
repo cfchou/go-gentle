@@ -133,6 +133,13 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 	}, nil
 }
 
+func parseContent(content []byte) {
+	if len(content) < 8 {
+		return
+	}
+	fmt.Scan("%08x", )
+}
+
 type hesRecvResp struct {
 	id      string
 }
