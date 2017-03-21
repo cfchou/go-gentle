@@ -14,6 +14,7 @@ import (
 	"errors"
 	"strconv"
 	"sync/atomic"
+	"github.com/rs/xid"
 )
 
 const max_int64 = int64(^uint64(0) >> 1)
@@ -24,14 +25,15 @@ var (
 	ErrNoContent	= errors.New("No content")
 
 	// command line options
-	url             = pflag.String("url", "http://127.0.0.1:8080", "HES url")
+	//url             = pflag.String("url", "http://127.0.0.1:8080", "HES url")
+	url             = pflag.String("url", "http://localhost:28080", "HES url")
 	db              = pflag.Int("redis-db", 0, "the db used in redis")
 	pop_count = pflag.Int("pop-count", 51, "HES pop count")
 	pop_size = pflag.Int64("pop-size", 16777216, "HES pop size")
 
 	max_concurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	max_recvs = pflag.Int64("max-recvs", max_int64, "max recv requests to HES")
-	max_recvs_sec	= pflag.Int("max-recvs-sec", 10, "rate limit of max recv per second")
+	max_recvs_sec	= pflag.Int("max-recvs-sec", 2, "rate limit of max recv per second")
 )
 
 func init() {
@@ -83,65 +85,127 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 		s.Log.Error("PUT err", "err", err)
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusNoContent {
-		s.Log.Debug("PUT ok, but no content")
-		return nil, ErrNoContent
+
+	batchId := xid.New().String()
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode < 200 ||
+		resp.StatusCode >= 300 {
+		s.Log.Warn("PUT returns suspicious status",
+			"status", resp.Status)
+		// Not treated as error
+		return &hesRecvResp{
+			id: batchId,
+			TaskIds: []string{},
+		}, nil
 	}
 
 	timespan := time.Now().Sub(begin)
-	s.Log.Debug("PUT timespan",
+	s.Log.Debug("PUT timespan", "status", resp.Status,
 		"begin", begin.Format(time.StampMilli),
 		"timespan", timespan)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &hesRecvResp{
+			id: batchId,
+			TaskIds: []string{},
+		}, nil
+	}
+
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		s.Log.Error("ReadAll() err", "err", err)
 		return nil, err
 	}
 	s.Log.Debug("ReadAll() ok", "body_len", len(content))
-	body := string(content)
-	meta, ok := parse_hes_info("meta-data", body)
-	if !ok {
-		// This could be that it's not 200
-		s.Log.Error("Parse meta err")
-		return nil, ErrParse
-	}
-	s.Log.Debug("parse meta ok", "meta_len", len(meta))
-	taskId, ok := parse_hes_info("task-id", meta)
-	if !ok {
-		s.Log.Error("Parse taskId err")
-		return nil, ErrParse
-	}
-
 	// Update a hash on redis; key is taskId
-	// recv_resp_len: 	int, resp content-length in bytes
 	recvData := map[string]string{
 		"recv_req_begin": strconv.FormatInt(rdtime.Unix(), 10),
 		"recv_req_dura": strconv.FormatFloat(timespan.Seconds(), 'f',
 			3, 64),
-		"recv_resp_len": strconv.FormatInt(resp.ContentLength, 10),
+		"recv_req_bid": batchId,
 	}
-	//go func() {
-		_, err = s.rd.HMSet(taskId, recvData).Result()
-		if err != nil {
-			s.Log.Debug("HMSet err", "msg", taskId, "err", err)
-		} else {
-			s.Log.Debug("HMSet ok", "msg", taskId)
-		}
-	//}()
+	taskIds := s.parseContent(content, recvData)
+	for _, tid := range taskIds {
+		log.Debug("parseContent", "msg", batchId, "task_id", tid,
+			"count", len(taskIds))
+	}
 	return &hesRecvResp{
-		id: taskId,
+		id: batchId,
+		TaskIds: taskIds,
 	}, nil
 }
 
-func parseContent(content []byte) {
-	if len(content) < 8 {
-		return
+func (s *HesRecvStream) parseContent(content []byte, recvData map[string]string) []string {
+	rest := content
+	minimum := 3*8 + len("00000002META") + len("TASK")
+	taskIds := []string{}
+	for {
+		if len(rest) == 8 && string(rest) == "FFFFFFFF" {
+			s.Log.Debug("Parse done", "count", len(taskIds))
+			return taskIds
+		}
+		if len(rest) <= minimum {
+			s.Log.Warn("Incomplete content")
+			return taskIds
+		}
+		var taskIdLen, metaLen, dataLen int
+		n, err := fmt.Sscanf(string(rest[:8]), "%08x", &taskIdLen)
+		if err != nil || n != 1 {
+			s.Log.Error("Sscanf taskIdLen err",
+				"invalid", string(rest[:8]))
+			return taskIds
+		}
+		expectLen := 8+taskIdLen+len("00000002META")
+		if len(rest) <= expectLen + 8 {
+			s.Log.Warn("Incomplete content")
+			return taskIds
+		}
+		taskId := string(rest[8:8+taskIdLen])
+		taskIds = append(taskIds, taskId)
+
+		rest = rest[expectLen:]
+		n, err = fmt.Sscanf(string(rest[:8]), "%08x", &metaLen)
+		if err != nil || n != 1 {
+			s.Log.Error("Sscanf metaLen err",
+				"invalid", string(rest[:8]))
+			return taskIds
+		}
+		expectLen = 8+metaLen+len("TASK")
+		if len(rest) <= expectLen + 8 {
+			s.Log.Warn("Incomplete content")
+			return taskIds
+		}
+		// meta := string(rest[8:8+metaLen])
+
+		rest = rest[expectLen:]
+		n, err = fmt.Sscanf(string(rest[:8]), "%08x", &dataLen)
+		if err != nil || n != 1 {
+			s.Log.Error("Sscanf dataLen err",
+				"invalid", string(rest[:8]))
+			return taskIds
+		}
+		expectLen = 8+dataLen
+		if len(rest) < expectLen + 8 {
+			s.Log.Warn("Incomplete content")
+			return taskIds
+		}
+		//data := string(rest[8:8+dataLen])
+
+		rest = rest[expectLen:]
+
+		go func(tid string) {
+			_, err = s.rd.HMSet(tid, recvData).Result()
+			if err != nil {
+				s.Log.Debug("HMSet err", "msg", taskId, "err", err)
+			} else {
+				s.Log.Debug("HMSet ok", "msg", taskId)
+			}
+		}(taskId)
 	}
-	fmt.Scan("%08x", )
 }
 
 type hesRecvResp struct {
 	id      string
+	TaskIds []string
 }
 
 func (m *hesRecvResp) Id() string {
@@ -207,6 +271,7 @@ func runStream(stream gentle.Stream, concurrent_num int, count int64) {
 }
 
 func main() {
+
 	h := log15.MultiHandler(log15.StdoutHandler,
 		log15.Must.FileHandler("./esnes.log", log15.LogfmtFormat()))
 	log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))

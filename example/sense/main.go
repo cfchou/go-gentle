@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hashicorp/go-cleanhttp"
-	"github.com/pborman/uuid"
 	"github.com/spf13/pflag"
 	"gopkg.in/cfchou/go-gentle.v1/gentle"
 	"gopkg.in/inconshreveable/log15.v2"
@@ -21,6 +20,7 @@ import (
 	"sync/atomic"
 	"strconv"
 	"strings"
+	"github.com/rs/xid"
 )
 
 const max_int64 = int64(^uint64(0) >> 1)
@@ -145,6 +145,12 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	}
 
 	scanData["scan_resp_status"] = resp.Status
+	if resp.StatusCode != 200 {
+		s.Log.Warn("POST returns suspicious status",
+			"status", resp.Status)
+		return nil, err
+	}
+
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		s.Log.Error("ReadAll() err", "msg_in", msg.Id(), "err", err)
@@ -319,7 +325,7 @@ func (r *RequestStream) addMeta(id string, content []byte) []byte {
 }
 
 func (r *RequestStream) Get() (gentle.Message, error) {
-	id := uuid.New()
+	id := xid.New().String()
 	mailId := r.names[r.gen.Intn(len(r.names))]
 	content := r.addMeta(id, r.requests[mailId])
 	// correlate msg.Id & mailId in log
