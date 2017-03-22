@@ -3,24 +3,25 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/csv"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"github.com/hashicorp/go-cleanhttp"
+	"github.com/rs/xid"
 	"github.com/spf13/pflag"
 	"gopkg.in/cfchou/go-gentle.v1/gentle"
 	"gopkg.in/inconshreveable/log15.v2"
-	"gopkg.in/redis.v5"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
-	"time"
-	"sync/atomic"
 	"strconv"
 	"strings"
-	"github.com/rs/xid"
+	"sync/atomic"
+	"time"
 )
 
 const max_int64 = int64(^uint64(0) >> 1)
@@ -30,14 +31,13 @@ var (
 	ErrMessageType = errors.New("Invalid message type")
 
 	// command line options
-	url             = pflag.String("url", "http://127.0.0.1:8080", "HES url")
-	dir             = pflag.String("dir", "mails", "directory contains mails")
-	db              = pflag.Int("redis-db", 0, "the db used in redis")
-	flush		= pflag.BoolP("redis-flush", "f", false, "clear db in redis")
-	isDryRun        = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
-	max_concurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
-	max_scans = pflag.Int64("max-scans", max_int64, "max scan requests to HES")
-	max_scans_sec	= pflag.Int("max-scans-sec", 10, "rate limit of max scans per second")
+	url            = pflag.String("url", "http://127.0.0.1:8080", "HES url")
+	dir            = pflag.String("dir", "mails", "directory contains mails")
+	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
+	isDryRun       = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
+	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
+	maxScans       = pflag.Int64("max-scans", max_int64, "max scan requests to HES")
+	maxScansSec    = pflag.Int("max-scans-sec", 10, "rate limit of max scans per second")
 )
 
 func init() {
@@ -46,7 +46,7 @@ func init() {
 
 type hesScanReq struct {
 	id      string
-	mailId	string
+	mailId  string
 	content []byte
 }
 
@@ -65,19 +65,19 @@ func (m *hesScanResp) Id() string {
 }
 
 type HesSendHandler struct {
-	Log    log15.Logger
-	client *http.Client
-	url    string
-	rd	*redis.Client
+	Log       log15.Logger
+	client    *http.Client
+	url       string
+	csvWriter *csv.Writer
 }
 
-func NewHesSendHandler(url string, rd *redis.Client) *HesSendHandler {
+func NewHesSendHandler(url string, csvWriter *csv.Writer) *HesSendHandler {
 	// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 	return &HesSendHandler{
-		Log:    log.New("mixin", "hes_send"),
-		client: cleanhttp.DefaultPooledClient(),
-		url:    url,
-		rd: rd,
+		Log:       log.New("mixin", "hes_send"),
+		client:    cleanhttp.DefaultPooledClient(),
+		url:       url,
+		csvWriter: csvWriter,
 	}
 }
 
@@ -91,10 +91,11 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 		return nil, ErrMessageType
 	}
 	/*
-	Create a hash on redis:
-	hmsg.id: {
+		Create a row in csv:
+
+		task_id: msg.id()
 		mail_id: "the email's unique file name"
-		scan_mail_sz: 12345		// int, mail size in bytes
+		mail_sz: 12345			// int, mail size in bytes
 		scan_req_begin: 1490064094,	// int, redis server's unix timestamp in secs
 
 		// Following are not guaranteed to be available.
@@ -105,46 +106,50 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 		scan_resp_hes_in: "1"		// string, HES info
 		scan_resp_hes_out: "0"		// string, HES info
 		scan_resp_hes_doing: "0"	// string, HES info
-	}
-	*/
-	scanData := map[string]string{"mail_id": hmsg.mailId}
-	// use redis' server time as scan_req_begin
-	rdtime, err := s.rd.Time().Result()
-	if err != nil {
-		return nil, err
-	}
-	scanData["scan_mail_sz"] = strconv.Itoa(len(hmsg.content))
-	scanData["scan_req_begin"] = strconv.FormatInt(rdtime.Unix(), 10)
 
+		columns := []string{"task_id", "mail_id", "mail_sz",
+			"scan_req_begin", "scan_req_dura", "scan_req_len",
+			"scan_resp_status", "scan_resp_hes_state",
+			"scan_resp_hes_in", "scan_resp_hes_out", "scan_resp_hes_doing"}
+	*/
+
+	begin := time.Now()
+	// "task_id", "mail_id", "mail_sz", "scan_req_begin"
+	row := []string{hmsg.id, hmsg.mailId, strconv.Itoa(len(hmsg.content)),
+		strconv.FormatInt(begin.Unix(), 10)}
+
+	// defer here, only "task_id", "mail_id", "mail_sz", "scan_req_begin"
+	// are guaranteed to exist
 	defer func() {
-		go func () {
-			// Send scanData, note some fields might not be available
-			_, err := s.rd.HMSet(hmsg.Id(), scanData).Result()
+		go func() {
+			// Write csv, note some fields might not be available
+			err := s.csvWriter.Write(row)
 			if err != nil {
-				s.Log.Debug("HMSet err", "msg_in", msg.Id(), "err", err)
+				s.Log.Debug("csv.Write err", "msg_in", msg.Id(), "err", err)
 			} else {
-				s.Log.Debug("HMSet ok", "msg_in", msg.Id())
+				s.Log.Debug("csv.Write ok", "msg_in", msg.Id())
 			}
 		}()
 	}()
 
-	begin := time.Now()
 	resp, err := s.client.Post(s.url, "application/octet-stream",
 		bytes.NewReader(hmsg.content))
 	timespan := time.Now().Sub(begin)
-	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
-		"begin", begin.Format(time.StampMilli),
-		"timespan", timespan)
 
-	scanData["scan_req_dura"] = strconv.FormatFloat(timespan.Seconds(), 'f',
-		3, 64)
-	scanData["scan_req_len"] = strconv.FormatInt(resp.Request.ContentLength, 10)
+	// "scan_req_dura", "scan_req_len"
+	row = append(row, strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
+		strconv.FormatInt(resp.Request.ContentLength, 10))
+
+	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
+		"begin", begin.Format(time.StampMilli), "timespan", timespan)
+
 	if err != nil {
 		s.Log.Error("POST err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
+	// "scan_resp_status"
+	row = append(row, resp.Status)
 
-	scanData["scan_resp_status"] = resp.Status
 	if resp.StatusCode != 200 {
 		s.Log.Warn("POST returns suspicious status",
 			"status", resp.Status)
@@ -159,16 +164,19 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	var hes_state, hes_in, hes_out, hes_doing string
 	body := string(content)
 	if hes_state, ok = parse_hes_info("state", body); ok {
-		scanData["scan_resp_hes_state"]	= hes_state
+		// "scan_resp_hes_state"
+		row = append(row, hes_state)
 	}
 	if hes_in, ok = parse_hes_info("in_queue_size", body); ok {
-		scanData["scan_resp_hes_in"] = hes_in
+		// "scan_resp_hes_in"
+		row = append(row, hes_in)
 	}
 	if hes_out, ok = parse_hes_info("out_queue_size", body); ok {
-		scanData["scan_resp_hes_out"] = hes_out
+		// "scan_resp_hes_out"
+		row = append(row, hes_out)
 	}
 	if hes_doing, ok = parse_hes_info("doing_count", body); ok {
-		scanData["scan_resp_hes_doing"]	= hes_doing
+		row = append(row, hes_doing)
 	}
 	s.Log.Debug("ReadAll() ok", "msg_in", msg.Id(),
 		"status", resp.Status, "hes_state", hes_state,
@@ -176,7 +184,7 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 
 	return &hesScanResp{
 		id:      msg.Id(),
-		status: resp.Status,
+		status:  resp.Status,
 		content: content,
 	}, nil
 }
@@ -228,7 +236,7 @@ func NewRequestStream(dirname string) *RequestStream {
 		}
 	}
 
-	return &RequestStream {
+	return &RequestStream{
 		Log:      log.New("mixin", "request"),
 		gen:      rand.New(rand.NewSource(time.Now().UnixNano())),
 		names:    names,
@@ -333,7 +341,7 @@ func (r *RequestStream) Get() (gentle.Message, error) {
 		"mail_len", len(content))
 	return &hesScanReq{
 		id:      id,
-		mailId:	mailId,
+		mailId:  mailId,
 		content: content,
 	}, nil
 }
@@ -347,8 +355,12 @@ func runOne() {
 		return
 	}
 
-	rd := createRedisClient()
-	hes := NewHesSendHandler(*url + "/scanner/mail", rd)
+	csvWriter, err := createCsvWriter(*csvFile)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(-1)
+	}
+	hes := NewHesSendHandler(*url+"/scanner/mail", csvWriter)
 	hmsg, err := hes.Handle(hreq)
 	if err != nil {
 		log.Error("Handle err", "err", err)
@@ -358,21 +370,25 @@ func runOne() {
 }
 
 func runLoop() {
+	csvWriter, err := createCsvWriter(*csvFile)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(-1)
+	}
 	scans := NewRequestStream(*dir)
-	rd := createRedisClient()
 	var handler gentle.Handler
-	interval := 1000 / (*max_scans_sec)
+	interval := 1000 / (*maxScansSec)
 	if interval > 0 {
 		log.Debug("Rate limit enabled, pause in millis between every scan",
 			"pause", interval)
 		handler = gentle.NewRateLimitedHandler("sense",
-			NewHesSendHandler(*url + "/scanner/mail", rd),
+			NewHesSendHandler(*url+"/scanner/mail", csvWriter),
 			gentle.NewTokenBucketRateLimit(interval, 1))
 	} else {
-		handler = NewHesSendHandler(*url + "/scanner/mail", rd)
+		handler = NewHesSendHandler(*url+"/scanner/mail", csvWriter)
 	}
 	stream := gentle.NewMappedStream("sense", scans, handler)
-	runStream(stream, *max_concurrency, *max_scans)
+	runStream(stream, *maxConcurrency, *maxScans)
 }
 
 func runStream(stream gentle.Stream, concurrent_num int, count int64) {
@@ -381,7 +397,7 @@ func runStream(stream gentle.Stream, concurrent_num int, count int64) {
 
 	result := make(chan *struct{}, concurrent_num)
 	for i := int64(0); i < count; i++ {
-		result <- &struct {}{}
+		result <- &struct{}{}
 		go func() {
 			//begin := time.Now()
 			msg, err := stream.Get()
@@ -397,16 +413,24 @@ func runStream(stream gentle.Stream, concurrent_num int, count int64) {
 	}
 }
 
-func createRedisClient() *redis.Client {
-	rd := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       *db,  // use default DB
-	})
-	if (*flush) {
-		rd.FlushDb()
+func createCsvWriter(filename string) (*csv.Writer, error) {
+	columns := []string{"task_id", "mail_id", "mail_sz",
+		"scan_req_begin", "scan_req_dura", "scan_req_len",
+		"scan_resp_status", "scan_resp_hes_state",
+		"scan_resp_hes_in", "scan_resp_hes_out", "scan_resp_hes_doing"}
+
+	f, err := os.Create(filename)
+	if err != nil {
+		return nil, err
 	}
-	return rd
+	csvWriter := csv.NewWriter(bufio.NewWriter(f))
+	if err := csvWriter.Write(columns); err != nil {
+		os.Remove(filename)
+		return nil, err
+	}
+	// Make sure the row of column names appear before anything else
+	csvWriter.Flush()
+	return csvWriter, nil
 }
 
 func main() {
