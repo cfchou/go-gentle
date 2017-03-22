@@ -31,12 +31,13 @@ var (
 	ErrMessageType = errors.New("Invalid message type")
 
 	// command line options
-	url            = pflag.String("url", "http://127.0.0.1:8080", "HES url")
+	url            = pflag.String("url", "http://localhosst:28080", "HES url")
 	dir            = pflag.String("dir", "mails", "directory contains mails")
 	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
+	logFile        = pflag.String("log-file", "sense.log", "log filename")
 	isDryRun       = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
-	maxScans       = pflag.Int64("max-scans", max_int64, "max scan requests to HES")
+	maxScans       = pflag.Int64("max-scans", 10, "max scan requests to HES")
 	maxScansSec    = pflag.Int("max-scans-sec", 10, "rate limit of max scans per second")
 )
 
@@ -123,10 +124,12 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	defer func() {
 		go func() {
 			// Write csv, note some fields might not be available
+			fmt.Println(row[0])
 			err := s.csvWriter.Write(row)
 			if err != nil {
 				s.Log.Debug("csv.Write err", "msg_in", msg.Id(), "err", err)
 			} else {
+				s.csvWriter.Flush()
 				s.Log.Debug("csv.Write ok", "msg_in", msg.Id())
 			}
 		}()
@@ -435,7 +438,7 @@ func createCsvWriter(filename string) (*csv.Writer, error) {
 
 func main() {
 	h := log15.MultiHandler(log15.StdoutHandler,
-		log15.Must.FileHandler("./sense.log", log15.LogfmtFormat()))
+		log15.Must.FileHandler(*logFile, log15.LogfmtFormat()))
 	log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))
 	gentle.Log.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, h))
 
