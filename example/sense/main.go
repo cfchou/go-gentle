@@ -34,8 +34,8 @@ var (
 	url            = pflag.String("url", "http://localhost:8080", "HES url")
 	dir            = pflag.String("dir", "mails", "directory contains mails")
 	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
-	csvBufRows      = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
-	csvFlush      = pflag.Int("csv-flush", 3, "csv flush interval in secs")
+	csvBufRows     = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
+	csvFlush       = pflag.Int("csv-flush", 3, "csv flush interval in secs")
 	logFile        = pflag.String("log-file", "sense.log", "log filename")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	maxScans       = pflag.Int64("max-scans", 100, "max scan requests to HES")
@@ -68,18 +68,18 @@ func (m *hesScanResp) Id() string {
 }
 
 type HesSendHandler struct {
-	Log       log15.Logger
-	client    *http.Client
-	url       string
-	csvChan	chan []string
+	Log     log15.Logger
+	client  *http.Client
+	url     string
+	csvChan chan []string
 }
 
 func NewHesSendHandler(url string, csvChan chan []string) *HesSendHandler {
 	// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 	return &HesSendHandler{
-		Log:       log.New("mixin", "hes_send"),
-		client:    cleanhttp.DefaultPooledClient(),
-		url:       url,
+		Log:     log.New("mixin", "hes_send"),
+		client:  cleanhttp.DefaultPooledClient(),
+		url:     url,
 		csvChan: csvChan,
 	}
 }
@@ -137,7 +137,7 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 
 	// "scan_req_dura", "scan_req_len"
 	row = append(row, strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
-		strconv.FormatInt(resp.Request.ContentLength, 11))
+		strconv.FormatInt(resp.Request.ContentLength, 10))
 
 	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
 		"begin", begin.Format(time.StampMilli), "timespan", timespan)
@@ -356,7 +356,7 @@ func runOne() {
 		os.Exit(-1)
 	}
 	csvChan := createCsvChannel(csvWriter, *csvBufRows,
-		time.Duration(*csvFlush) * time.Second)
+		time.Duration(*csvFlush)*time.Second)
 	hes := NewHesSendHandler(*url+"/scanner/mail", csvChan)
 	hmsg, err := hes.Handle(hreq)
 	if err != nil {
@@ -373,7 +373,7 @@ func runLoop() {
 		os.Exit(-1)
 	}
 	csvChan := createCsvChannel(csvWriter, *csvBufRows,
-		time.Duration(*csvFlush) * time.Second)
+		time.Duration(*csvFlush)*time.Second)
 	scans := NewRequestStream(*dir)
 	var handler gentle.Handler
 	interval := 1000 / (*maxScansSec)
@@ -438,7 +438,7 @@ func createCsvChannel(csvWriter *csv.Writer, numBufRow int, flush time.Duration)
 	go func() {
 		for {
 			select {
-			case row := <- rowChan:
+			case row := <-rowChan:
 				err := csvWriter.Write(row)
 				if err != nil {
 					log.Debug("csv Write err", "msg_in", row[0], "err", err)

@@ -26,8 +26,8 @@ var (
 	// command line options
 	url            = pflag.String("url", "http://localhost:8080", "HES url")
 	csvFile        = pflag.String("csv-file", "esnes.csv", "csv filename")
-	csvBufRows      = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
-	csvFlush      = pflag.Int("csv-flush", 3, "csv flush interval in secs")
+	csvBufRows     = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
+	csvFlush       = pflag.Int("csv-flush", 3, "csv flush interval in secs")
 	logFile        = pflag.String("log-file", "esnes.log", "log filename")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	maxRecvs       = pflag.Int64("max-recvs", max_int64, "max recv requests to HES")
@@ -41,11 +41,11 @@ func init() {
 }
 
 type HesRecvStream struct {
-	Log       log15.Logger
-	client    *http.Client
-	url       string
-	csvChan	chan []string
-	body      string
+	Log     log15.Logger
+	client  *http.Client
+	url     string
+	csvChan chan []string
+	body    string
 }
 
 const recv_format = `<p1:common_pop_request xmlns:p1="http://www.trendmicro.com/nebula/xml_schema">
@@ -56,11 +56,11 @@ const recv_format = `<p1:common_pop_request xmlns:p1="http://www.trendmicro.com/
 
 func NewHesRecvStream(url string, csvChan chan []string) *HesRecvStream {
 	return &HesRecvStream{
-		Log:       log.New("mixin", "hes_send"),
-		client:    cleanhttp.DefaultPooledClient(),
-		url:       url,
+		Log:     log.New("mixin", "hes_send"),
+		client:  cleanhttp.DefaultPooledClient(),
+		url:     url,
 		csvChan: csvChan,
-		body:      fmt.Sprintf(recv_format, *popCount, *popSize),
+		body:    fmt.Sprintf(recv_format, *popCount, *popSize),
 	}
 }
 
@@ -206,7 +206,7 @@ func runLoop() {
 		os.Exit(-1)
 	}
 	csvChan := createCsvChannel(csvWriter, *csvBufRows,
-		time.Duration(*csvFlush) * time.Second)
+		time.Duration(*csvFlush)*time.Second)
 	var stream gentle.Stream
 	interval := 1000 / (*maxRecvsSec)
 	if interval > 0 {
@@ -267,7 +267,7 @@ func createCsvChannel(csvWriter *csv.Writer, numBufRow int, flush time.Duration)
 	go func() {
 		for {
 			select {
-			case row := <- rowChan:
+			case row := <-rowChan:
 				err := csvWriter.Write(row)
 				if err != nil {
 					log.Debug("csv Write err", "msg_in", row[0], "err", err)
