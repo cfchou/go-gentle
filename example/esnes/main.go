@@ -26,6 +26,8 @@ var (
 	// command line options
 	url            = pflag.String("url", "http://localhost:8080", "HES url")
 	csvFile        = pflag.String("csv-file", "esnes.csv", "csv filename")
+	csvBufRows      = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
+	csvFlush      = pflag.Int("csv-flush", 3, "csv flush interval in secs")
 	logFile        = pflag.String("log-file", "esnes.log", "log filename")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	maxRecvs       = pflag.Int64("max-recvs", max_int64, "max recv requests to HES")
@@ -42,7 +44,7 @@ type HesRecvStream struct {
 	Log       log15.Logger
 	client    *http.Client
 	url       string
-	csvWriter *csv.Writer
+	csvChan	chan []string
 	body      string
 }
 
@@ -52,12 +54,12 @@ const recv_format = `<p1:common_pop_request xmlns:p1="http://www.trendmicro.com/
 <dest_host>10.64.70.20</dest_host>
 </p1:common_pop_request>`
 
-func NewHesRecvStream(url string, csvWriter *csv.Writer) *HesRecvStream {
+func NewHesRecvStream(url string, csvChan chan []string) *HesRecvStream {
 	return &HesRecvStream{
 		Log:       log.New("mixin", "hes_send"),
 		client:    cleanhttp.DefaultPooledClient(),
 		url:       url,
-		csvWriter: csvWriter,
+		csvChan: csvChan,
 		body:      fmt.Sprintf(recv_format, *popCount, *popSize),
 	}
 }
@@ -182,17 +184,9 @@ func (s *HesRecvStream) parseContent(content []byte, row []string) []string {
 
 		rest = rest[expectLen:]
 
-		go func() {
-			fullRow := []string{taskId}
-			fullRow = append(fullRow, row...)
-			err := s.csvWriter.Write(fullRow)
-			if err != nil {
-				s.Log.Debug("csv Write err", "msg", taskId, "err", err)
-			} else {
-				s.csvWriter.Flush()
-				s.Log.Debug("csv Write ok", "msg", taskId)
-			}
-		}()
+		fullRow := []string{taskId}
+		fullRow = append(fullRow, row...)
+		s.csvChan <- fullRow
 	}
 }
 
@@ -211,16 +205,18 @@ func runLoop() {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
+	csvChan := createCsvChannel(csvWriter, *csvBufRows,
+		time.Duration(*csvFlush) * time.Second)
 	var stream gentle.Stream
 	interval := 1000 / (*maxRecvsSec)
 	if interval > 0 {
 		log.Debug("Rate limit enabled, pause in millis between every scan",
 			"pause", interval)
 		stream = gentle.NewRateLimitedStream("esnes",
-			NewHesRecvStream(*url+"/scanner/deliver", csvWriter),
+			NewHesRecvStream(*url+"/scanner/deliver", csvChan),
 			gentle.NewTokenBucketRateLimit(interval, 1))
 	} else {
-		stream = NewHesRecvStream(*url+"/scanner/deliver", csvWriter)
+		stream = NewHesRecvStream(*url+"/scanner/deliver", csvChan)
 	}
 	runStream(stream, *maxConcurrency, *maxRecvs)
 }
@@ -263,6 +259,27 @@ func createCsvWriter(filename string) (*csv.Writer, error) {
 	// Make sure the row of column names appear before anything else
 	csvWriter.Flush()
 	return csvWriter, nil
+}
+
+func createCsvChannel(csvWriter *csv.Writer, numBufRow int, flush time.Duration) chan []string {
+	rowChan := make(chan []string, numBufRow)
+	tk := time.NewTicker(flush)
+	go func() {
+		for {
+			select {
+			case row := <- rowChan:
+				err := csvWriter.Write(row)
+				if err != nil {
+					log.Debug("csv Write err", "msg_in", row[0], "err", err)
+				} else {
+					log.Debug("csv Write ok", "msg_in", row[0])
+				}
+			case <-tk.C:
+				csvWriter.Flush()
+			}
+		}
+	}()
+	return rowChan
 }
 
 func main() {

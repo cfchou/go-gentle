@@ -34,6 +34,8 @@ var (
 	url            = pflag.String("url", "http://localhost:8080", "HES url")
 	dir            = pflag.String("dir", "mails", "directory contains mails")
 	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
+	csvBufRows      = pflag.Int("csv-buf-rows", 2048, "max buffered rows in csv befor write")
+	csvFlush      = pflag.Int("csv-flush", 3, "csv flush interval in secs")
 	logFile        = pflag.String("log-file", "sense.log", "log filename")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
 	maxScans       = pflag.Int64("max-scans", 100, "max scan requests to HES")
@@ -69,16 +71,16 @@ type HesSendHandler struct {
 	Log       log15.Logger
 	client    *http.Client
 	url       string
-	csvWriter *csv.Writer
+	csvChan	chan []string
 }
 
-func NewHesSendHandler(url string, csvWriter *csv.Writer) *HesSendHandler {
+func NewHesSendHandler(url string, csvChan chan []string) *HesSendHandler {
 	// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 	return &HesSendHandler{
 		Log:       log.New("mixin", "hes_send"),
 		client:    cleanhttp.DefaultPooledClient(),
 		url:       url,
-		csvWriter: csvWriter,
+		csvChan: csvChan,
 	}
 }
 
@@ -122,16 +124,7 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	// defer set here, only "task_id", "mail_id", "mail_sz" and
 	// "scan_req_begin" are guaranteed to exist
 	defer func() {
-		go func() {
-			// Write csv, note some fields might not be available
-			err := s.csvWriter.Write(row)
-			if err != nil {
-				s.Log.Debug("csv Write err", "msg_in", msg.Id(), "err", err)
-			} else {
-				s.csvWriter.Flush()
-				s.Log.Debug("csv Write ok", "msg_in", msg.Id())
-			}
-		}()
+		s.csvChan <- row
 	}()
 
 	resp, err := s.client.Post(s.url, "application/octet-stream",
@@ -362,7 +355,9 @@ func runOne() {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
-	hes := NewHesSendHandler(*url+"/scanner/mail", csvWriter)
+	csvChan := createCsvChannel(csvWriter, *csvBufRows,
+		time.Duration(*csvFlush) * time.Second)
+	hes := NewHesSendHandler(*url+"/scanner/mail", csvChan)
 	hmsg, err := hes.Handle(hreq)
 	if err != nil {
 		log.Error("Handle err", "err", err)
@@ -377,6 +372,8 @@ func runLoop() {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
+	csvChan := createCsvChannel(csvWriter, *csvBufRows,
+		time.Duration(*csvFlush) * time.Second)
 	scans := NewRequestStream(*dir)
 	var handler gentle.Handler
 	interval := 1000 / (*maxScansSec)
@@ -384,10 +381,10 @@ func runLoop() {
 		log.Debug("Rate limit enabled, pause in millis between every scan",
 			"pause", interval)
 		handler = gentle.NewRateLimitedHandler("sense",
-			NewHesSendHandler(*url+"/scanner/mail", csvWriter),
+			NewHesSendHandler(*url+"/scanner/mail", csvChan),
 			gentle.NewTokenBucketRateLimit(interval, 1))
 	} else {
-		handler = NewHesSendHandler(*url+"/scanner/mail", csvWriter)
+		handler = NewHesSendHandler(*url+"/scanner/mail", csvChan)
 	}
 	stream := gentle.NewMappedStream("sense", scans, handler)
 	runStream(stream, *maxConcurrency, *maxScans)
@@ -433,6 +430,27 @@ func createCsvWriter(filename string) (*csv.Writer, error) {
 	// Make sure the row of column names appear before anything else
 	csvWriter.Flush()
 	return csvWriter, nil
+}
+
+func createCsvChannel(csvWriter *csv.Writer, numBufRow int, flush time.Duration) chan []string {
+	rowChan := make(chan []string, numBufRow)
+	tk := time.NewTicker(flush)
+	go func() {
+		for {
+			select {
+			case row := <- rowChan:
+				err := csvWriter.Write(row)
+				if err != nil {
+					log.Debug("csv Write err", "msg_in", row[0], "err", err)
+				} else {
+					log.Debug("csv Write ok", "msg_in", row[0])
+				}
+			case <-tk.C:
+				csvWriter.Flush()
+			}
+		}
+	}()
+	return rowChan
 }
 
 func main() {
