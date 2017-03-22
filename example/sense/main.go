@@ -31,14 +31,14 @@ var (
 	ErrMessageType = errors.New("Invalid message type")
 
 	// command line options
-	url            = pflag.String("url", "http://localhosst:28080", "HES url")
+	url            = pflag.String("url", "http://localhosst:8080", "HES url")
 	dir            = pflag.String("dir", "mails", "directory contains mails")
 	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
 	logFile        = pflag.String("log-file", "sense.log", "log filename")
-	isDryRun       = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
 	maxConcurrency = pflag.Int("max-concurrency", 1, "max concurrent requests")
-	maxScans       = pflag.Int64("max-scans", 10, "max scan requests to HES")
+	maxScans       = pflag.Int64("max-scans", 100, "max scan requests to HES")
 	maxScansSec    = pflag.Int("max-scans-sec", 10, "rate limit of max scans per second")
+	isDryRun       = pflag.BoolP("dryrun", "d", false, "dry run doesn't send requests")
 )
 
 func init() {
@@ -119,18 +119,17 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	row := []string{hmsg.id, hmsg.mailId, strconv.Itoa(len(hmsg.content)),
 		strconv.FormatInt(begin.Unix(), 10)}
 
-	// defer here, only "task_id", "mail_id", "mail_sz", "scan_req_begin"
-	// are guaranteed to exist
+	// defer set here, only "task_id", "mail_id", "mail_sz" and
+	// "scan_req_begin" are guaranteed to exist
 	defer func() {
 		go func() {
 			// Write csv, note some fields might not be available
-			fmt.Println(row[0])
 			err := s.csvWriter.Write(row)
 			if err != nil {
-				s.Log.Debug("csv.Write err", "msg_in", msg.Id(), "err", err)
+				s.Log.Debug("csv Write err", "msg_in", msg.Id(), "err", err)
 			} else {
 				s.csvWriter.Flush()
-				s.Log.Debug("csv.Write ok", "msg_in", msg.Id())
+				s.Log.Debug("csv Write ok", "msg_in", msg.Id())
 			}
 		}()
 	}()
