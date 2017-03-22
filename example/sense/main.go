@@ -136,19 +136,19 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 
 	resp, err := s.client.Post(s.url, "application/octet-stream",
 		bytes.NewReader(hmsg.content))
-	timespan := time.Now().Sub(begin)
-
-	// "scan_req_dura", "scan_req_len"
-	row = append(row, strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
-		strconv.FormatInt(resp.Request.ContentLength, 10))
-
-	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
-		"begin", begin.Format(time.StampMilli), "timespan", timespan)
-
 	if err != nil {
 		s.Log.Error("POST err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
+	timespan := time.Now().Sub(begin)
+
+	// "scan_req_dura", "scan_req_len"
+	row = append(row, strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
+		strconv.FormatInt(resp.Request.ContentLength, 11))
+
+	s.Log.Debug("POST timespan", "msg_in", msg.Id(),
+		"begin", begin.Format(time.StampMilli), "timespan", timespan)
+
 	// "scan_resp_status"
 	row = append(row, resp.Status)
 

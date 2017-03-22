@@ -76,7 +76,7 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 		s.Log.Error("PUT err", "err", err)
 		return nil, err
 	}
-
+	timespan := time.Now().Sub(begin)
 	batchId := xid.New().String()
 
 	if resp.StatusCode == http.StatusNoContent || resp.StatusCode < 200 ||
@@ -90,7 +90,6 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 		}, nil
 	}
 
-	timespan := time.Now().Sub(begin)
 	s.Log.Debug("PUT timespan", "status", resp.Status,
 		"begin", begin.Format(time.StampMilli),
 		"timespan", timespan)
