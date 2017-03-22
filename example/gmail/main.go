@@ -466,7 +466,7 @@ func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, c
 }
 
 func main() {
-	err := os.Mkdir("tmp", os.ModeDir | 0755)
+	err := os.Mkdir(*dir, os.ModeDir | 0755)
 	if err != nil && !os.IsExist(err) {
 		log.Error("Mkdir err", "err", err)
 		return
@@ -491,7 +491,7 @@ func main() {
 	// maintained.
 
 	//go RunWithConcurrentFetchStream(stream, 300, 2000)
-	go RunWithBulkheadStream(stream, 300, 10)
+	go RunWithBulkheadStream(stream, 100, 2000)
 	http.Handle("/metrics", promhttp.Handler())
 	err = http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
