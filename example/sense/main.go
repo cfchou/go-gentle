@@ -31,7 +31,7 @@ var (
 	ErrMessageType = errors.New("Invalid message type")
 
 	// command line options
-	url            = pflag.String("url", "http://localhosst:8080", "HES url")
+	url            = pflag.String("url", "http://localhost:8080", "HES url")
 	dir            = pflag.String("dir", "mails", "directory contains mails")
 	csvFile        = pflag.String("csv-file", "sense.csv", "csv filename")
 	logFile        = pflag.String("log-file", "sense.log", "log filename")
