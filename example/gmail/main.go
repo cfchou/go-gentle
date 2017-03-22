@@ -37,6 +37,7 @@ var (
 	ErrEOF = errors.New("EOF")
 	// command line options
 	dir       = pflag.String("dir", "mails", "directory contains mails")
+	maxMails       = pflag.Int("max-mails", 2000, "max number of mails to download")
 
 	// instrument
 	/*
@@ -69,6 +70,7 @@ var (
 )
 
 func init() {
+	pflag.Parse()
 	prom.MustRegister(gmailCallsHist)
 	prom.MustRegister(gmailMessageBytesTotalCounter)
 }
@@ -286,7 +288,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 		}
 	}()
 
-	h.Log.Debug("Messages.Get() ok","msg_out", gmsg.Id,
+	h.Log.Debug("Message.Get() ok","msg_out", gmsg.Id,
 		"size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
 }
@@ -358,7 +360,7 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 	total_begin := time.Now()
 	// Caller calls BulkheadStream.Get() concurrently.
 	for i := 0; i < count; i++ {
-		go func() {
+		go func(c int) {
 			begin := time.Now()
 			msg, err := stream.Get()
 			atomic.AddInt64(&total, 1)
@@ -370,13 +372,15 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 				msg: msg,
 				dura: time.Now().Sub(begin),
 			}
-		}()
+			log.Debug("Result appended", "count", c, "msg", msg.Id())
+		}(i)
 	}
 	mails := make(map[string]string)
 	tm := time.NewTimer(10 * time.Second)
 	var total_end time.Time
 	LOOP:
-		for {
+		for i := 0; true; i++ {
+			log.Debug("Select...", "iter", i)
 			select {
 			case tr := <-result:
 				gmsg := tr.msg.(*gmailMessage).msg
@@ -391,13 +395,14 @@ func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count in
 					break LOOP
 				}
 				mails[gmsg.Id] = gmsg.Raw
+				tm.Reset(10 * time.Second)
 			case <- tm.C:
 				log.Debug("break ...")
 				break LOOP
 			}
 		}
 	total_time := total_end.Sub(total_begin)
-	log.Info("Done", "total", total, "success_total", success_total,
+	log.Info("Done", "total", atomic.LoadInt64(&total), "success_total", success_total,
 		"total_size", total_size,
 		"total_time", total_time)
 }
@@ -491,7 +496,7 @@ func main() {
 	// maintained.
 
 	//go RunWithConcurrentFetchStream(stream, 300, 2000)
-	go RunWithBulkheadStream(stream, 100, 2000)
+	go RunWithBulkheadStream(stream, 100, *maxMails)
 	http.Handle("/metrics", promhttp.Handler())
 	err = http.ListenAndServe(":8080", nil)
 	log.Crit("Promhttp stoped", "err", err)
