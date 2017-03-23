@@ -79,7 +79,8 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 		return nil, err
 	}
 	timespan := time.Now().Sub(begin)
-	batchId := xid.New().String()
+	// PUT might return more than one task. The are under the same batchId
+	batchId := "__" + xid.New().String()
 
 	if resp.StatusCode == http.StatusNoContent || resp.StatusCode < 200 ||
 		resp.StatusCode >= 300 {
@@ -109,16 +110,21 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 	}
 	s.Log.Debug("ReadAll() ok", "body_len", len(content))
 
-	// ["task_id" will be added] "recv_req_begin", "recv_req_dura", "recv_req_bid"
+	// ["task_id" will be added] "recv_req_begin", "recv_req_dura", "recv_resp_bid" ,"recv_resp_count"
+	taskIds := s.parseContent(content)
 	row := []string{
 		strconv.FormatInt(begin.Unix(), 10),
 		strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
 		batchId,
+		strconv.Itoa(len(taskIds)),
 	}
-	taskIds := s.parseContent(content, row)
-	for _, tid := range taskIds {
-		log.Debug("parseContent", "msg", batchId, "task_id", tid,
-			"count", len(taskIds))
+
+	for i, tid := range taskIds {
+		log.Debug("parseContent", "msg(batch)", batchId, "task_id", tid,
+			"nth", i, "count", len(taskIds))
+		fullRow := []string{tid}
+		fullRow = append(fullRow, row...)
+		s.csvChan <- fullRow
 	}
 	return &hesRecvResp{
 		id:      batchId,
@@ -126,7 +132,7 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 	}, nil
 }
 
-func (s *HesRecvStream) parseContent(content []byte, row []string) []string {
+func (s *HesRecvStream) parseContent(content []byte) []string {
 	rest := content
 	minimum := 3*8 + len("00000002META") + len("TASK")
 	taskIds := []string{}
@@ -181,12 +187,7 @@ func (s *HesRecvStream) parseContent(content []byte, row []string) []string {
 			return taskIds
 		}
 		//data := string(rest[8:8+dataLen])
-
 		rest = rest[expectLen:]
-
-		fullRow := []string{taskId}
-		fullRow = append(fullRow, row...)
-		s.csvChan <- fullRow
 	}
 }
 
@@ -245,7 +246,7 @@ func runStream(stream gentle.Stream, concurrent_num int, count int64) {
 
 func createCsvWriter(filename string) (*csv.Writer, error) {
 	columns := []string{"task_id", "recv_req_begin", "recv_req_dura",
-		"recv_req_bid"}
+		"recv_resp_bid", "recv_resp_count"}
 
 	f, err := os.Create(filename)
 	if err != nil {
