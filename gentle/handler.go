@@ -26,14 +26,14 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 
 // Handle() is blocked when the limit is exceeded.
 func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] Handle() ...")
+	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.limiter.Wait(1, 0)
 	msg, err := r.handler.Handle(msg)
 	if err != nil {
-		r.Log.Error("[Handler] Handle() err", "err", err)
+		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
-	r.Log.Debug("[Handler] Handle() ok", "msg_out", msg.Id())
+	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg.Id())
 	return msg, nil
 }
 
@@ -112,19 +112,19 @@ func NewCircuitBreakerHandler(name string, handler Handler, circuit string) *Cir
 }
 
 func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] Handle() ...")
+	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	result := make(chan *tuple, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg_out, err := r.handler.Handle(msg)
 		if err != nil {
-			r.Log.Error("[Handler] Handle() err", "err", err)
+			r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(), "err", err)
 			result <- &tuple{
 				fst: msg_out,
 				snd: err,
 			}
 			return err
 		}
-		r.Log.Debug("[Handler] Handle() ok", "msg_out", msg_out.Id())
+		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg_out.Id())
 		result <- &tuple{
 			fst: msg_out,
 			snd: err,
@@ -134,7 +134,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
-		r.Log.Warn("[Handler] Circuit err", "err", err)
+		r.Log.Warn("[Handler] Circuit err", "msg_in", msg.Id(), "err", err)
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Handle()'s err.
@@ -172,14 +172,13 @@ func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *Bulk
 
 // Handle() is blocked when the limit is exceeded.
 func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
-	r.Log.Debug("[Handler] ",
-		"msg_in", msg.Id())
+	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.semaphore <- &struct{}{}
 	defer func() { <-r.semaphore }()
 	msg_out, err := r.handler.Handle(msg)
 	if err != nil {
-		r.Log.Error("[Handler] Handle() err", "err", err, "msg_in",
-			msg.Id())
+		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+			"err", err)
 	} else {
 		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 			"msg_out", msg_out.Id())
