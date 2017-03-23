@@ -28,12 +28,12 @@ func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *Rat
 func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.limiter.Wait(1, 0)
-	msg, err := r.handler.Handle(msg)
+	msg_out, err := r.handler.Handle(msg)
 	if err != nil {
 		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(), "err", err)
 		return nil, err
 	}
-	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg.Id())
+	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg_out.Id())
 	return msg, nil
 }
 
