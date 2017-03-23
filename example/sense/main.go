@@ -99,7 +99,7 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 		task_id: msg.id()
 		mail_id: "the email's unique file name"
 		mail_sz: 12345			// int, mail size in bytes
-		scan_req_begin: 1490064094,	// int, redis server's unix timestamp in secs
+		scan_req_begin: 1490064094,	// int, unix timestamp in secs
 
 		// Following are not guaranteed to be available.
 		scan_req_dura: 1.001, 		// float, in secs
@@ -148,7 +148,7 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 	if resp.StatusCode != 200 {
 		s.Log.Warn("POST returns suspicious status",
 			"status", resp.Status)
-		return nil, err
+		return nil, errors.New(resp.Status)
 	}
 
 	content, err := ioutil.ReadAll(resp.Body)
