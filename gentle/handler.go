@@ -34,7 +34,7 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 		return nil, err
 	}
 	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg_out.Id())
-	return msg, nil
+	return msg_out, nil
 }
 
 // RetryHandler takes an Handler. When Handler.Handle() encounters an error,
