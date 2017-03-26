@@ -208,7 +208,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
-	time.Sleep(MillisToDuration(conf.SleepWindow))
+	time.Sleep(IntToMillis(conf.SleepWindow))
 	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = handler.Handle(mm)
@@ -258,7 +258,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
-	time.Sleep(MillisToDuration(conf.SleepWindow))
+	time.Sleep(IntToMillis(conf.SleepWindow))
 	call.Run(func(args mock.Arguments) { /* no-op */ })
 	call.Return(mm, nil)
 	_, err = handler.Handle(mm)

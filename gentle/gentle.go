@@ -66,7 +66,7 @@ type RateLimit interface {
 }
 
 // Converts $millis of int to time.Duration.
-func MillisToDuration(millis int) time.Duration {
+func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
 

@@ -24,7 +24,7 @@ func NewTokenBucketRateLimit(requests_interval int, max_requests_burst int) *Tok
 	}
 	return &TokenBucketRateLimit{
 		bucket: ratelimit.NewBucket(
-			MillisToDuration(requests_interval),
+			IntToMillis(requests_interval),
 			int64(max_requests_burst)),
 	}
 }
