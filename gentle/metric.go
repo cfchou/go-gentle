@@ -1,39 +1,48 @@
 package gentle
 
+import "sync"
+
+var GentleMetrics = &metricRegistry{}
+
+type RegistryKey struct {
+	Namespace, Mixin, Name, SubKey string
+}
+
+type metricRegistry struct {
+	registry map[RegistryKey]Metric
+	lock sync.RWMutex
+}
+
+func (r *metricRegistry) RegisterMetric(key RegistryKey, metric Metric) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.registry[key] = metric
+}
+
+func (r *metricRegistry) UnRegisterMetric(key RegistryKey) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	delete(r.registry, key)
+}
+
+func (r *metricRegistry) GetMetric(key RegistryKey) Metric {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.registry[key]
+}
 
 // A do-nothing Metric
-type DummyMetric struct {
+type dummyMetric struct {}
+
+func (m *dummyMetric) Observe(value float64, labels map[string]string)
+
+var dummy = &dummyMetric{}
+
+func dummyMetricIfNonRegistered(key RegistryKey) Metric {
+	m := GentleMetrics.GetMetric(key)
+	if m != nil {
+		return m
+	}
+	return dummy
 }
 
-func (m *DummyMetric) BaseName() string {
-	return ""
-}
-
-// Counter/Gauge
-func (m *DummyMetric) Add(delta float64) {}
-func (m *DummyMetric) AddWithLabels(delta float64, kv map[string]string) {}
-
-// Gauge
-func (m *DummyMetric) Set(value float64) {}
-func (m *DummyMetric) SetWithLabels(value float64, kv map[string]string) {}
-
-// Histogram
-func (m *DummyMetric) Observe(value float64) {}
-func (m *DummyMetric) ObserveWithLabels(value float64, kv map[string]string) {}
-
-
-type DummyMetricRegistry struct {
-	metric *DummyMetric
-}
-
-func (r *DummyMetricRegistry) RegisterCounter(name string, help string, kv map[string]string) Counter {
-	return r.metric
-}
-
-func (r *DummyMetricRegistry) RegisterGauge(name string, help string, kv map[string]string) Gauge {
-	return r.metric
-}
-
-func (r *DummyMetricRegistry) RegisterHistogram(name string, help string, kv map[string]string) Histogram {
-	return r.metric
-}

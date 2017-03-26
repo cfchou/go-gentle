@@ -23,33 +23,38 @@ var (
 )
 
 const (
-	mixin_s_rate = "s_rate"
-	mixin_s_retry = "s_retry"
-	mixin_s_bulk = "s_bulk"
-	mixin_s_cb = "s_circuit"
-	mixin_s_ch = "s_chan"
-	mixin_s_con = "s_con"
-	mixin_s_map = "s_map"
+	MIXIN_STREAM_RATELIMITED = "s_rate"
+	MIXIN_STREAM_RETRY = "s_retry"
+	MIXIN_STREAM_BULKHEAD = "s_bulk"
+	MIXIN_STREAM_CIRCUITBREAKER = "s_circuit"
+	MIXIN_STREAM_CHANNEL = "s_chan"
+	MIXIN_STREAM_CONCURRENTFETCH = "s_con"
+	MIXIN_STREAM_MAPPED = "s_map"
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
+	Namespace string
 	Name    string
 	Log     log15.Logger
 	stream  Stream
 	limiter RateLimit
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	metric	Metric
 }
 
-func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLimitedStream {
+func NewRateLimitedStream(namespace string, name string, stream Stream,
+	limiter RateLimit) *RateLimitedStream {
+
 	return &RateLimitedStream{
+		Namespace: namespace,
 		Name:    name,
-		Log:     Log.New("mixin", mixin_s_rate, "name", name),
+		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 		stream:  stream,
 		limiter: limiter,
-		hist_ok: HistVec.WithLabelValues(mixin_s_rate, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_rate, name, "err"),
+		metric: dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_RATELIMITED,
+				    name, "get"}),
 	}
 }
 
@@ -61,36 +66,48 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+		r.metric.Observe(time.Now().Sub(begin).Seconds(),
+			map[string]string{"result": "err"})
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
+	r.metric.Observe(time.Now().Sub(begin).Seconds(),
+		map[string]string{"result": "ok"})
 	return msg, nil
 }
 
 // RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
 type RetryStream struct {
+	Namespace string
 	Name     string
 	Log      log15.Logger
 	stream   Stream
 	backoffs []time.Duration
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	metricGet	Metric
+	metricTry	Metric
 }
 
-func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *RetryStream {
+func NewRetryStream(namespace string, name string, stream Stream,
+	backoffs []time.Duration) *RetryStream {
+
 	if len(backoffs) == 0 {
 		Log.Warn("NewRetryStream() len(backoffs) == 0")
 	}
 	return &RetryStream{
-		Name:     name,
-		Log:      Log.New("mixin", mixin_s_retry, "name", name),
-		stream:   stream,
-		backoffs: backoffs,
-		hist_ok: HistVec.WithLabelValues(mixin_s_retry, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_retry, name, "err"),
+		Namespace: namespace,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RETRY, "name", name),
+		stream:    stream,
+		backoffs:  backoffs,
+		metricGet: dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_RETRY,
+				    name, "get"}),
+		metricTry: dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_RETRY,
+				    name, "try"}),
 	}
 }
 
@@ -99,8 +116,9 @@ func (r *RetryStream) Get() (Message, error) {
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
-		r.Log.Debug("[Stream] Get() ...", "count",
-			len(r.backoffs)-len(bk)+1, "wait", to_wait)
+		count := len(r.backoffs)-len(bk)+1
+		r.Log.Debug("[Stream] Get() ...", "count", count,
+			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
@@ -109,14 +127,20 @@ func (r *RetryStream) Get() (Message, error) {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 				"timespan", timespan)
-			r.hist_ok.Observe(timespan)
+			r.metricGet.Observe(timespan,
+				map[string]string{"result": "ok"})
+			r.metricTry.Observe(float64(count),
+				map[string]string{"result": "ok"})
 			return msg, nil
 		}
 		if len(bk) == 0 {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
 				"err", err, "timespan", timespan)
-			r.hist_err.Observe(timespan)
+			r.metricGet.Observe(timespan,
+				map[string]string{"result": "err"})
+			r.metricTry.Observe(float64(count),
+				map[string]string{"result": "err"})
 			return nil, err
 		} else {
 			timespan := time.Now().Sub(begin)
@@ -130,27 +154,33 @@ func (r *RetryStream) Get() (Message, error) {
 
 // Bulkhead pattern is used to limit the number of concurrent Get().
 type BulkheadStream struct {
+	Namespace string
 	Name      string
 	Log       log15.Logger
 	stream    Stream
 	semaphore chan *struct{}
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	metric	Metric
 }
 
 // Create a BulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
-func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
+func NewBulkheadStream(namespace string, name string, stream Stream,
+	max_concurrency int) *BulkheadStream {
+
 	if max_concurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))
 	}
 	return &BulkheadStream{
+		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("mixin", mixin_s_bulk, "name", name),
+		Log:       Log.New("namespace", namespace,
+			"mixin", MIXIN_STREAM_BULKHEAD, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: HistVec.WithLabelValues(mixin_s_bulk, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_bulk, name, "err"),
+		metric:	  dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_BULKHEAD,
+				    name, "get"}),
 	}
 }
 
@@ -163,37 +193,50 @@ func (r *BulkheadStream) Get() (Message, error) {
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
 		<-r.semaphore
-		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+		r.metric.Observe(time.Now().Sub(begin).Seconds(),
+			map[string]string{"result": "err"})
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	<-r.semaphore
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
+	r.metric.Observe(time.Now().Sub(begin).Seconds(),
+		map[string]string{"result": "ok"})
 	return msg, nil
 }
 
 // CircuitBreakerStream is a Stream equipped with a circuit-breaker.
 type CircuitBreakerStream struct {
+	Namespace string
 	Name    string
 	Log     log15.Logger
 	Circuit string
 	stream  Stream
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	metricGet	Metric
+	metricErr	Metric
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a CircuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
+func NewCircuitBreakerStream(namespace string, name string, stream Stream,
+	circuit string) *CircuitBreakerStream {
+
 	return &CircuitBreakerStream{
+		Namespace: namespace,
 		Name: name,
-		Log: Log.New("mixin", mixin_s_cb, "name", name,
-			"circuit", circuit),
+		Log: Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CIRCUITBREAKER,
+			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		hist_ok: HistVec.WithLabelValues(mixin_s_cb, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_cb, name, "err"),
+		metricGet:	 dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				MIXIN_STREAM_CIRCUITBREAKER,
+				name, "get"}),
+		metricErr:	 dummyMetricIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_CIRCUITBREAKER,
+				    name, "err"}),
+		}
 	}
 }
 
@@ -218,14 +261,15 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		}
 		return nil
 	}, nil)
-	// hystrix.ErrTimeout doesn't interrupt work anyway.
-	// It just contributes to circuit's metrics.
+	// hystrix.ErrTimeout just leaves the work continuing in parallel and
+	// returns. Meanwhile, it contributes to circuit's statistics.
 	if err != nil {
 		r.Log.Warn("[Stream] Circuit err", "err", err)
 		if err != hystrix.ErrTimeout {
 			// Can be ErrCircuitOpen, ErrMaxConcurrency or
 			// Get()'s err.
-			r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+			r.metricGet.Observe(time.Now().Sub(begin).Seconds(),
+				map[string]string{"result": "err"})
 			return nil, err
 		}
 	}
@@ -239,19 +283,24 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
+	Namespace string
 	Name    string
 	Log     log15.Logger
 	channel <-chan Message
+	metric	Metric
 	hist_ok prom.Histogram
 }
 
 // Create a ChannelStream that gets Messages from $channel.
-func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
+func NewChannelStream(namespace string, name string,
+	channel <-chan Message) *ChannelStream {
+
 	return &ChannelStream{
+		Namespace: namespace,
 		Name:    name,
-		Log:     Log.New("mixin", mixin_s_ch, "name", name),
+		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
 		channel: channel,
-		hist_ok: HistVec.WithLabelValues(mixin_s_ch, name, "ok"),
+		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_CHANNEL, name, "ok"),
 	}
 }
 
@@ -269,27 +318,33 @@ func (r *ChannelStream) Get() (Message, error) {
 // Note that the order of messages emitted from the upstream may not be
 // preserved. It's down to application to maintain the order if that's required.
 type ConcurrentFetchStream struct {
+	Namespace string
 	Name      string
 	Log       log15.Logger
 	stream    Stream
 	receives  chan *tuple
 	semaphore chan *struct{}
 	once      sync.Once
+	metric	Metric
 	hist_ok prom.Histogram
 	hist_err prom.Histogram
 }
 
 // Create a ConcurrentFetchStream that allows at maximum $max_concurrency
 // Messages being internally fetched from upstream concurrently.
-func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
+func NewConcurrentFetchStream(namespace string, name string, stream Stream,
+	max_concurrency int) *ConcurrentFetchStream {
+
 	return &ConcurrentFetchStream{
+		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("mixin", mixin_s_con, "name", name),
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CONCURRENTFETCH, "name", name),
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
-		hist_ok: HistVec.WithLabelValues(mixin_s_con, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_con, name, "err"),
+		metric:	  metric,
+		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_CONCURRENTFETCH, name, "ok"),
+		hist_err: HistVec.WithLabelValues(MIXIN_STREAM_CONCURRENTFETCH, name, "err"),
 	}
 }
 
@@ -341,22 +396,25 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 // A MappedStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
 type MappedStream struct {
+	Namespace string
 	Name    string
 	Log     log15.Logger
 	stream  Stream
 	handler Handler
+	metric	Metric
 	hist_ok prom.Histogram
 	hist_err prom.Histogram
 }
 
-func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream {
+func NewMappedStream(namespace string, name string, stream Stream, handler Handler) *MappedStream {
 	return &MappedStream{
+		Namespace: namespace,
 		Name:    name,
-		Log:     Log.New("mixin", mixin_s_map, "name", name),
+		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
 		stream:  stream,
 		handler: handler,
-		hist_ok: HistVec.WithLabelValues(mixin_s_map, name, "ok"),
-		hist_err: HistVec.WithLabelValues(mixin_s_map, name, "err"),
+		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_MAPPED, name, "ok"),
+		hist_err: HistVec.WithLabelValues(MIXIN_STREAM_MAPPED, name, "err"),
 	}
 }
 

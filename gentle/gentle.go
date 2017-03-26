@@ -34,28 +34,9 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
-// Metrics
-type Metrics interface {
-	BaseName() string
-}
-
-type Counter interface {
-	Metrics
-	Add(delta float64)
-	AddWithLabels(delta float64, kv map[string]string)
-}
-
-type Gauge interface {
-	Set(value float64)
-	SetWithLabels(value float64, kv map[string]string)
-	Add(delta float64)
-	AddWithLabels(delta float64, kv map[string]string)
-}
-
-type Histogram interface {
-	Metrics
-	Observe(value float64)
-	ObserveWithLabels(value float64, kv map[string]string)
+// Metric
+type Metric interface {
+	Observe(value float64, labels map[string]string)
 }
 
 // RateLimit is an interface for a "token bucket" algorithm.

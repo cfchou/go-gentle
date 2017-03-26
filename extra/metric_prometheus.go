@@ -3,7 +3,7 @@ package extra
 import (
 	//"gopkg.in/cfchou/go-gentle.v1/gentle"
 	"github.com/prometheus/client_golang/prometheus"
-	"../gentle"
+	""
 )
 
 
