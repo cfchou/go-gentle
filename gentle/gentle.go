@@ -35,7 +35,19 @@ type Handler interface {
 }
 
 // Metric
-type Metric interface {
+type Metric interface {}
+
+type Counter interface {
+	Metric
+	Add(delta float64, labels map[string]string)
+	Set(delta float64, labels map[string]string)
+}
+
+// Instead of commonly used Gauge/Timer/Histogram, I feel Observation is a
+// better term that doesn't limit the implementation. So an implementation can
+// actually be a Gauge/Timer/Histogram or whatever.
+type Observation interface {
+	Metric
 	Observe(value float64, labels map[string]string)
 }
 

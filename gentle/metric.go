@@ -2,47 +2,91 @@ package gentle
 
 import "sync"
 
-var GentleMetrics = &metricRegistry{}
+
+var gentleMetrics = &metricRegistry{}
 
 type RegistryKey struct {
 	Namespace, Mixin, Name, SubKey string
 }
 
+func RegisterCounter(key RegistryKey, counter Counter) {
+	gentleMetrics.RegisterCounter(key, counter)
+}
+
+func UnRegisterCounter(key RegistryKey) {
+	gentleMetrics.UnRegisterCounter(key)
+}
+
+func GetCounter(key RegistryKey) Counter {
+	return gentleMetrics.GetCounter(key)
+}
+
+func GetObservation(key RegistryKey) Observation {
+	return gentleMetrics.GetObservation(key)
+}
+
 type metricRegistry struct {
-	registry map[RegistryKey]Metric
+	counters map[RegistryKey]Counter
+	timers map[RegistryKey]Observation
 	lock sync.RWMutex
 }
 
-func (r *metricRegistry) RegisterMetric(key RegistryKey, metric Metric) {
+func (r *metricRegistry) RegisterCounter(key RegistryKey, counter Counter) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	r.registry[key] = metric
+	r.counters[key] = counter
 }
 
-func (r *metricRegistry) UnRegisterMetric(key RegistryKey) {
+func (r *metricRegistry) UnRegisterCounter(key RegistryKey) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	delete(r.registry, key)
+	delete(r.counters, key)
 }
 
-func (r *metricRegistry) GetMetric(key RegistryKey) Metric {
+func (r *metricRegistry) GetCounter(key RegistryKey) Counter {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	return r.registry[key]
+	return r.counters[key]
+}
+
+func (r *metricRegistry) RegisterObservation(key RegistryKey, timer Observation) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.timers[key] = timer
+}
+
+func (r *metricRegistry) UnRegisterObservation(key RegistryKey) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	delete(r.counters, key)
+}
+
+func (r *metricRegistry) GetObservation(key RegistryKey) Observation {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.timers[key]
 }
 
 // A do-nothing Metric
 type dummyMetric struct {}
 
 func (m *dummyMetric) Observe(value float64, labels map[string]string)
+func (m *dummyMetric) Add(delta float64, labels map[string]string)
 
 var dummy = &dummyMetric{}
 
-func dummyMetricIfNonRegistered(key RegistryKey) Metric {
-	m := GentleMetrics.GetMetric(key)
+func dummyCounterIfNonRegistered(key RegistryKey) Counter {
+	m := gentleMetrics.GetCounter(key)
 	if m != nil {
 		return m
 	}
 	return dummy
 }
 
+func dummyObservationIfNonRegistered(key RegistryKey) Observation {
+	m := gentleMetrics.GetObservation(key)
+	if m != nil {
+		return m
+	}
+	return dummy
+}

@@ -39,7 +39,7 @@ type RateLimitedStream struct {
 	Log     log15.Logger
 	stream  Stream
 	limiter RateLimit
-	metric	Metric
+	getObservation Observation
 }
 
 func NewRateLimitedStream(namespace string, name string, stream Stream,
@@ -48,10 +48,11 @@ func NewRateLimitedStream(namespace string, name string, stream Stream,
 	return &RateLimitedStream{
 		Namespace: namespace,
 		Name:    name,
-		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RATELIMITED, "name", name),
+		Log:     Log.New("namespace", namespace,
+			"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 		stream:  stream,
 		limiter: limiter,
-		metric: dummyMetricIfNonRegistered(
+		getObservation: dummyObservationIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_RATELIMITED,
 				    name, "get"}),
@@ -66,12 +67,12 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.metric.Observe(time.Now().Sub(begin).Seconds(),
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
 			map[string]string{"result": "err"})
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.metric.Observe(time.Now().Sub(begin).Seconds(),
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
 		map[string]string{"result": "ok"})
 	return msg, nil
 }
@@ -84,8 +85,8 @@ type RetryStream struct {
 	Log      log15.Logger
 	stream   Stream
 	backoffs []time.Duration
-	metricGet	Metric
-	metricTry	Metric
+	getObservation	Observation
+	tryObservation	Observation
 }
 
 func NewRetryStream(namespace string, name string, stream Stream,
@@ -100,11 +101,11 @@ func NewRetryStream(namespace string, name string, stream Stream,
 		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RETRY, "name", name),
 		stream:    stream,
 		backoffs:  backoffs,
-		metricGet: dummyMetricIfNonRegistered(
+		getObservation: dummyObservationIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_RETRY,
 				    name, "get"}),
-		metricTry: dummyMetricIfNonRegistered(
+		tryObservation: dummyObservationIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_RETRY,
 				    name, "try"}),
@@ -127,9 +128,9 @@ func (r *RetryStream) Get() (Message, error) {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 				"timespan", timespan)
-			r.metricGet.Observe(timespan,
+			r.getObservation.Observe(timespan,
 				map[string]string{"result": "ok"})
-			r.metricTry.Observe(float64(count),
+			r.tryObservation.Observe(float64(count),
 				map[string]string{"result": "ok"})
 			return msg, nil
 		}
@@ -137,9 +138,9 @@ func (r *RetryStream) Get() (Message, error) {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
 				"err", err, "timespan", timespan)
-			r.metricGet.Observe(timespan,
+			r.getObservation.Observe(timespan,
 				map[string]string{"result": "err"})
-			r.metricTry.Observe(float64(count),
+			r.tryObservation.Observe(float64(count),
 				map[string]string{"result": "err"})
 			return nil, err
 		} else {
@@ -159,7 +160,7 @@ type BulkheadStream struct {
 	Log       log15.Logger
 	stream    Stream
 	semaphore chan *struct{}
-	metric	Metric
+	getObservation Observation
 }
 
 // Create a BulkheadStream that allows at maximum $max_concurrency Get() to
@@ -177,7 +178,7 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 			"mixin", MIXIN_STREAM_BULKHEAD, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		metric:	  dummyMetricIfNonRegistered(
+		getObservation:	  dummyObservationIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_BULKHEAD,
 				    name, "get"}),
@@ -193,13 +194,13 @@ func (r *BulkheadStream) Get() (Message, error) {
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
 		<-r.semaphore
-		r.metric.Observe(time.Now().Sub(begin).Seconds(),
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
 			map[string]string{"result": "err"})
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	<-r.semaphore
-	r.metric.Observe(time.Now().Sub(begin).Seconds(),
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
 		map[string]string{"result": "ok"})
 	return msg, nil
 }
@@ -211,8 +212,8 @@ type CircuitBreakerStream struct {
 	Log     log15.Logger
 	Circuit string
 	stream  Stream
-	metricGet	Metric
-	metricErr	Metric
+	getObservation	Observation
+	errCounter Counter
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -228,57 +229,66 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		metricGet:	 dummyMetricIfNonRegistered(
+		getObservation:	 dummyObservationIfNonRegistered(
 			RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
 				name, "get"}),
-		metricErr:	 dummyMetricIfNonRegistered(
+		errCounter:	 dummyCounterIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_CIRCUITBREAKER,
 				    name, "err"}),
-		}
 	}
 }
+
+// Our replacement of hystrix errors. Get() won't return any hystrix errors.
+var ErrCircuitOpen = errors.New(hystrix.ErrCircuitOpen.Error())
+var ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+var ErrTimeout = errors.New(hystrix.ErrTimeout.Error())
 
 func (r *CircuitBreakerStream) Get() (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
-	result := make(chan *tuple, 1)
+	result := make(chan Message, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg, err := r.stream.Get()
 		if err != nil {
 			r.Log.Error("[Stream] Get() err", "err", err)
-			result <- &tuple{
-				fst: msg,
-				snd: err,
-			}
 			return err
 		}
 		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-		result <- &tuple{
-			fst: msg,
-			snd: err,
-		}
+		result <- msg
 		return nil
 	}, nil)
-	// hystrix.ErrTimeout just leaves the work continuing in parallel and
-	// returns. Meanwhile, it contributes to circuit's statistics.
 	if err != nil {
-		r.Log.Warn("[Stream] Circuit err", "err", err)
-		if err != hystrix.ErrTimeout {
-			// Can be ErrCircuitOpen, ErrMaxConcurrency or
-			// Get()'s err.
-			r.metricGet.Observe(time.Now().Sub(begin).Seconds(),
-				map[string]string{"result": "err"})
+		defer r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			map[string]string{"result": "err"})
+		switch err {
+		case hystrix.ErrCircuitOpen:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrCircuitOpen"})
+			return nil, ErrCircuitOpen
+		case hystrix.ErrMaxConcurrency:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrMaxConcurrency"})
+			return nil, ErrMaxConcurrency
+		case hystrix.ErrTimeout:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrTimeout"})
+			return nil, ErrTimeout
+		default:
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrOthers"})
 			return nil, err
 		}
+	} else {
+		msg := <-result
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			map[string]string{"result": "ok"})
+		return msg, nil
 	}
-	tp := <-result
-	if tp.snd == nil {
-		return tp.fst.(Message), nil
-	}
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
-	return nil, tp.snd.(error)
 }
 
 // ChannelStream forms a stream from a channel.
@@ -287,8 +297,7 @@ type ChannelStream struct {
 	Name    string
 	Log     log15.Logger
 	channel <-chan Message
-	metric	Metric
-	hist_ok prom.Histogram
+	getObservation Observation
 }
 
 // Create a ChannelStream that gets Messages from $channel.
@@ -300,7 +309,10 @@ func NewChannelStream(namespace string, name string,
 		Name:    name,
 		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
 		channel: channel,
-		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_CHANNEL, name, "ok"),
+		getObservation: dummyObservationIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_CHANNEL,
+				    name, "get"}),
 	}
 }
 
@@ -309,7 +321,8 @@ func (r *ChannelStream) Get() (Message, error) {
 	r.Log.Debug("[Stream] Get() ...")
 	msg := <-r.channel
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+		map[string]string{"result": "ok"})
 	return msg, nil
 }
 
