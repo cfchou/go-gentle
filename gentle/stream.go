@@ -9,20 +9,8 @@ import (
 	"time"
 )
 
-var (
-	// Histogram used by all Streams
-	HistVec = prom.NewHistogramVec(
-		prom.HistogramOpts {
-			Namespace: "stream",
-			Subsystem: "get",
-			Name:"duration_seconds",
-			Help:"Duration of Stream.Get() in seconds",
-			Buckets: prom.DefBuckets,
-		},
-		[]string{"mixin", "name", "result"})
-)
-
 const (
+	// Stream types(mixins), are most likely used as part of RegistryKey.
 	MIXIN_STREAM_RATELIMITED = "s_rate"
 	MIXIN_STREAM_RETRY = "s_retry"
 	MIXIN_STREAM_BULKHEAD = "s_bulk"
@@ -30,6 +18,18 @@ const (
 	MIXIN_STREAM_CHANNEL = "s_chan"
 	MIXIN_STREAM_CONCURRENTFETCH = "s_con"
 	MIXIN_STREAM_MAPPED = "s_map"
+)
+
+var (
+	// Errors that CircuitBreakerStream, in addition to application's errors, might
+	// return. They are replacement of hystrix errors. Get() won't return
+	// any hystrix errors.
+	ErrCircuitOpen = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+	ErrTimeout = errors.New(hystrix.ErrTimeout.Error())
+
+	label_ok = map[string]string {"result": "ok"}
+	label_err = map[string]string {"result": "err"}
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Get().
@@ -68,12 +68,12 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
 		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			map[string]string{"result": "err"})
+			label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-		map[string]string{"result": "ok"})
+		label_ok)
 	return msg, nil
 }
 
@@ -128,20 +128,16 @@ func (r *RetryStream) Get() (Message, error) {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 				"timespan", timespan)
-			r.getObservation.Observe(timespan,
-				map[string]string{"result": "ok"})
-			r.tryObservation.Observe(float64(count),
-				map[string]string{"result": "ok"})
+			r.getObservation.Observe(timespan, label_ok)
+			r.tryObservation.Observe(float64(count), label_ok)
 			return msg, nil
 		}
 		if len(bk) == 0 {
 			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
 				"err", err, "timespan", timespan)
-			r.getObservation.Observe(timespan,
-				map[string]string{"result": "err"})
-			r.tryObservation.Observe(float64(count),
-				map[string]string{"result": "err"})
+			r.getObservation.Observe(timespan, label_err)
+			r.tryObservation.Observe(float64(count), label_err)
 			return nil, err
 		} else {
 			timespan := time.Now().Sub(begin)
@@ -195,13 +191,13 @@ func (r *BulkheadStream) Get() (Message, error) {
 		r.Log.Error("[Stream] Get() err", "err", err)
 		<-r.semaphore
 		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			map[string]string{"result": "err"})
+			label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	<-r.semaphore
 	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-		map[string]string{"result": "ok"})
+		label_ok)
 	return msg, nil
 }
 
@@ -236,14 +232,9 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 		errCounter:	 dummyCounterIfNonRegistered(
 			RegistryKey{namespace,
 				    MIXIN_STREAM_CIRCUITBREAKER,
-				    name, "err"}),
+				    name, "hystrix_err"}),
 	}
 }
-
-// Our replacement of hystrix errors. Get() won't return any hystrix errors.
-var ErrCircuitOpen = errors.New(hystrix.ErrCircuitOpen.Error())
-var ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
-var ErrTimeout = errors.New(hystrix.ErrTimeout.Error())
 
 func (r *CircuitBreakerStream) Get() (Message, error) {
 	begin := time.Now()
@@ -261,7 +252,10 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	}, nil)
 	if err != nil {
 		defer r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			map[string]string{"result": "err"})
+			label_err)
+		// To prevent misinterpreting when wrapping one
+		// CircuitBreakerStream over another. Hystrix errors are
+		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
 			r.Log.Warn("[Stream] Circuit err", "err", err)
@@ -280,13 +274,13 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 			return nil, ErrTimeout
 		default:
 			r.errCounter.Add(1,
-				map[string]string{"err": "ErrOthers"})
+				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}
 	} else {
 		msg := <-result
 		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			map[string]string{"result": "ok"})
+			label_ok)
 		return msg, nil
 	}
 }
@@ -321,8 +315,7 @@ func (r *ChannelStream) Get() (Message, error) {
 	r.Log.Debug("[Stream] Get() ...")
 	msg := <-r.channel
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-		map[string]string{"result": "ok"})
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return msg, nil
 }
 
@@ -338,9 +331,7 @@ type ConcurrentFetchStream struct {
 	receives  chan *tuple
 	semaphore chan *struct{}
 	once      sync.Once
-	metric	Metric
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	getObservation Observation
 }
 
 // Create a ConcurrentFetchStream that allows at maximum $max_concurrency
@@ -355,9 +346,10 @@ func NewConcurrentFetchStream(namespace string, name string, stream Stream,
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
-		metric:	  metric,
-		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_CONCURRENTFETCH, name, "ok"),
-		hist_err: HistVec.WithLabelValues(MIXIN_STREAM_CONCURRENTFETCH, name, "err"),
+		getObservation: dummyObservationIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_CONCURRENTFETCH,
+				    name, "get"}),
 	}
 }
 
@@ -397,12 +389,13 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	if tp.snd != nil {
 		err := tp.snd.(error)
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_err)
 		return nil, err
 	}
 	msg := tp.fst.(Message)
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return msg, nil
 }
 
@@ -414,9 +407,7 @@ type MappedStream struct {
 	Log     log15.Logger
 	stream  Stream
 	handler Handler
-	metric	Metric
-	hist_ok prom.Histogram
-	hist_err prom.Histogram
+	getObservation Observation
 }
 
 func NewMappedStream(namespace string, name string, stream Stream, handler Handler) *MappedStream {
@@ -426,8 +417,10 @@ func NewMappedStream(namespace string, name string, stream Stream, handler Handl
 		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
 		stream:  stream,
 		handler: handler,
-		hist_ok: HistVec.WithLabelValues(MIXIN_STREAM_MAPPED, name, "ok"),
-		hist_err: HistVec.WithLabelValues(MIXIN_STREAM_MAPPED, name, "err"),
+		getObservation: dummyObservationIfNonRegistered(
+			RegistryKey{namespace,
+				    MIXIN_STREAM_MAPPED,
+				    name, "get"}),
 	}
 }
 
@@ -437,18 +430,18 @@ func (r *MappedStream) Get() (Message, error) {
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
-		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
 	if herr != nil {
 		r.Log.Error("[Stream] Handle() err", "err", herr)
-		r.hist_err.Observe(time.Now().Sub(begin).Seconds())
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, herr
 	}
 	r.Log.Debug("[Stream] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", hmsg.Id())
-	r.hist_ok.Observe(time.Now().Sub(begin).Seconds())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return hmsg, nil
 }

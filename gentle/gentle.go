@@ -34,23 +34,6 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
-// Metric
-type Metric interface {}
-
-type Counter interface {
-	Metric
-	Add(delta float64, labels map[string]string)
-	Set(delta float64, labels map[string]string)
-}
-
-// Instead of commonly used Gauge/Timer/Histogram, I feel Observation is a
-// better term that doesn't limit the implementation. So an implementation can
-// actually be a Gauge/Timer/Histogram or whatever.
-type Observation interface {
-	Metric
-	Observe(value float64, labels map[string]string)
-}
-
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or timeout(return

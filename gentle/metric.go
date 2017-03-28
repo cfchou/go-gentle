@@ -5,6 +5,33 @@ import "sync"
 
 var gentleMetrics = &metricRegistry{}
 
+// Metric
+type Metric interface {}
+
+type Counter interface {
+	Metric
+	Add(delta float64, labels map[string]string)
+}
+
+// Instead of commonly used Gauge/Timer/Histogram/Percentile, I feel
+// Observation is a better name that doesn't limit the implementation. An
+// implementation can actually be a Gauge/Timer/Histogram/Percentile or
+// whatever.
+type Observation interface {
+	Metric
+	Observe(value float64, labels map[string]string)
+}
+
+type MetricDesc interface {
+	// Return []string that each of which can be used as a SubKey.
+	SupportedCounters(mixin string) []string
+	// Return []string that each of which can be used as a SubKey.
+	SupportedObservations(mixin string) []string
+	// Return map[string]string that can be used in Counter's Add
+	// or Observation's Observe.
+	SupportedLabels(mixin string, subkey string) []string
+}
+
 type RegistryKey struct {
 	Namespace, Mixin, Name, SubKey string
 }
@@ -70,8 +97,8 @@ func (r *metricRegistry) GetObservation(key RegistryKey) Observation {
 // A do-nothing Metric
 type dummyMetric struct {}
 
-func (m *dummyMetric) Observe(value float64, labels map[string]string)
-func (m *dummyMetric) Add(delta float64, labels map[string]string)
+func (m *dummyMetric) Observe(value float64, labels map[string]string) {}
+func (m *dummyMetric) Add(delta float64, labels map[string]string) {}
 
 var dummy = &dummyMetric{}
 
