@@ -12,7 +12,10 @@ type promObeservation struct {
 }
 
 func (p *promObeservation) Observe(value float64, labels map[string]string) {
-	m := map[string]string{"name": p.name, "result": labels["result"]}
+	m := map[string]string{"name": p.name}
+	for k, v := range labels {
+		m[k] = v
+	}
 	h := p.histVec.With(m)
 	h.Observe(value)
 }
@@ -23,7 +26,10 @@ type promCounter struct {
 }
 
 func (p *promCounter) Add(value float64, labels map[string]string) {
-	m := map[string]string{"name": p.name, "err": labels["err"]}
+	m := map[string]string{"name": p.name}
+	for k, v := range labels {
+		m[k] = v
+	}
 	c := p.counterVec.With(m)
 	c.Add(value)
 }
@@ -45,6 +51,7 @@ func RegisterRateLimitedStreamMetrics(namespace, name string) {
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
+	prom.MustRegister(histVec)
 	ob := &promObeservation{
 		name:    name,
 		histVec: histVec,
@@ -74,6 +81,7 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 				Buckets:   prom.DefBuckets,
 			},
 			[]string{"name", "result"})
+		prom.MustRegister(histVec)
 		ob := &promObeservation{
 			name:    name,
 			histVec: histVec,
@@ -92,6 +100,7 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 				Buckets:   tryBuckets,
 			},
 			[]string{"name", "result"})
+		prom.MustRegister(histVec)
 		ob := &promObeservation{
 			name:    name,
 			histVec: histVec,
@@ -117,6 +126,7 @@ func RegisterBulkStreamMetrics(namespace, name string) {
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
+	prom.MustRegister(histVec)
 	ob := &promObeservation{
 		name:    name,
 		histVec: histVec,
@@ -139,6 +149,7 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 				Buckets:   prom.DefBuckets,
 			},
 			[]string{"name", "result"})
+		prom.MustRegister(histVec)
 		ob := &promObeservation{
 			name:    name,
 			histVec: histVec,
@@ -156,6 +167,7 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 				Help:      "Number of errors from hystrix.Do() in CircuitBreakerStream",
 			},
 			[]string{"name", "err"})
+		prom.MustRegister(counterVec)
 		counter := &promCounter{
 			name:       name,
 			counterVec: counterVec,
@@ -181,6 +193,7 @@ func RegisterChannelStreamMetrics(namespace, name string) {
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
+	prom.MustRegister(histVec)
 	ob := &promObeservation{
 		name:    name,
 		histVec: histVec,
@@ -205,6 +218,7 @@ func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
+	prom.MustRegister(histVec)
 	ob := &promObeservation{
 		name:    name,
 		histVec: histVec,
@@ -229,6 +243,7 @@ func RegisterMappedStreamMetrics(namespace, name string) {
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
+	prom.MustRegister(histVec)
 	ob := &promObeservation{
 		name:    name,
 		histVec: histVec,
