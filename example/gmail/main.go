@@ -42,9 +42,9 @@ var (
 	gmailCallsHist = prom.NewHistogramVec(
 		prom.HistogramOpts{
 			Namespace: "gmailapi",
-			Name:    "duration_seconds",
-			Help:"Duration of Gmail API in seconds",
-			Buckets: prom.DefBuckets,
+			Name:      "duration_seconds",
+			Help:      "Duration of Gmail API in seconds",
+			Buckets:   prom.DefBuckets,
 		},
 		[]string{"api", "status"})
 	gmailMessageBytesTotalCounter = prom.NewCounter(
@@ -64,7 +64,6 @@ var (
 func init() {
 	prom.MustRegister(gmailCallsHist)
 	prom.MustRegister(gmailMessageBytesTotalCounter)
-	prom.MustRegister(gentle.HistVec)
 }
 
 // getTokenFromWeb uses Config to request a Token.

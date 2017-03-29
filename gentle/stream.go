@@ -3,42 +3,42 @@ package gentle
 import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
-	log15 "gopkg.in/inconshreveable/log15.v2"
 	prom "github.com/prometheus/client_golang/prometheus"
+	log15 "gopkg.in/inconshreveable/log15.v2"
 	"sync"
 	"time"
 )
 
 const (
 	// Stream types(mixins), are most likely used as part of RegistryKey.
-	MIXIN_STREAM_RATELIMITED = "s_rate"
-	MIXIN_STREAM_RETRY = "s_retry"
-	MIXIN_STREAM_BULKHEAD = "s_bulk"
-	MIXIN_STREAM_CIRCUITBREAKER = "s_circuit"
-	MIXIN_STREAM_CHANNEL = "s_chan"
+	MIXIN_STREAM_RATELIMITED     = "s_rate"
+	MIXIN_STREAM_RETRY           = "s_retry"
+	MIXIN_STREAM_BULKHEAD        = "s_bulk"
+	MIXIN_STREAM_CIRCUITBREAKER  = "s_circuit"
+	MIXIN_STREAM_CHANNEL         = "s_chan"
 	MIXIN_STREAM_CONCURRENTFETCH = "s_con"
-	MIXIN_STREAM_MAPPED = "s_map"
+	MIXIN_STREAM_MAPPED          = "s_map"
 )
 
 var (
 	// Errors that CircuitBreakerStream, in addition to application's errors, might
 	// return. They are replacement of hystrix errors. Get() won't return
 	// any hystrix errors.
-	ErrCircuitOpen = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrCircuitOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
 	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
-	ErrTimeout = errors.New(hystrix.ErrTimeout.Error())
+	ErrTimeout        = errors.New(hystrix.ErrTimeout.Error())
 
-	label_ok = map[string]string {"result": "ok"}
-	label_err = map[string]string {"result": "err"}
+	label_ok  = map[string]string{"result": "ok"}
+	label_err = map[string]string{"result": "err"}
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
-	Namespace string
-	Name    string
-	Log     log15.Logger
-	stream  Stream
-	limiter RateLimit
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	limiter        RateLimit
 	getObservation Observation
 }
 
@@ -47,15 +47,15 @@ func NewRateLimitedStream(namespace string, name string, stream Stream,
 
 	return &RateLimitedStream{
 		Namespace: namespace,
-		Name:    name,
-		Log:     Log.New("namespace", namespace,
+		Name:      name,
+		Log: Log.New("namespace", namespace,
 			"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 		stream:  stream,
 		limiter: limiter,
 		getObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_RATELIMITED,
-				    name, "get"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RATELIMITED,
+				name, "get"}),
 	}
 }
 
@@ -80,13 +80,13 @@ func (r *RateLimitedStream) Get() (Message, error) {
 // RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
 type RetryStream struct {
-	Namespace string
-	Name     string
-	Log      log15.Logger
-	stream   Stream
-	backoffs []time.Duration
-	getObservation	Observation
-	tryObservation	Observation
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	backoffs       []time.Duration
+	getObservation Observation
+	tryObservation Observation
 }
 
 func NewRetryStream(namespace string, name string, stream Stream,
@@ -102,13 +102,13 @@ func NewRetryStream(namespace string, name string, stream Stream,
 		stream:    stream,
 		backoffs:  backoffs,
 		getObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_RETRY,
-				    name, "get"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RETRY,
+				name, "get"}),
 		tryObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_RETRY,
-				    name, "try"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RETRY,
+				name, "try"}),
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *RetryStream) Get() (Message, error) {
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
-		count := len(r.backoffs)-len(bk)+1
+		count := len(r.backoffs) - len(bk) + 1
 		r.Log.Debug("[Stream] Get() ...", "count", count,
 			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
@@ -151,11 +151,11 @@ func (r *RetryStream) Get() (Message, error) {
 
 // Bulkhead pattern is used to limit the number of concurrent Get().
 type BulkheadStream struct {
-	Namespace string
-	Name      string
-	Log       log15.Logger
-	stream    Stream
-	semaphore chan *struct{}
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	semaphore      chan *struct{}
 	getObservation Observation
 }
 
@@ -170,14 +170,14 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 	return &BulkheadStream{
 		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("namespace", namespace,
+		Log: Log.New("namespace", namespace,
 			"mixin", MIXIN_STREAM_BULKHEAD, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		getObservation:	  dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_BULKHEAD,
-				    name, "get"}),
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_BULKHEAD,
+				name, "get"}),
 	}
 }
 
@@ -203,13 +203,13 @@ func (r *BulkheadStream) Get() (Message, error) {
 
 // CircuitBreakerStream is a Stream equipped with a circuit-breaker.
 type CircuitBreakerStream struct {
-	Namespace string
-	Name    string
-	Log     log15.Logger
-	Circuit string
-	stream  Stream
-	getObservation	Observation
-	errCounter Counter
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	Circuit        string
+	stream         Stream
+	getObservation Observation
+	errCounter     Counter
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -220,19 +220,19 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 
 	return &CircuitBreakerStream{
 		Namespace: namespace,
-		Name: name,
+		Name:      name,
 		Log: Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CIRCUITBREAKER,
 			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		getObservation:	 dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
 				name, "get"}),
-		errCounter:	 dummyCounterIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_CIRCUITBREAKER,
-				    name, "hystrix_err"}),
+		errCounter: dummyCounterIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CIRCUITBREAKER,
+				name, "hystrix_err"}),
 	}
 }
 
@@ -287,10 +287,10 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
-	Namespace string
-	Name    string
-	Log     log15.Logger
-	channel <-chan Message
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	channel        <-chan Message
 	getObservation Observation
 }
 
@@ -300,13 +300,13 @@ func NewChannelStream(namespace string, name string,
 
 	return &ChannelStream{
 		Namespace: namespace,
-		Name:    name,
-		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
-		channel: channel,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
+		channel:   channel,
 		getObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_CHANNEL,
-				    name, "get"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CHANNEL,
+				name, "get"}),
 	}
 }
 
@@ -324,13 +324,13 @@ func (r *ChannelStream) Get() (Message, error) {
 // Note that the order of messages emitted from the upstream may not be
 // preserved. It's down to application to maintain the order if that's required.
 type ConcurrentFetchStream struct {
-	Namespace string
-	Name      string
-	Log       log15.Logger
-	stream    Stream
-	receives  chan *tuple
-	semaphore chan *struct{}
-	once      sync.Once
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	receives       chan *tuple
+	semaphore      chan *struct{}
+	once           sync.Once
 	getObservation Observation
 }
 
@@ -347,9 +347,9 @@ func NewConcurrentFetchStream(namespace string, name string, stream Stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
 		getObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_CONCURRENTFETCH,
-				    name, "get"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CONCURRENTFETCH,
+				name, "get"}),
 	}
 }
 
@@ -402,25 +402,25 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 // A MappedStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
 type MappedStream struct {
-	Namespace string
-	Name    string
-	Log     log15.Logger
-	stream  Stream
-	handler Handler
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	handler        Handler
 	getObservation Observation
 }
 
 func NewMappedStream(namespace string, name string, stream Stream, handler Handler) *MappedStream {
 	return &MappedStream{
 		Namespace: namespace,
-		Name:    name,
-		Log:     Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
-		stream:  stream,
-		handler: handler,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
+		stream:    stream,
+		handler:   handler,
 		getObservation: dummyObservationIfNonRegistered(
-			RegistryKey{namespace,
-				    MIXIN_STREAM_MAPPED,
-				    name, "get"}),
+			&RegistryKey{namespace,
+				MIXIN_STREAM_MAPPED,
+				name, "get"}),
 	}
 }
 
