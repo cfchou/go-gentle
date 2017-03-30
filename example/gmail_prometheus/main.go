@@ -13,7 +13,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 	"github.com/cfchou/go-gentle/gentle"
-	mp "github.com/cfchou/go-gentle/gentle/extra/metrics_prometheus"
+	mp "github.com/cfchou/go-gentle/extra/metrics_prometheus"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"net/http"
 	"os"

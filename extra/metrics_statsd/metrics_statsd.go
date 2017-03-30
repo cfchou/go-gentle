@@ -13,7 +13,7 @@ type timingObservation struct {
 
 func (p *timingObservation) Observe(value float64, labels map[string]string) {
 	for k, v := range labels {
-		suffix := k + "." + v
+		suffix := k + "_" + v
 		p.dura.Timing(suffix, int64(value * 1000), 1.0)
 		p.count.Inc(suffix, 1, 1.0)
 	}
@@ -25,7 +25,7 @@ type gaugeObservation struct {
 
 func (p *gaugeObservation) Observe(value float64, labels map[string]string) {
 	for k, v := range labels {
-		suffix := k + "." + v
+		suffix := k + "_" + v
 		p.gauge.Gauge(suffix, int64(value), 1.0)
 	}
 }
@@ -36,15 +36,15 @@ type statsdCounter struct {
 
 func (p *statsdCounter) Add(value float64, labels map[string]string) {
 	for k, v := range labels {
-		suffix := k + "." + v
+		suffix := k + "_" + v
 		p.count.Inc(suffix, 1, 1.0)
 	}
 }
 
-// namespace.s_rate.get_duration.name.result.ok
-// namespace.s_rate.get_count.name.result.ok
-// namespace.s_rate.get_duration.name.result.err
-// namespace.s_rate.get_count.name.result.err
+// namespace.s_rate.get_duration.name.result_ok
+// namespace.s_rate.get_count.name.result_ok
+// namespace.s_rate.get_duration.name.result_err
+// namespace.s_rate.get_count.name.result_err
 func RegisterRateLimitedStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RATELIMITED,
@@ -65,12 +65,12 @@ func RegisterRateLimitedStreamMetrics(client statsd.Client, namespace, name stri
 }
 
 
-// namespace.s_retry.get_duration.name.result.ok
-// namespace.s_retry.get_count.name.result.ok
-// namespace.s_retry.get_duration.name.result.err
-// namespace.s_retry.get_count.name.result.err
-// namespace.s_retry.tries.name.result.ok
-// namespace.s_retry.tries.name.result.err
+// namespace.s_retry.get_duration.name.result_ok
+// namespace.s_retry.get_count.name.result_ok
+// namespace.s_retry.get_duration.name.result_err
+// namespace.s_retry.get_count.name.result_err
+// namespace.s_retry.tries.name.result_ok
+// namespace.s_retry.tries.name.result_err
 func RegisterRetryStreamMetrics(client statsd.Client, namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
@@ -100,10 +100,10 @@ func RegisterRetryStreamMetrics(client statsd.Client, namespace, name string, tr
 	}
 }
 
-// namespace.s_bulk.get_duration.name.result.ok
-// namespace.s_bulk.get_count.name.result.ok
-// namespace.s_bulk.get_duration.name.result.err
-// namespace.s_bulk.get_count.name.result.err
+// namespace.s_bulk.get_duration.name.result_ok
+// namespace.s_bulk.get_count.name.result_ok
+// namespace.s_bulk.get_duration.name.result_err
+// namespace.s_bulk.get_count.name.result_err
 func RegisterBulkStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_BULKHEAD,
@@ -123,17 +123,15 @@ func RegisterBulkStreamMetrics(client statsd.Client, namespace, name string) {
 	gentle.RegisterObservation(key, ob)
 }
 
-// namespace_s_circuit_errors_total{name, err}
+// namespace.s_circuit.get_duration.name.result_ok
+// namespace.s_circuit.get_count.name.result_ok
+// namespace.s_circuit.get_duration.name.result_err
+// namespace.s_circuit.get_count.name.result_err
 
-// namespace.s_circuit.get_duration.name.result.ok
-// namespace.s_circuit.get_count.name.result.ok
-// namespace.s_circuit.get_duration.name.result.err
-// namespace.s_circuit.get_count.name.result.err
-
-// namespace.s_circuit.error_count.name.err.ErrCircuitOpen
-// namespace.s_circuit.error_count.name.err.ErrMaxConcurrency
-// namespace.s_circuit.error_count.name.err.ErrTimeout
-// namespace.s_circuit.error_count.name.err.NonHystrixErr
+// namespace.s_circuit.error_count.name.err_ErrCircuitOpen
+// namespace.s_circuit.error_count.name.err_ErrMaxConcurrency
+// namespace.s_circuit.error_count.name.err_ErrTimeout
+// namespace.s_circuit.error_count.name.err_NonHystrixErr
 func RegisterCircuitBreakerStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
@@ -162,10 +160,10 @@ func RegisterCircuitBreakerStreamMetrics(client statsd.Client, namespace, name s
 	}
 }
 
-// namespace.s_chan.get_duration.name.result.ok
-// namespace.s_chan.get_count.name.result.ok
-// namespace.s_chan.get_duration.name.result.err
-// namespace.s_chan.get_count.name.result.err
+// namespace.s_chan.get_duration.name.result_ok
+// namespace.s_chan.get_count.name.result_ok
+// namespace.s_chan.get_duration.name.result_err
+// namespace.s_chan.get_count.name.result_err
 func RegisterChannelStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CHANNEL,
@@ -185,10 +183,10 @@ func RegisterChannelStreamMetrics(client statsd.Client, namespace, name string) 
 	gentle.RegisterObservation(key, ob)
 }
 
-// namespace.s_con.get_duration.name.result.ok
-// namespace.s_con.get_count.name.result.ok
-// namespace.s_con.get_duration.name.result.err
-// namespace.s_con.get_count.name.result.err
+// namespace.s_con.get_duration.name.result_ok
+// namespace.s_con.get_count.name.result_ok
+// namespace.s_con.get_duration.name.result_err
+// namespace.s_con.get_count.name.result_err
 func RegisterConcurrentFetchStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CONCURRENTFETCH,
@@ -208,10 +206,10 @@ func RegisterConcurrentFetchStreamMetrics(client statsd.Client, namespace, name 
 	gentle.RegisterObservation(key, ob)
 }
 
-// namespace.s_map.get_duration.name.result.ok
-// namespace.s_map.get_count.name.result.ok
-// namespace.s_map.get_duration.name.result.err
-// namespace.s_map.get_count.name.result.err
+// namespace.s_map.get_duration.name.result_ok
+// namespace.s_map.get_count.name.result_ok
+// namespace.s_map.get_duration.name.result_err
+// namespace.s_map.get_count.name.result_err
 func RegisterMappedStreamMetrics(client statsd.Client, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_MAPPED,
