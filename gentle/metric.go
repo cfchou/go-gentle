@@ -2,7 +2,11 @@ package gentle
 
 import "sync"
 
-var gentleMetrics = &metricRegistry{}
+var gentleMetrics = &metricRegistry{
+	counters: make(map[RegistryKey]Counter),
+	observations: make(map[RegistryKey]Observation),
+	lock: &sync.RWMutex{},
+}
 
 // Metric
 type Metric interface{}
@@ -60,8 +64,8 @@ func GetObservation(key *RegistryKey) Observation {
 
 type metricRegistry struct {
 	counters map[RegistryKey]Counter
-	timers   map[RegistryKey]Observation
-	lock     sync.RWMutex
+	observations   map[RegistryKey]Observation
+	lock     *sync.RWMutex
 }
 
 func (r *metricRegistry) RegisterCounter(key *RegistryKey, counter Counter) {
@@ -82,10 +86,10 @@ func (r *metricRegistry) GetCounter(key *RegistryKey) Counter {
 	return r.counters[*key]
 }
 
-func (r *metricRegistry) RegisterObservation(key *RegistryKey, timer Observation) {
+func (r *metricRegistry) RegisterObservation(key *RegistryKey, observation Observation) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	r.timers[*key] = timer
+	r.observations[*key] = observation
 }
 
 func (r *metricRegistry) UnRegisterObservation(key *RegistryKey) {
@@ -97,7 +101,7 @@ func (r *metricRegistry) UnRegisterObservation(key *RegistryKey) {
 func (r *metricRegistry) GetObservation(key *RegistryKey) Observation {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	return r.timers[*key]
+	return r.observations[*key]
 }
 
 // A do-nothing Metric

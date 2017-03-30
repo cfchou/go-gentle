@@ -3,7 +3,6 @@ package gentle
 import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
-	prom "github.com/prometheus/client_golang/prometheus"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"sync"
 	"time"
