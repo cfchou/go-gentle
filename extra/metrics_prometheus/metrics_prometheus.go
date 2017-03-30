@@ -1,7 +1,7 @@
 package metrics_prometheus
 
 import (
-	"../../gentle"
+	"github.com/cfchou/go-gentle/gentle"
 	prom "github.com/prometheus/client_golang/prometheus"
 )
 
