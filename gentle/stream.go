@@ -8,54 +8,106 @@ import (
 	"time"
 )
 
+const (
+	// Stream types(mixins), are most likely used as part of RegistryKey.
+	MIXIN_STREAM_RATELIMITED     = "s_rate"
+	MIXIN_STREAM_RETRY           = "s_retry"
+	MIXIN_STREAM_BULKHEAD        = "s_bulk"
+	MIXIN_STREAM_CIRCUITBREAKER  = "s_circuit"
+	MIXIN_STREAM_CHANNEL         = "s_chan"
+	MIXIN_STREAM_CONCURRENTFETCH = "s_con"
+	MIXIN_STREAM_MAPPED          = "s_map"
+)
+
+var (
+	// Errors that CircuitBreakerStream, in addition to application's errors, might
+	// return. They are replacement of hystrix errors. Get() won't return
+	// any hystrix errors.
+	ErrCircuitOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+	ErrTimeout        = errors.New(hystrix.ErrTimeout.Error())
+
+	label_ok  = map[string]string{"result": "ok"}
+	label_err = map[string]string{"result": "err"}
+)
+
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
-	Name    string
-	Log     log15.Logger
-	stream  Stream
-	limiter RateLimit
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	limiter        RateLimit
+	getObservation Observation
 }
 
-func NewRateLimitedStream(name string, stream Stream, limiter RateLimit) *RateLimitedStream {
+func NewRateLimitedStream(namespace string, name string, stream Stream,
+	limiter RateLimit) *RateLimitedStream {
+
 	return &RateLimitedStream{
-		Name:    name,
-		Log:     Log.New("mixin", "stream_rate", "name", name),
+		Namespace: namespace,
+		Name:      name,
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 		stream:  stream,
 		limiter: limiter,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RATELIMITED,
+				name, "get"}),
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
 func (r *RateLimitedStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	r.limiter.Wait(1, 0)
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+		label_ok)
 	return msg, nil
 }
 
 // RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
 type RetryStream struct {
-	Name     string
-	Log      log15.Logger
-	stream   Stream
-	backoffs []time.Duration
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	backoffs       []time.Duration
+	getObservation Observation
+	tryObservation Observation
 }
 
-func NewRetryStream(name string, stream Stream, backoffs []time.Duration) *RetryStream {
+func NewRetryStream(namespace string, name string, stream Stream,
+	backoffs []time.Duration) *RetryStream {
+
 	if len(backoffs) == 0 {
 		Log.Warn("NewRetryStream() len(backoffs) == 0")
 	}
 	return &RetryStream{
-		Name:     name,
-		Log:      Log.New("mixin", "stream_retry", "name", name),
-		stream:   stream,
-		backoffs: backoffs,
+		Namespace: namespace,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RETRY, "name", name),
+		stream:    stream,
+		backoffs:  backoffs,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RETRY,
+				name, "get"}),
+		tryObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_RETRY,
+				name, "try"}),
 	}
 }
 
@@ -64,24 +116,32 @@ func (r *RetryStream) Get() (Message, error) {
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
-		r.Log.Debug("[Stream] Get() ...", "count",
-			len(r.backoffs)-len(bk)+1, "wait", to_wait)
+		count := len(r.backoffs) - len(bk) + 1
+		r.Log.Debug("[Stream] Get() ...", "count", count,
+			"wait", to_wait)
 		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
 		if err == nil {
+			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
-				"timespan", time.Now().Sub(begin))
-			return msg, err
+				"timespan", timespan)
+			r.getObservation.Observe(timespan, label_ok)
+			r.tryObservation.Observe(float64(count), label_ok)
+			return msg, nil
 		}
 		if len(bk) == 0 {
+			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
-				"err", err, "timespan", time.Now().Sub(begin))
+				"err", err, "timespan", timespan)
+			r.getObservation.Observe(timespan, label_err)
+			r.tryObservation.Observe(float64(count), label_err)
 			return nil, err
 		} else {
+			timespan := time.Now().Sub(begin)
 			r.Log.Error("[Stream] Get() err, backing off ...",
-				"err", err, "timespan", time.Now().Sub(begin))
+				"err", err, "timespan", timespan)
 			to_wait = bk[0]
 			bk = bk[1:]
 		}
@@ -90,118 +150,171 @@ func (r *RetryStream) Get() (Message, error) {
 
 // Bulkhead pattern is used to limit the number of concurrent Get().
 type BulkheadStream struct {
-	Name      string
-	Log       log15.Logger
-	stream    Stream
-	semaphore chan *struct{}
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	semaphore      chan *struct{}
+	getObservation Observation
 }
 
 // Create a BulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
-func NewBulkheadStream(name string, stream Stream, max_concurrency int) *BulkheadStream {
+func NewBulkheadStream(namespace string, name string, stream Stream,
+	max_concurrency int) *BulkheadStream {
+
 	if max_concurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))
 	}
 	return &BulkheadStream{
+		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("mixin", "stream_bulk", "name", name),
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_STREAM_BULKHEAD, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_BULKHEAD,
+				name, "get"}),
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
 func (r *BulkheadStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	r.semaphore <- &struct{}{}
-	defer func() { <-r.semaphore }()
 	msg, err := r.stream.Get()
-	if err == nil {
-		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	} else {
+	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
+		<-r.semaphore
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_err)
+		return nil, err
 	}
-	return msg, err
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
+	<-r.semaphore
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+		label_ok)
+	return msg, nil
 }
 
 // CircuitBreakerStream is a Stream equipped with a circuit-breaker.
 type CircuitBreakerStream struct {
-	Name    string
-	Log     log15.Logger
-	Circuit string
-	stream  Stream
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	Circuit        string
+	stream         Stream
+	getObservation Observation
+	errCounter     Counter
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a CircuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(name string, stream Stream, circuit string) *CircuitBreakerStream {
+func NewCircuitBreakerStream(namespace string, name string, stream Stream,
+	circuit string) *CircuitBreakerStream {
+
 	return &CircuitBreakerStream{
-		Name: name,
-		Log: Log.New("mixin", "stream_circuit", "name", name,
-			"circuit", circuit),
+		Namespace: namespace,
+		Name:      name,
+		Log: Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CIRCUITBREAKER,
+			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CIRCUITBREAKER,
+				name, "get"}),
+		errCounter: dummyCounterIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CIRCUITBREAKER,
+				name, "hystrix_err"}),
 	}
 }
 
 func (r *CircuitBreakerStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
-	result := make(chan *tuple, 1)
+	result := make(chan Message, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg, err := r.stream.Get()
 		if err != nil {
 			r.Log.Error("[Stream] Get() err", "err", err)
-			result <- &tuple{
-				fst: msg,
-				snd: err,
-			}
 			return err
 		}
 		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-		result <- &tuple{
-			fst: msg,
-			snd: err,
-		}
+		result <- msg
 		return nil
 	}, nil)
-	// hystrix.ErrTimeout doesn't interrupt work anyway.
-	// It just contributes to circuit's metrics.
 	if err != nil {
-		r.Log.Warn("[Stream] Circuit err", "err", err)
-		if err != hystrix.ErrTimeout {
-			// Can be ErrCircuitOpen, ErrMaxConcurrency or
-			// Get()'s err.
+		defer r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_err)
+		// To prevent misinterpreting when wrapping one
+		// CircuitBreakerStream over another. Hystrix errors are
+		// replaced so that Get() won't return any hystrix errors.
+		switch err {
+		case hystrix.ErrCircuitOpen:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrCircuitOpen"})
+			return nil, ErrCircuitOpen
+		case hystrix.ErrMaxConcurrency:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrMaxConcurrency"})
+			return nil, ErrMaxConcurrency
+		case hystrix.ErrTimeout:
+			r.Log.Warn("[Stream] Circuit err", "err", err)
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrTimeout"})
+			return nil, ErrTimeout
+		default:
+			r.errCounter.Add(1,
+				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}
+	} else {
+		msg := <-result
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_ok)
+		return msg, nil
 	}
-	tp := <-result
-	if tp.snd == nil {
-		return tp.fst.(Message), nil
-	}
-	return nil, tp.snd.(error)
 }
 
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
-	Name    string
-	channel <-chan Message
-	Log     log15.Logger
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	channel        <-chan Message
+	getObservation Observation
 }
 
 // Create a ChannelStream that gets Messages from $channel.
-func NewChannelStream(name string, channel <-chan Message) *ChannelStream {
+func NewChannelStream(namespace string, name string,
+	channel <-chan Message) *ChannelStream {
+
 	return &ChannelStream{
-		Name:    name,
-		Log:     Log.New("mixin", "chanStream", "name", name),
-		channel: channel,
+		Namespace: namespace,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
+		channel:   channel,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CHANNEL,
+				name, "get"}),
 	}
 }
 
 func (r *ChannelStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	msg := <-r.channel
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return msg, nil
 }
 
@@ -210,23 +323,32 @@ func (r *ChannelStream) Get() (Message, error) {
 // Note that the order of messages emitted from the upstream may not be
 // preserved. It's down to application to maintain the order if that's required.
 type ConcurrentFetchStream struct {
-	Name      string
-	Log       log15.Logger
-	stream    Stream
-	receives  chan *tuple
-	semaphore chan *struct{}
-	once      sync.Once
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	receives       chan *tuple
+	semaphore      chan *struct{}
+	once           sync.Once
+	getObservation Observation
 }
 
 // Create a ConcurrentFetchStream that allows at maximum $max_concurrency
 // Messages being internally fetched from upstream concurrently.
-func NewConcurrentFetchStream(name string, stream Stream, max_concurrency int) *ConcurrentFetchStream {
+func NewConcurrentFetchStream(namespace string, name string, stream Stream,
+	max_concurrency int) *ConcurrentFetchStream {
+
 	return &ConcurrentFetchStream{
+		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("mixin", "fetchStream", "name", name),
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CONCURRENTFETCH, "name", name),
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_CONCURRENTFETCH,
+				name, "get"}),
 	}
 }
 
@@ -258,6 +380,7 @@ func (r *ConcurrentFetchStream) onceDo() {
 }
 
 func (r *ConcurrentFetchStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	r.once.Do(r.onceDo)
 	tp := <-r.receives
@@ -265,45 +388,59 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	if tp.snd != nil {
 		err := tp.snd.(error)
 		r.Log.Error("[Stream] Get() err", "err", err)
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
+			label_err)
 		return nil, err
 	}
 	msg := tp.fst.(Message)
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return msg, nil
 }
 
 // A MappedStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
 type MappedStream struct {
-	Name    string
-	Log     log15.Logger
-	stream  Stream
-	handler Handler
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	stream         Stream
+	handler        Handler
+	getObservation Observation
 }
 
-func NewMappedStream(name string, stream Stream, handler Handler) *MappedStream {
+func NewMappedStream(namespace string, name string, stream Stream, handler Handler) *MappedStream {
 	return &MappedStream{
-		Name:    name,
-		Log:     Log.New("mixin", "mappedStream", "name", name),
-		stream:  stream,
-		handler: handler,
+		Namespace: namespace,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
+		stream:    stream,
+		handler:   handler,
+		getObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_MAPPED,
+				name, "get"}),
 	}
 }
 
 func (r *MappedStream) Get() (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.Log.Error("[Stream] Get() err", "err", err)
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
 	if herr != nil {
 		r.Log.Error("[Stream] Handle() err", "err", herr)
+		r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, herr
 	}
 	r.Log.Debug("[Stream] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", hmsg.Id())
+	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
 	return hmsg, nil
 }
