@@ -13,6 +13,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 	"gopkg.in/cfchou/go-gentle.v1/gentle"
+	mp "gopkg.in/cfchou/go-gentle.v1/extra/metrics_prometheus"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"net/http"
 	"os"
@@ -33,7 +34,8 @@ var (
 	log    = log15.New("mixin", "main")
 	ErrEOF = errors.New("EOF")
 	// command line options
-	maxMails       = pflag.Int("max-mails", 2000, "max number of mails to download")
+	maxMails       = pflag.Int("max-mails", 1000, "max number of mails to download")
+	maxConcurrency       = pflag.Int("max-concurrency", 300, "max concurrent")
 	gmailCallsHist = prom.NewHistogramVec(
 		prom.HistogramOpts{
 			Namespace: "gmailapi",
@@ -251,8 +253,8 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 			"status": strconv.Itoa(gmsg.HTTPStatusCode),
 		}).Observe(time.Now().Sub(callStart).Seconds())
 	gmailMessageBytesTotalCounter.Add(float64(gmsg.SizeEstimate))
-	h.Log.Debug("Messages.Get() ok", "msg_out", gmsg.Id,
-		"size", gmsg.SizeEstimate)
+	h.Log.Debug("Messages.Get() ok", "msg_in", msg.Id(),
+		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
 }
 
@@ -265,7 +267,7 @@ func listStream(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 
 func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 	lstream := listStream(appConfig, userTok)
-	stream := gentle.NewMappedStream("gmail", lstream,
+	stream := gentle.NewMappedStream("gmail", "map1", lstream,
 		NewGmailMessageHandler(appConfig, userTok))
 
 	return stream
@@ -279,7 +281,7 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(1, 1))
 
-	stream := gentle.NewMappedStream("gmail", lstream, handler)
+	stream := gentle.NewMappedStream("gmail", "map1", lstream, handler)
 	stream.Log.SetHandler(logHandler)
 
 	return stream
@@ -297,7 +299,7 @@ func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) 
 		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond})
 	handler.Log.SetHandler(logHandler)
 
-	stream := gentle.NewMappedStream("gmail", lstream, handler)
+	stream := gentle.NewMappedStream("gmail", "map1", lstream, handler)
 	stream.Log.SetHandler(logHandler)
 	return stream
 }
@@ -308,7 +310,7 @@ type timedResult struct {
 }
 
 func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count int) {
-	stream := gentle.NewBulkheadStream("gmail", upstream, max_concurrency)
+	stream := gentle.NewBulkheadStream("gmail", "bulk1", upstream, max_concurrency)
 
 	// total should be, if gmail Messages.List() doesn't return error,
 	// the total of all gmailListStream emits pluses 1(ErrEOF).
@@ -369,7 +371,7 @@ LOOP:
 }
 
 func RunWithConcurrentFetchStream(upstream gentle.Stream, max_concurrency int, count int) {
-	stream := gentle.NewConcurrentFetchStream("gmail", upstream, max_concurrency)
+	stream := gentle.NewConcurrentFetchStream("gmail", "con1", upstream, max_concurrency)
 
 	// total should be, if gmail Messages.List() doesn't return error,
 	// the total of all gmailListStream emits pluses 1(ErrEOF).
@@ -448,11 +450,13 @@ func main() {
 	// throughput. The difference is, from caller's perspective, whether
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
+	mp.RegisterMappedStreamMetrics("gmail", "map1")
+	mp.RegisterBulkStreamMetrics("gmail", "bulk1")
 
 	go func() {
 		for {
 			stream := example_ratelimited_retry(config, tok)
-			RunWithBulkheadStream(stream, 300, 2000)
+			RunWithBulkheadStream(stream, *maxConcurrency, *maxMails)
 			//go RunWithConcurrentFetchStream(stream, 300, 2000)
 			time.Sleep(time.Minute)
 			log.Info("Run again")
