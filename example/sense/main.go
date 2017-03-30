@@ -129,11 +129,14 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 
 	resp, err := s.client.Post(s.url, "application/octet-stream",
 		bytes.NewReader(hmsg.content))
+	timespan := time.Now().Sub(begin)
 	if err != nil {
 		s.Log.Error("POST err", "msg_in", msg.Id(), "err", err)
+		// "scan_req_dura"
+		row = append(row, strconv.FormatFloat(timespan.Seconds(),
+			'f', 3, 64))
 		return nil, err
 	}
-	timespan := time.Now().Sub(begin)
 
 	// "scan_req_dura", "scan_req_len"
 	row = append(row, strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
@@ -380,9 +383,16 @@ func runLoop() {
 	if interval > 0 {
 		log.Debug("Rate limit enabled, pause in millis between every scan",
 			"pause", interval)
-		handler = gentle.NewRateLimitedHandler("sense",
+		rateLimited := gentle.NewRateLimitedHandler("sense",
 			NewHesSendHandler(*url+"/scanner/mail", csvChan),
 			gentle.NewTokenBucketRateLimit(interval, 1))
+		handler = gentle.NewRetryHandler("sense", rateLimited,
+			[]time.Duration{
+				gentle.IntToMillis(2 * interval),
+				gentle.IntToMillis(4 * interval),
+				gentle.IntToMillis(8 * interval),
+				gentle.IntToMillis(16 * interval),
+			})
 	} else {
 		handler = NewHesSendHandler(*url+"/scanner/mail", csvChan)
 	}
