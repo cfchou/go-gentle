@@ -2,7 +2,6 @@ package metrics_statsd
 
 import (
 	"github.com/cactus/go-statsd-client/statsd"
-	"gopkg.in/cfchou/go-gentle.v2.0.0-alpha/gentle"
 	"fmt"
 	"github.com/cfchou/go-gentle/gentle"
 )

@@ -12,7 +12,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 	"github.com/cfchou/go-gentle/gentle"
-	ms "gopkg.in/cfchou/go-gentle.v2.0.0-alpha/extra/metrics_statsd"
+	ms "github.com/cfchou/go-gentle/extra/metrics_statsd"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"os"
 	"strconv"
