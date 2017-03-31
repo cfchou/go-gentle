@@ -45,7 +45,7 @@ func (p *statsdCounter) Add(value float64, labels map[string]string) {
 // namespace.s_rate.get_count.name.result_ok
 // namespace.s_rate.get_duration.name.result_err
 // namespace.s_rate.get_count.name.result_err
-func RegisterRateLimitedStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterRateLimitedStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RATELIMITED,
 		name, "get"}
@@ -71,7 +71,7 @@ func RegisterRateLimitedStreamMetrics(client statsd.Client, namespace, name stri
 // namespace.s_retry.get_count.name.result_err
 // namespace.s_retry.tries.name.result_ok
 // namespace.s_retry.tries.name.result_err
-func RegisterRetryStreamMetrics(client statsd.Client, namespace, name string, tryBuckets []float64) {
+func RegisterRetryStreamMetrics(client statsd.Statter, namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
 		name, "get"}
@@ -104,7 +104,7 @@ func RegisterRetryStreamMetrics(client statsd.Client, namespace, name string, tr
 // namespace.s_bulk.get_count.name.result_ok
 // namespace.s_bulk.get_duration.name.result_err
 // namespace.s_bulk.get_count.name.result_err
-func RegisterBulkStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterBulkStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_BULKHEAD,
 		name, "get"}
@@ -132,7 +132,7 @@ func RegisterBulkStreamMetrics(client statsd.Client, namespace, name string) {
 // namespace.s_circuit.error_count.name.err_ErrMaxConcurrency
 // namespace.s_circuit.error_count.name.err_ErrTimeout
 // namespace.s_circuit.error_count.name.err_NonHystrixErr
-func RegisterCircuitBreakerStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterCircuitBreakerStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name, "get"}
@@ -164,7 +164,7 @@ func RegisterCircuitBreakerStreamMetrics(client statsd.Client, namespace, name s
 // namespace.s_chan.get_count.name.result_ok
 // namespace.s_chan.get_duration.name.result_err
 // namespace.s_chan.get_count.name.result_err
-func RegisterChannelStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterChannelStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CHANNEL,
 		name, "get"}
@@ -187,7 +187,7 @@ func RegisterChannelStreamMetrics(client statsd.Client, namespace, name string) 
 // namespace.s_con.get_count.name.result_ok
 // namespace.s_con.get_duration.name.result_err
 // namespace.s_con.get_count.name.result_err
-func RegisterConcurrentFetchStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterConcurrentFetchStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CONCURRENTFETCH,
 		name, "get"}
@@ -210,7 +210,7 @@ func RegisterConcurrentFetchStreamMetrics(client statsd.Client, namespace, name 
 // namespace.s_map.get_count.name.result_ok
 // namespace.s_map.get_duration.name.result_err
 // namespace.s_map.get_count.name.result_err
-func RegisterMappedStreamMetrics(client statsd.Client, namespace, name string) {
+func RegisterMappedStreamMetrics(client statsd.Statter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_MAPPED,
 		name, "get"}

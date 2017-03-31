@@ -36,7 +36,7 @@ var (
 	maxConcurrency       = pflag.Int("max-concurrency", 300, "max concurrent")
 	statsdAddr = pflag.String("statsd-addr", "localhost:8125", "statsd addr")
 
-	client statsd.Client
+	statsdClient statsd.Statter
 	gmailGetOk statsd.SubStatter
 	gmailGetErr statsd.SubStatter
 	gmailListOk statsd.SubStatter
@@ -51,6 +51,7 @@ func init() {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
+	statsdClient = client
 	gmailGetOk = client.NewSubStatter("get.ok")
 	gmailGetErr = client.NewSubStatter("get.err")
 	gmailListOk = client.NewSubStatter("list.ok")
@@ -243,7 +244,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	gmailGetOk.Inc("count", 1, 1)
 	gmailGetOk.Timing("duration",
 		int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
-	client.Inc("totalbytes", gmsg.SizeEstimate, 1)
+	statsdClient.Inc("totalbytes", gmsg.SizeEstimate, 1)
 	h.Log.Debug("Messages.Get() ok", "msg_in", msg.Id(),
 		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
@@ -441,8 +442,8 @@ func main() {
 	// throughput. The difference is, from caller's perspective, whether
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
-	ms.RegisterMappedStreamMetrics(client,"gmail", "map1")
-	ms.RegisterBulkStreamMetrics(client,"gmail", "bulk1")
+	ms.RegisterMappedStreamMetrics(statsdClient,"gmail", "map1")
+	ms.RegisterBulkStreamMetrics(statsdClient,"gmail", "bulk1")
 
 	go func() {
 		for {
