@@ -17,7 +17,7 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	// 1 msg/sec, no burst
 	requests_interval := 1000
 	mhandler := &mockHandler{}
-	handler := NewRateLimitedHandler("test", mhandler,
+	handler := NewRateLimitedHandler("","test", mhandler,
 		NewTokenBucketRateLimit(requests_interval, 1))
 
 	mm := &mockMsg{}
@@ -52,7 +52,7 @@ func TestRetryHandler_Handle(t *testing.T) {
 	}(backoffs)
 
 	mhandler := &mockHandler{}
-	handler := NewRetryHandler("test", mhandler, backoffs)
+	handler := NewRetryHandler("","test", mhandler, backoffs)
 
 	mm := &mockMsg{}
 
@@ -80,7 +80,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	count := 8
 	max_concurrency := 4
 	mhandler := &mockHandler{}
-	handler := NewBulkheadHandler("test", mhandler, max_concurrency)
+	handler := NewBulkheadHandler("","test", mhandler, max_concurrency)
 
 	suspend := 1 * time.Second
 	maximum := suspend*time.Duration((count+max_concurrency-1)/max_concurrency) + time.Second
@@ -123,7 +123,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	conf.MaxConcurrentRequests = max_concurrency
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
 
 	suspend := 1 * time.Second
 	mm := &mockMsg{}
@@ -177,7 +177,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	conf.Timeout = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
 
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
@@ -230,7 +230,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	conf.SleepWindow = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
 
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
@@ -279,7 +279,7 @@ func TestCircuitBreakerHandler_Handle4(t *testing.T) {
 	conf.SleepWindow = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("", "test", mhandler, circuit)
 	mockErr := errors.New("A mocked error")
 
 	mm := &mockMsg{}

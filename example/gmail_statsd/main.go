@@ -170,30 +170,35 @@ func (s *gmailListStream) nextMessage() (*gmailMessage, error) {
 }
 
 func (s *gmailListStream) Get() (gentle.Message, error) {
+	begin := time.Now()
 	s.Log.Debug("List() ...")
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.messages != nil && len(s.messages) > 0 {
-		return s.nextMessage()
+		msg, _ := s.nextMessage()
+		s.Log.Debug("List() ok", "msg", msg.Id(),
+			"timespan", time.Now().Sub(begin).Seconds())
+		return msg, nil
 	}
 	// Messages on this page are consumed, fetch next page
 	if s.page_last {
-		s.Log.Info("List() EOF, no more messages and pages")
+		s.Log.Info("List() EOF, no more messages and pages, blocked ...")
 		select {
 		case <-s.terminate:
+			s.Log.Info("List() EOF",
+				"timespan", time.Now().Sub(begin).Seconds())
 			return nil, ErrEOF
 		}
 	}
 	if s.nextPageToken != "" {
 		s.listCall.PageToken(s.nextPageToken)
 	}
-	callStart := time.Now()
 	resp, err := s.listCall.Do()
-	timespan := time.Now().Sub(callStart).Seconds()
+	timespan := time.Now().Sub(begin).Seconds()
 	if err != nil {
 		gmailListErr.Inc("count", 1, 1)
 		gmailListErr.Timing("duration", int64(1000 * timespan), 1)
-		s.Log.Error("List() err", "err", err)
+		s.Log.Error("List() err", "err", err, "timespan", timespan)
 		return nil, err
 	}
 	gmailListOk.Inc("count", 1, 1)
@@ -211,9 +216,11 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken,
 		"timespan", timespan)
 	if len(s.messages) == 0 {
-		s.Log.Info("List() EOF, no more messages")
+		s.Log.Info("List() EOF, no more messages and pages, blocked ...")
 		select {
 		case <-s.terminate:
+			s.Log.Info("List() EOF",
+				"timespan", time.Now().Sub(begin).Seconds())
 			return nil, ErrEOF
 		}
 	}

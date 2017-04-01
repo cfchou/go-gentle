@@ -7,20 +7,38 @@ import (
 	"time"
 )
 
+const (
+	// Stream types(mixins), are most likely used as part of RegistryKey.
+	MIXIN_HANDLER_RATELIMITED     = "h_rate"
+	MIXIN_HANDLER_RETRY           = "h_retry"
+	MIXIN_HANDLER_BULKHEAD        = "h_bulk"
+	MIXIN_HANDLER_CIRCUITBREAKER  = "h_circuit"
+)
+
 // Rate limiting pattern is used to limit the speed of a series of Handle().
 type RateLimitedHandler struct {
+	Namespace      string
 	Name    string
 	Log     log15.Logger
 	handler Handler
 	limiter RateLimit
+	handleObservation Observation
 }
 
-func NewRateLimitedHandler(name string, handler Handler, limiter RateLimit) *RateLimitedHandler {
+func NewRateLimitedHandler(namespace, name string, handler Handler,
+	limiter RateLimit) *RateLimitedHandler {
+
 	return &RateLimitedHandler{
+		Namespace: namespace,
 		Name:    name,
-		Log:     Log.New("mixin", "handler_rate", "name", name),
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_HANDLER_RATELIMITED, "name", name),
 		handler: handler,
 		limiter: limiter,
+		handleObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_RATELIMITED,
+				     name, "handle"}),
 	}
 }
 
@@ -34,31 +52,48 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	if err != nil {
 		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
+		r.handleObservation.Observe(timespan, label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.handleObservation.Observe(timespan, label_ok)
 	return msg_out, nil
 }
 
 // RetryHandler takes an Handler. When Handler.Handle() encounters an error,
 // RetryHandler back off for some time and then retries.
 type RetryHandler struct {
+	Namespace      string
 	Name     string
 	Log      log15.Logger
 	handler  Handler
 	backoffs []time.Duration
+	handleObservation Observation
+	tryObservation Observation
 }
 
-func NewRetryHandler(name string, handler Handler, backoffs []time.Duration) *RetryHandler {
+func NewRetryHandler(namespace, name string, handler Handler,
+	backoffs []time.Duration) *RetryHandler {
+
 	if len(backoffs) == 0 {
 		Log.Warn("NewRetryHandler() len(backoffs) == 0")
 	}
 	return &RetryHandler{
+		Namespace: namespace,
 		Name:     name,
-		Log:      Log.New("mixin", "handler_retry", "name", name),
+		Log:       Log.New("namespace", namespace, "mixin",
+			MIXIN_HANDLER_RETRY, "name", name),
 		handler:  handler,
 		backoffs: backoffs,
+		handleObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_RETRY,
+				     name, "handle"}),
+		tryObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_RETRY,
+				     name, "try"}),
 	}
 }
 
@@ -67,22 +102,25 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	bk := r.backoffs
 	to_wait := 0 * time.Second
 	for {
+		count := len(r.backoffs) - len(bk) + 1
 		r.Log.Debug("[Handler] Handle() ...","msg_in", msg.Id(),
-			"count", len(r.backoffs)-len(bk)+1, "wait", to_wait)
-		// A negative or zero duration causes Sleep to return immediately.
+			"count", count, "wait", to_wait)
 		time.Sleep(to_wait)
-		// assert end_allowed.Sub(now) != 0
 		msg_out, err := r.handler.Handle(msg)
 		timespan := time.Now().Sub(begin).Seconds()
 		if err == nil {
 			r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 				"msg_out", msg_out.Id(), "timespan", timespan)
+			r.handleObservation.Observe(timespan, label_ok)
+			r.tryObservation.Observe(float64(count), label_ok)
 			return msg_out, err
 		}
 		if len(bk) == 0 {
 			r.Log.Error("[Handler] Handle() err and no more backing off",
-				"err", err, "msg_in", msg.Id(),
+				"msg_in", msg.Id(), "err", err,
 				"timespan", timespan)
+			r.handleObservation.Observe(timespan, label_err)
+			r.tryObservation.Observe(float64(count), label_err)
 			return nil, err
 		} else {
 			r.Log.Error("[Handler] Handle() err, backing off ...",
@@ -96,23 +134,33 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 
 // Bulkhead pattern is used to limit the number of concurrent Handle().
 type BulkheadHandler struct {
+	Namespace      string
 	Name      string
 	Log       log15.Logger
 	handler   Handler
 	semaphore chan *struct{}
+	handleObservation Observation
 }
 
 // Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
 // run concurrently.
-func NewBulkheadHandler(name string, handler Handler, max_concurrency int) *BulkheadHandler {
+func NewBulkheadHandler(namespace, name string, handler Handler,
+	max_concurrency int) *BulkheadHandler {
+
 	if max_concurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))
 	}
 	return &BulkheadHandler{
+		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("mixin", "handler_bulk", "name", name),
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_HANDLER_BULKHEAD, "name", name),
 		handler:   handler,
 		semaphore: make(chan *struct{}, max_concurrency),
+		handleObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_BULKHEAD,
+				     name, "handle"}),
 	}
 }
 
@@ -128,68 +176,107 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	if err != nil {
 		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
+		r.handleObservation.Observe(timespan, label_err)
 		return nil, err
 	}
 	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.handleObservation.Observe(timespan, label_ok)
 	return msg_out, err
 }
 
 // CircuitBreakerHandler is a handler equipped with a circuit-breaker.
 type CircuitBreakerHandler struct {
+	Namespace      string
 	Name    string
 	Log     log15.Logger
 	Circuit string
 	handler Handler
+	handleObservation Observation
+	errCounter     Counter
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerHandler() creates a CircuitBreakerHandler with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerHandler(name string, handler Handler, circuit string) *CircuitBreakerHandler {
+func NewCircuitBreakerHandler(namespace, name string, handler Handler,
+	circuit string) *CircuitBreakerHandler {
+
 	return &CircuitBreakerHandler{
+		Namespace: namespace,
 		Name: name,
-		Log: Log.New("mixin", "handler_circuit", "name", name,
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_HANDLER_CIRCUITBREAKER, "name", name,
 			"circuit", circuit),
 		Circuit: circuit,
 		handler: handler,
+		handleObservation: dummyObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_CIRCUITBREAKER,
+				     name, "handle"}),
+		errCounter: dummyCounterIfNonRegistered(
+			&RegistryKey{namespace,
+				     MIXIN_HANDLER_CIRCUITBREAKER,
+				     name, "hystrix_err"}),
 	}
 }
 
 func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
+	begin := time.Now()
 	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
-	result := make(chan *tuple, 1)
+	result := make(chan Message, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg_out, err := r.handler.Handle(msg)
+		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
-			r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(), "err", err)
-			result <- &tuple{
-				fst: msg_out,
-				snd: err,
-			}
+			r.Log.Error("[Handler] Handle() in CB err",
+				"msg_in", msg.Id(),
+				"err", err, "timespan", timespan)
 			return err
 		}
-		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(), "msg_out", msg_out.Id())
-		result <- &tuple{
-			fst: msg_out,
-			snd: err,
-		}
+		r.Log.Debug("[Handler] Handle() in CB ok",
+			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
+			"timespan", timespan)
+		result <- msg_out
 		return nil
 	}, nil)
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
-		r.Log.Warn("[Handler] Circuit err", "msg_in", msg.Id(), "err", err)
-		if err != hystrix.ErrTimeout {
-			// Can be ErrCircuitOpen, ErrMaxConcurrency or
-			// Handle()'s err.
+		defer func() {
+			timespan := time.Now().Sub(begin).Seconds()
+			r.Log.Error("[Handler] Circuit err",
+				"msg_in", msg.Id(), "err", err,
+				"timespan", timespan)
+			r.handleObservation.Observe(timespan, label_err)
+		}()
+		// To prevent misinterpreting when wrapping one
+		// CircuitBreakerStream over another. Hystrix errors are
+		// replaced so that Get() won't return any hystrix errors.
+		switch err {
+		case hystrix.ErrCircuitOpen:
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrCircuitOpen"})
+			return nil, ErrCircuitOpen
+		case hystrix.ErrMaxConcurrency:
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrMaxConcurrency"})
+			return nil, ErrMaxConcurrency
+		case hystrix.ErrTimeout:
+			r.errCounter.Add(1,
+				map[string]string{"err": "ErrTimeout"})
+			return nil, ErrTimeout
+		default:
+			r.errCounter.Add(1,
+				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}
 	}
-	tp := <-result
-	if tp.snd == nil {
-		return tp.fst.(Message), nil
-	}
-	return nil, tp.snd.(error)
+	msg_out := <-result
+	timespan := time.Now().Sub(begin).Seconds()
+	r.Log.Debug("[Handler] Handle() ok","msg_in", msg.Id(),
+		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.handleObservation.Observe(timespan, label_ok)
+	return msg, nil
 }
 

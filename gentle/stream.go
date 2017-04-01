@@ -41,7 +41,7 @@ type RateLimitedStream struct {
 	getObservation Observation
 }
 
-func NewRateLimitedStream(namespace string, name string, stream Stream,
+func NewRateLimitedStream(namespace, name string, stream Stream,
 	limiter RateLimit) *RateLimitedStream {
 
 	return &RateLimitedStream{
@@ -98,7 +98,8 @@ func NewRetryStream(namespace string, name string, stream Stream,
 	return &RetryStream{
 		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_RETRY, "name", name),
+		Log:       Log.New("namespace", namespace, "mixin",
+			MIXIN_STREAM_RETRY, "name", name),
 		stream:    stream,
 		backoffs:  backoffs,
 		getObservation: dummyObservationIfNonRegistered(
@@ -120,9 +121,7 @@ func (r *RetryStream) Get() (Message, error) {
 		count := len(r.backoffs) - len(bk) + 1
 		r.Log.Debug("[Stream] Get() ...", "count", count,
 			"wait", to_wait)
-		// A negative or zero duration causes Sleep to return immediately.
 		time.Sleep(to_wait)
-		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
 		timespan := time.Now().Sub(begin).Seconds()
 		if err == nil {
@@ -220,7 +219,8 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 	return &CircuitBreakerStream{
 		Namespace: namespace,
 		Name:      name,
-		Log: Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CIRCUITBREAKER,
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_STREAM_CIRCUITBREAKER,
 			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
@@ -241,9 +241,14 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	result := make(chan Message, 1)
 	err := hystrix.Do(r.Circuit, func() error {
 		msg, err := r.stream.Get()
+		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
+			r.Log.Error("[Stream] Get() in CB err",
+				"err", err, "timespan", timespan)
 			return err
 		}
+		r.Log.Debug("[Stream] Get() in CB ok",
+			"msg_out", msg.Id(), "timespan", timespan)
 		result <- msg
 		return nil
 	}, nil)
@@ -275,14 +280,13 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}
-	} else {
-		msg := <-result
-		timespan := time.Now().Sub(begin).Seconds()
-		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
-			"timespan", timespan)
-		r.getObservation.Observe(timespan, label_ok)
-		return msg, nil
 	}
+	msg := <-result
+	timespan := time.Now().Sub(begin).Seconds()
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
+	return msg, nil
 }
 
 // ChannelStream forms a stream from a channel.
