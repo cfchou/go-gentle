@@ -185,18 +185,15 @@ func (r *BulkheadStream) Get() (Message, error) {
 	r.Log.Debug("[Stream] Get() ...")
 	r.semaphore <- &struct{}{}
 	msg, err := r.stream.Get()
+	<-r.semaphore
+	// timespan covers <-r.semaphore
+	timespan := time.Now().Sub(begin).Seconds()
 	if err != nil {
-		<-r.semaphore
-		// timespan covers <-r.semaphore
-		timespan := time.Now().Sub(begin).Seconds()
 		r.Log.Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
 		r.getObservation.Observe(timespan, label_err)
 		return nil, err
 	}
-	<-r.semaphore
-	// timespan covers <-r.semaphore
-	timespan := time.Now().Sub(begin).Seconds()
 	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 		"timespan", timespan)
 	r.getObservation.Observe(timespan, label_ok)

@@ -33,9 +33,11 @@ var (
 	ErrEOF = errors.New("EOF")
 	// command line options
 	maxMails       = pflag.Int("max-mails", 1000, "max number of mails to download")
+	maxMailsSec       = pflag.Int("max-mails-sec", 100, "max number of mails to download in a sec")
 	maxConcurrency       = pflag.Int("max-concurrency", 300, "max concurrent")
 	statsdAddr = pflag.String("statsd-addr", "localhost:8125", "statsd addr")
 
+	rateLimitInterval int
 	// metrics
 	statsdClient statsd.Statter
 	mxStatter statsd.SubStatter
@@ -56,6 +58,14 @@ func init() {
 		os.Exit(-1)
 	}
 
+	rateLimitInterval = func() int {
+		n := 1000 / *maxMailsSec
+		if n < 1 {
+			fmt.Println("Interval should be no less than 1 ms")
+			os.Exit(-1)
+		}
+		return n
+	}()
 	// Empty string to avoid duplication as RegisterXXXMetrics will use
 	// "gmail" as prefix.
 	mxStatter = statsdClient.NewSubStatter("")
@@ -280,7 +290,7 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
-		gentle.NewTokenBucketRateLimit(1, 1))
+		gentle.NewTokenBucketRateLimit(rateLimitInterval, 1))
 
 	stream := gentle.NewMappedStream("gmail", "map1", lstream, handler)
 	stream.Log.SetHandler(logHandler)
@@ -294,7 +304,8 @@ func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) 
 		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
-		gentle.NewTokenBucketRateLimit(1, 1))
+		gentle.NewTokenBucketRateLimit(rateLimitInterval, 1))
+	rhandler.Log.SetHandler(logHandler)
 
 	handler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration{
 		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond})
