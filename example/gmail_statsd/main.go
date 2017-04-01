@@ -12,7 +12,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 	"github.com/cfchou/go-gentle/gentle"
-	ms "github.com/cfchou/go-gentle/extra/metrics_statsd"
+	mx "github.com/cfchou/go-gentle/extra/metrics_statsd"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"os"
 	"strconv"
@@ -36,7 +36,10 @@ var (
 	maxConcurrency       = pflag.Int("max-concurrency", 300, "max concurrent")
 	statsdAddr = pflag.String("statsd-addr", "localhost:8125", "statsd addr")
 
+	// metrics
 	statsdClient statsd.Statter
+	mxStatter statsd.SubStatter
+	appStatter statsd.SubStatter
 	gmailGetOk statsd.SubStatter
 	gmailGetErr statsd.SubStatter
 	gmailListOk statsd.SubStatter
@@ -46,16 +49,22 @@ var (
 
 func init() {
 	pflag.Parse()
-	client, err := statsd.NewClient(*statsdAddr, "gmailapi")
+	var err error
+	statsdClient, err = statsd.NewClient(*statsdAddr, "")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
-	statsdClient = client
-	gmailGetOk = client.NewSubStatter("get.ok")
-	gmailGetErr = client.NewSubStatter("get.err")
-	gmailListOk = client.NewSubStatter("list.ok")
-	gmailListErr = client.NewSubStatter("list.err")
+
+	// Empty string to avoid duplication as RegisterXXXMetrics will use
+	// "gmail" as prefix.
+	mxStatter = statsdClient.NewSubStatter("")
+
+	appStatter = statsdClient.NewSubStatter("gmail")
+	gmailGetOk = appStatter.NewSubStatter("get.ok")
+	gmailGetErr = appStatter.NewSubStatter("get.err")
+	gmailListOk = appStatter.NewSubStatter("list.ok")
+	gmailListErr = appStatter.NewSubStatter("list.err")
 }
 
 // getTokenFromWeb uses Config to request a Token.
@@ -244,7 +253,7 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	gmailGetOk.Inc("count", 1, 1)
 	gmailGetOk.Timing("duration",
 		int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
-	statsdClient.Inc("totalbytes", gmsg.SizeEstimate, 1)
+	appStatter.Inc("totalbytes", gmsg.SizeEstimate, 1)
 	h.Log.Debug("Messages.Get() ok", "msg_in", msg.Id(),
 		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate)
 	return &gmailMessage{msg: gmsg}, nil
@@ -425,6 +434,7 @@ LOOP:
 }
 
 func main() {
+	defer statsdClient.Close()
 	h := log15.LvlFilterHandler(log15.LvlDebug, logHandler)
 	log.SetHandler(h)
 	config := getAppSecret(app_secret_file)
@@ -442,8 +452,8 @@ func main() {
 	// throughput. The difference is, from caller's perspective, whether
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
-	ms.RegisterMappedStreamMetrics(statsdClient,"gmail", "map1")
-	ms.RegisterBulkStreamMetrics(statsdClient,"gmail", "bulk1")
+	mx.RegisterMappedStreamMetrics(mxStatter,"gmail", "map1")
+	mx.RegisterBulkStreamMetrics(mxStatter,"gmail", "bulk1")
 
 	go func() {
 		for {

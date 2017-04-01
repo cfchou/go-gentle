@@ -33,6 +33,7 @@ func (p *promCounter) Add(value float64, labels map[string]string) {
 	c.Add(value)
 }
 
+// Histogram:
 // namespace_s_rate_get_seconds{name, result}
 func RegisterRateLimitedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
@@ -59,8 +60,10 @@ func RegisterRateLimitedStreamMetrics(namespace, name string) {
 	gentle.RegisterObservation(key, ob)
 }
 
+// Histogram:
 // namespace_s_retry_get_seconds{name, result}
 // namespace_s_retry_tries_total{name, result}
+//
 // Given N = RetryStream's len(backoffs)+1, so that N is the maximum of tries.
 // tryBuckets have buckets sensibly grouping the range [1, N]. The total number
 // of buckets should not be too large. For example,
@@ -111,6 +114,7 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 	}
 }
 
+// Histogram:
 // namespace_s_bulk_get_seconds{name, result}
 func RegisterBulkStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
@@ -137,7 +141,9 @@ func RegisterBulkStreamMetrics(namespace, name string) {
 	gentle.RegisterObservation(key, ob)
 }
 
+// Histogram:
 // namespace_s_circuit_get_seconds{name, result}
+// Counter:
 // namespace_s_circuit_errors_total{name, err}
 func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
@@ -181,6 +187,7 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 	}
 }
 
+// Histogram:
 // namespace_s_chan_get_seconds{name, result}
 func RegisterChannelStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
@@ -207,6 +214,7 @@ func RegisterChannelStreamMetrics(namespace, name string) {
 	gentle.RegisterObservation(key, ob)
 }
 
+// Histogram:
 // namespace_s_con_get_seconds{name, result}
 func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
@@ -233,6 +241,7 @@ func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 	gentle.RegisterObservation(key, ob)
 }
 
+// Histogram:
 // namespace_s_map_get_seconds{name, result}
 func RegisterMappedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,

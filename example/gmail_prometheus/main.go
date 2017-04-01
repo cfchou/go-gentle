@@ -13,7 +13,7 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 	"github.com/cfchou/go-gentle/gentle"
-	ms "github.com/cfchou/go-gentle/extra/metrics_prometheus"
+	mx "github.com/cfchou/go-gentle/extra/metrics_prometheus"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"net/http"
 	"os"
@@ -450,8 +450,8 @@ func main() {
 	// throughput. The difference is, from caller's perspective, whether
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
-	mp.RegisterMappedStreamMetrics("gmail", "map1")
-	mp.RegisterBulkStreamMetrics("gmail", "bulk1")
+	mx.RegisterMappedStreamMetrics("gmail", "map1")
+	mx.RegisterBulkStreamMetrics("gmail", "bulk1")
 
 	go func() {
 		for {
