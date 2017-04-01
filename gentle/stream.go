@@ -64,15 +64,16 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	r.Log.Debug("[Stream] Get() ...")
 	r.limiter.Wait(1, 0)
 	msg, err := r.stream.Get()
+	timespan := time.Now().Sub(begin).Seconds()
 	if err != nil {
-		r.Log.Error("[Stream] Get() err", "err", err)
-		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			label_err)
+		r.Log.Error("[Stream] Get() err", "err", err,
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-		label_ok)
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
 	return msg, nil
 }
 
@@ -123,8 +124,8 @@ func (r *RetryStream) Get() (Message, error) {
 		time.Sleep(to_wait)
 		// assert end_allowed.Sub(now) != 0
 		msg, err := r.stream.Get()
+		timespan := time.Now().Sub(begin).Seconds()
 		if err == nil {
-			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 				"timespan", timespan)
 			r.getObservation.Observe(timespan, label_ok)
@@ -132,14 +133,12 @@ func (r *RetryStream) Get() (Message, error) {
 			return msg, nil
 		}
 		if len(bk) == 0 {
-			timespan := time.Now().Sub(begin).Seconds()
 			r.Log.Error("[Streamer] Get() err and no more backing off",
 				"err", err, "timespan", timespan)
 			r.getObservation.Observe(timespan, label_err)
 			r.tryObservation.Observe(float64(count), label_err)
 			return nil, err
 		} else {
-			timespan := time.Now().Sub(begin)
 			r.Log.Error("[Stream] Get() err, backing off ...",
 				"err", err, "timespan", timespan)
 			to_wait = bk[0]
@@ -187,16 +186,20 @@ func (r *BulkheadStream) Get() (Message, error) {
 	r.semaphore <- &struct{}{}
 	msg, err := r.stream.Get()
 	if err != nil {
-		r.Log.Error("[Stream] Get() err", "err", err)
 		<-r.semaphore
-		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			label_err)
+		// timespan covers <-r.semaphore
+		timespan := time.Now().Sub(begin).Seconds()
+		r.Log.Error("[Stream] Get() err", "err", err,
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 	<-r.semaphore
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-		label_ok)
+	// timespan covers <-r.semaphore
+	timespan := time.Now().Sub(begin).Seconds()
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
 	return msg, nil
 }
 
@@ -242,32 +245,31 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	err := hystrix.Do(r.Circuit, func() error {
 		msg, err := r.stream.Get()
 		if err != nil {
-			r.Log.Error("[Stream] Get() err", "err", err)
 			return err
 		}
-		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
 		result <- msg
 		return nil
 	}, nil)
 	if err != nil {
-		defer r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			label_err)
+		defer func() {
+			timespan := time.Now().Sub(begin).Seconds()
+			r.Log.Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.getObservation.Observe(timespan, label_err)
+		}()
 		// To prevent misinterpreting when wrapping one
 		// CircuitBreakerStream over another. Hystrix errors are
 		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
-			r.Log.Warn("[Stream] Circuit err", "err", err)
 			r.errCounter.Add(1,
 				map[string]string{"err": "ErrCircuitOpen"})
 			return nil, ErrCircuitOpen
 		case hystrix.ErrMaxConcurrency:
-			r.Log.Warn("[Stream] Circuit err", "err", err)
 			r.errCounter.Add(1,
 				map[string]string{"err": "ErrMaxConcurrency"})
 			return nil, ErrMaxConcurrency
 		case hystrix.ErrTimeout:
-			r.Log.Warn("[Stream] Circuit err", "err", err)
 			r.errCounter.Add(1,
 				map[string]string{"err": "ErrTimeout"})
 			return nil, ErrTimeout
@@ -278,8 +280,10 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		}
 	} else {
 		msg := <-result
-		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			label_ok)
+		timespan := time.Now().Sub(begin).Seconds()
+		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_ok)
 		return msg, nil
 	}
 }
@@ -313,8 +317,10 @@ func (r *ChannelStream) Get() (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	msg := <-r.channel
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
+	timespan := time.Now().Sub(begin).Seconds()
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
 	return msg, nil
 }
 
@@ -385,16 +391,18 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	r.once.Do(r.onceDo)
 	tp := <-r.receives
 	<-r.semaphore
+	timespan := time.Now().Sub(begin).Seconds()
 	if tp.snd != nil {
 		err := tp.snd.(error)
-		r.Log.Error("[Stream] Get() err", "err", err)
-		r.getObservation.Observe(time.Now().Sub(begin).Seconds(),
-			label_err)
+		r.Log.Error("[Stream] Get() err", "err", err,
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_err)
 		return nil, err
 	}
 	msg := tp.fst.(Message)
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id())
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
+	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
 	return msg, nil
 }
 
@@ -434,13 +442,15 @@ func (r *MappedStream) Get() (Message, error) {
 	}
 	r.Log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
+	timespan := time.Now().Sub(begin).Seconds()
 	if herr != nil {
-		r.Log.Error("[Stream] Handle() err", "err", herr)
-		r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_err)
+		r.Log.Error("[Stream] Handle() err", "err", herr,
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_err)
 		return nil, herr
 	}
 	r.Log.Debug("[Stream] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", hmsg.Id())
-	r.getObservation.Observe(time.Now().Sub(begin).Seconds(), label_ok)
+		"msg_out", hmsg.Id(), "timespan", timespan)
+	r.getObservation.Observe(timespan, label_ok)
 	return hmsg, nil
 }

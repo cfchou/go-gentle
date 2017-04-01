@@ -179,19 +179,18 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	}
 	callStart := time.Now()
 	resp, err := s.listCall.Do()
+	timespan := time.Now().Sub(callStart).Seconds()
 	if err != nil {
 		gmailListErr.Inc("count", 1, 1)
-		gmailListErr.Timing("duration",
-			int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
+		gmailListErr.Timing("duration", int64(1000 * timespan), 1)
 		s.Log.Error("List() err", "err", err)
 		return nil, err
 	}
 	gmailListOk.Inc("count", 1, 1)
-	gmailListOk.Timing("duration",
-		int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
+	gmailListOk.Timing("duration", int64(1000 * timespan), 1)
 
 	if resp.NextPageToken == "" {
-		s.Log.Info("List() No more pages")
+		s.Log.Info("List() No more pages","timespan", timespan)
 		s.page_last = true
 	}
 
@@ -199,7 +198,8 @@ func (s *gmailListStream) Get() (gentle.Message, error) {
 	s.nextPageToken = resp.NextPageToken
 	s.page_num++
 	s.Log.Info("List() Read a page", "page", s.page_num,
-		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken)
+		"len_msgs", len(s.messages), "nextPageToken", s.nextPageToken,
+		"timespan", timespan)
 	if len(s.messages) == 0 {
 		s.Log.Info("List() EOF, no more messages")
 		select {
@@ -242,20 +242,20 @@ func (h *gmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	getCall.Format("raw")
 	callStart := time.Now()
 	gmsg, err := getCall.Do()
+	timespan := time.Now().Sub(callStart).Seconds()
 	if err != nil {
 		gmailGetErr.Inc("count", 1, 1)
-		gmailGetErr.Timing("duration",
-			int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
+		gmailGetErr.Timing("duration", int64(1000 * timespan), 1)
 		h.Log.Error("Messages.Get() err", "msg_in", msg.Id(),
-			"err", err)
+			"err", err, "timespan", timespan)
 		return nil, err
 	}
 	gmailGetOk.Inc("count", 1, 1)
-	gmailGetOk.Timing("duration",
-		int64(1000 * time.Now().Sub(callStart).Seconds()), 1)
+	gmailGetOk.Timing("duration", int64(1000 * timespan), 1)
 	appStatter.Inc("totalbytes", gmsg.SizeEstimate, 1)
 	h.Log.Debug("Messages.Get() ok", "msg_in", msg.Id(),
-		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate)
+		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate,
+		"timespan", timespan)
 	return &gmailMessage{msg: gmsg}, nil
 }
 
@@ -312,6 +312,7 @@ type timedResult struct {
 
 func RunWithBulkheadStream(upstream gentle.Stream, max_concurrency int, count int) {
 	stream := gentle.NewBulkheadStream("gmail", "bulk1", upstream, max_concurrency)
+	stream.Log.SetHandler(logHandler)
 
 	// total should be, if gmail Messages.List() doesn't return error,
 	// the total of all gmailListStream emits pluses 1(ErrEOF).

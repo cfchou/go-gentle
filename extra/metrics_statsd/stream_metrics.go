@@ -6,16 +6,14 @@ import (
 	"github.com/cfchou/go-gentle/gentle"
 )
 
+// Timing maintains a counter too but it doesn't flush every interval. More
+// info:
+// https://github.com/etsy/statsd/issues/22
 type timingObservationImpl struct {
 	count statsd.SubStatter
 	timing statsd.SubStatter
 }
 
-// Timing maintains a counter too but it doesn't flush every interval. More
-// info:
-// https://github.com/etsy/statsd/issues/22
-// It might be possible to manipulate graphing functions to draw a picture of
-// p.count using p.timing but we just publish both to save the hassle.
 func (p *timingObservationImpl) Observe(value float64, labels map[string]string) {
 	for k, v := range labels {
 		suffix := k + "_" + v
