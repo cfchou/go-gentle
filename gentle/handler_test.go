@@ -15,7 +15,7 @@ import (
 func TestRateLimitedHandler_Handle(t *testing.T) {
 	count := 3
 	// 1 msg/sec, no burst
-	requests_interval := 1000
+	requests_interval := 100 * time.Millisecond
 	mhandler := &mockHandler{}
 	handler := NewRateLimitedHandler("","test", mhandler,
 		NewTokenBucketRateLimit(requests_interval, 1))
@@ -24,7 +24,7 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	mm.On("Id").Return("123")
 	mhandler.On("Handle", mm).Return(mm, nil)
 
-	minimum := time.Duration((count-1)*requests_interval) * time.Millisecond
+	minimum := time.Duration(count-1)*requests_interval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()

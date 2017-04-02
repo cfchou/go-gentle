@@ -37,7 +37,7 @@ var (
 	maxConcurrency       = pflag.Int("max-concurrency", 300, "max concurrent")
 	statsdAddr = pflag.String("statsd-addr", "localhost:8125", "statsd addr")
 
-	rateLimitInterval int
+	rateLimitInterval time.Duration
 	// metrics
 	statsdClient statsd.Statter
 	mxStatter statsd.SubStatter
@@ -57,13 +57,13 @@ func init() {
 		fmt.Println(err)
 		os.Exit(-1)
 	}
-
-	rateLimitInterval = func() int {
-		n := 1000 / *maxMailsSec
+	rateLimitInterval = func() time.Duration {
+		n := time.Millisecond / time.Duration(*maxMailsSec)
 		if n < 1 {
 			fmt.Println("Interval should be no less than 1 ms")
 			os.Exit(-1)
 		}
+		fmt.Printf("rateLimitInterval %s\n", n)
 		return n
 	}()
 	// Empty string to avoid duplication as RegisterXXXMetrics will use

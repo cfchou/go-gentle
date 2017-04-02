@@ -78,12 +78,12 @@ func TestChannelStream_Get_2(t *testing.T) {
 func TestRateLimitedStream_Get(t *testing.T) {
 	src, done := genMessageChannelInfinite()
 	// 1 msg/sec
-	requests_interval := 1000
+	requests_interval := 100 * time.Millisecond
 	stream := NewRateLimitedStream("", "test",
 		NewChannelStream("", "test", src),
 		NewTokenBucketRateLimit(requests_interval, 1))
 	count := 4
-	minimum := time.Duration((count-1)*requests_interval) * time.Millisecond
+	minimum := time.Duration(count-1)*requests_interval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
