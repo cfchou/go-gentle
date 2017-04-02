@@ -81,23 +81,30 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	max_concurrency := 4
 	mhandler := &mockHandler{}
 	handler := NewBulkheadHandler("","test", mhandler, max_concurrency)
-
-	suspend := 1 * time.Second
-	maximum := suspend*time.Duration((count+max_concurrency-1)/max_concurrency) + time.Second
-
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
+
+	suspend := 100 * time.Millisecond
+	lock := &sync.RWMutex{}
 	calling := 0
+	callings := []int{}
 	call := mhandler.On("Handle", mm)
 	call.Run(func(args mock.Arguments) {
+		// add calling
+		lock.Lock()
 		calling++
+		callings = append(callings, calling)
+		lock.Unlock()
 		time.Sleep(suspend)
+		// release calling
+		lock.Lock()
+		calling--
+		lock.Unlock()
 	})
 	call.Return(mm, nil)
 
 	var wg sync.WaitGroup
 	wg.Add(count)
-	begin := time.Now()
 	for i := 0; i < count; i++ {
 		go func() {
 			msg, err := handler.Handle(mm)
@@ -107,9 +114,10 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	dura := time.Now().Sub(begin)
-	log.Info("[Test] spent <= maximum?", "spent", dura, "maximum", maximum)
-	assert.True(t, dura <= maximum)
+	assert.True(t, count == len(callings))
+	for _, c := range callings {
+		assert.True(t, c <= max_concurrency)
+	}
 }
 
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
