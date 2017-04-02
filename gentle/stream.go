@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	// Stream types(mixins), are most likely used as part of RegistryKey.
-	MIXIN_STREAM_RATELIMITED     = "s_rate"
-	MIXIN_STREAM_RETRY           = "s_retry"
-	MIXIN_STREAM_BULKHEAD        = "s_bulk"
-	MIXIN_STREAM_CIRCUITBREAKER  = "s_circuit"
-	MIXIN_STREAM_CHANNEL         = "s_chan"
-	MIXIN_STREAM_CONCURRENTFETCH = "s_con"
-	MIXIN_STREAM_MAPPED          = "s_map"
+	// Stream types(mixins), are most often used as part of RegistryKey.
+	MIXIN_STREAM_RATELIMITED     = "sRate"
+	MIXIN_STREAM_RETRY           = "sRetry"
+	MIXIN_STREAM_BULKHEAD        = "sBulk"
+	MIXIN_STREAM_CIRCUITBREAKER  = "sCircuit"
+	MIXIN_STREAM_CHANNEL         = "sChan"
+	MIXIN_STREAM_CONCURRENTFETCH = "sCon"
+	MIXIN_STREAM_MAPPED          = "sMap"
 )
 
 var (
@@ -54,7 +54,7 @@ func NewRateLimitedStream(namespace, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RATELIMITED,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 	}
 }
 
@@ -105,11 +105,11 @@ func NewRetryStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 		tryObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
-				name, "try"}),
+				name, MX_STREAM_RETRY_OB_TRY}),
 	}
 }
 
@@ -174,7 +174,7 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_BULKHEAD,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 	}
 }
 
@@ -227,11 +227,11 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 		errCounter: dummyCounterIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
-				name, "hystrix_err"}),
+				name, MX_STREAM_CIRCUITBREAKER_CNT_HXERR}),
 	}
 }
 
@@ -310,7 +310,7 @@ func NewChannelStream(namespace string, name string,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CHANNEL,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 	}
 }
 
@@ -355,7 +355,7 @@ func NewConcurrentFetchStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CONCURRENTFETCH,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 	}
 }
 
@@ -428,7 +428,7 @@ func NewMappedStream(namespace string, name string, stream Stream, handler Handl
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_MAPPED,
-				name, "get"}),
+				name, MX_STREAM_OB_GET}),
 	}
 }
 

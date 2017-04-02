@@ -2,6 +2,34 @@ package gentle
 
 import "sync"
 
+const (
+	// Observation supported by all Streams, it observes the time spent for
+	// Get() with label "result" of possible values "ok" and "err"
+	MX_STREAM_OB_GET   = "get"
+
+	// Observation supported by all Handlers, it observes the time spent for
+	// Handle() with label "result" of possible values "ok" and "err"
+	MX_HANDLER_OB_HANDLE   = "handle"
+
+	// Observation supported by RetryStreams, it observes the total number
+	// of tries with label "result" of possible values "ok" and "err"
+	MX_STREAM_RETRY_OB_TRY = "try"
+
+	// Observation supported by RetryHandler, it observes the total number
+	// of tries with label "result" of possible values "ok" and "err"
+	MX_HANDLER_RETRY_OB_TRY = "try"
+
+	// Counter supported by CircuitBreakerStream, it counts the number of
+	// errors with label "err" of possible values of "ErrCircuitOpen",
+	// "ErrMaxConcurrency", "ErrTimeout", "NonHystrixErr":
+	MX_STREAM_CIRCUITBREAKER_CNT_HXERR = "hxerr"
+
+	// Counter supported by CircuitBreakerHandler, it counts the number of
+	// errors with label "err" of possible values of "ErrCircuitOpen",
+	// "ErrMaxConcurrency", "ErrTimeout", "NonHystrixErr":
+	MX_HANDLER_CIRCUITBREAKER_CNT_HXERR = "hxerr"
+)
+
 var gentleMetrics = &metricRegistry{
 	counters: make(map[RegistryKey]Counter),
 	observations: make(map[RegistryKey]Observation),
@@ -25,18 +53,8 @@ type Observation interface {
 	Observe(value float64, labels map[string]string)
 }
 
-type MetricDesc interface {
-	// Return []string that each of which can be used as a SubKey.
-	SupportedCounters(mixin string) []string
-	// Return []string that each of which can be used as a SubKey.
-	SupportedObservations(mixin string) []string
-	// Return map[string]string that can be used in Counter's Add
-	// or Observation's Observe.
-	SupportedLabels(mixin string, subkey string) []string
-}
-
 type RegistryKey struct {
-	Namespace, Mixin, Name, SubKey string
+	Namespace, Mixin, Name, Mx string
 }
 
 func RegisterCounter(key *RegistryKey, counter Counter) {

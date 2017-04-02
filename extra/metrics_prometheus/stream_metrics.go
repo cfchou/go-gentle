@@ -34,11 +34,11 @@ func (p *promCounter) Add(value float64, labels map[string]string) {
 }
 
 // Histogram:
-// namespace_s_rate_get_seconds{name, result}
+// namespace_sRate_get_seconds{name, result}
 func RegisterRateLimitedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_RATELIMITED,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -61,20 +61,12 @@ func RegisterRateLimitedStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_s_retry_get_seconds{name, result}
-// namespace_s_retry_tries_total{name, result}
-//
-// Given N = RetryStream's len(backoffs)+1, so that N is the maximum of tries.
-// tryBuckets have buckets sensibly grouping the range [1, N]. The total number
-// of buckets should not be too large. For example,
-// if backoffs = [1, 2, 4, 8, 16], then tryBuckets may be [1, 2, 3, 4, 5, 6]
-// which makes one try one bucket.
-// If backoffs is a large list of 30 elements, then tryBuckets may be
-// [1, 2, 4, 8, 16, 24, 32].
+// namespace_sRetry_get_seconds{name, result}
+// namespace_sRetry_try_total{name, result}
 func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_RETRY,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
@@ -94,13 +86,13 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 	}
 	key = &gentle.RegistryKey{namespace,
 				  gentle.MIXIN_STREAM_RETRY,
-				  name, "try"}
+				  name, gentle.MX_STREAM_RETRY_OB_TRY}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: gentle.MIXIN_STREAM_RETRY,
-				Name:      "tries_total",
+				Name:      "try_total",
 				Help:      "Number of tries of RetryStream.Get()",
 				Buckets:   tryBuckets,
 			},
@@ -115,11 +107,11 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 }
 
 // Histogram:
-// namespace_s_bulk_get_seconds{name, result}
-func RegisterBulkStreamMetrics(namespace, name string) {
+// namespace_sBulk_get_seconds{name, result}
+func RegisterBulkheadStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_BULKHEAD,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -142,13 +134,13 @@ func RegisterBulkStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_s_circuit_get_seconds{name, result}
+// namespace_sCircuit_get_seconds{name, result}
 // Counter:
-// namespace_s_circuit_errors_total{name, err}
+// namespace_sCircuit_errors_total{name, err}
 func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_CIRCUITBREAKER,
-				   name,"get"}
+				   name,gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
@@ -168,14 +160,15 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 	}
 	key = &gentle.RegistryKey{namespace,
 				  gentle.MIXIN_STREAM_CIRCUITBREAKER,
-				  name, "hystrix_err"}
+				  name,
+				  gentle.MX_STREAM_CIRCUITBREAKER_CNT_HXERR}
 	if gentle.GetCounter(key) == nil {
 		counterVec := prom.NewCounterVec(
 			prom.CounterOpts{
 				Namespace: namespace,
 				Subsystem: gentle.MIXIN_STREAM_CIRCUITBREAKER,
 				Name:      "errors_total",
-				Help:      "Number of errors from hystrix.Do() in CircuitBreakerStream",
+				Help:      "Number of errors from hystrix.Do() in CircuitBreakerStream.Get()",
 			},
 			[]string{"name", "err"})
 		prom.MustRegister(counterVec)
@@ -188,11 +181,11 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_s_chan_get_seconds{name, result}
+// namespace_sChan_get_seconds{name, result}
 func RegisterChannelStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_CHANNEL,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -215,11 +208,11 @@ func RegisterChannelStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_s_con_get_seconds{name, result}
+// namespace_sCon_get_seconds{name, result}
 func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_CONCURRENTFETCH,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -242,11 +235,11 @@ func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_s_map_get_seconds{name, result}
+// namespace_sMap_get_seconds{name, result}
 func RegisterMappedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   gentle.MIXIN_STREAM_MAPPED,
-				   name, "get"}
+				   name, gentle.MX_STREAM_OB_GET}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return

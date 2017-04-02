@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	// Stream types(mixins), are most likely used as part of RegistryKey.
-	MIXIN_HANDLER_RATELIMITED     = "h_rate"
-	MIXIN_HANDLER_RETRY           = "h_retry"
-	MIXIN_HANDLER_BULKHEAD        = "h_bulk"
-	MIXIN_HANDLER_CIRCUITBREAKER  = "h_circuit"
+	// Handler types(mixins), are most often used as part of RegistryKey.
+	MIXIN_HANDLER_RATELIMITED     = "hRate"
+	MIXIN_HANDLER_RETRY           = "hRetry"
+	MIXIN_HANDLER_BULKHEAD        = "hBulk"
+	MIXIN_HANDLER_CIRCUITBREAKER  = "hCircuit"
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Handle().
@@ -38,7 +38,7 @@ func NewRateLimitedHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				     MIXIN_HANDLER_RATELIMITED,
-				     name, "handle"}),
+				     name, MX_HANDLER_OB_HANDLE}),
 	}
 }
 
@@ -89,11 +89,11 @@ func NewRetryHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				     MIXIN_HANDLER_RETRY,
-				     name, "handle"}),
+				     name, MX_HANDLER_OB_HANDLE}),
 		tryObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				     MIXIN_HANDLER_RETRY,
-				     name, "try"}),
+				     name, MX_HANDLER_RETRY_OB_TRY}),
 	}
 }
 
@@ -160,7 +160,7 @@ func NewBulkheadHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				     MIXIN_HANDLER_BULKHEAD,
-				     name, "handle"}),
+				     name, MX_HANDLER_OB_HANDLE}),
 	}
 }
 
@@ -213,11 +213,12 @@ func NewCircuitBreakerHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				     MIXIN_HANDLER_CIRCUITBREAKER,
-				     name, "handle"}),
+				     name, MX_HANDLER_OB_HANDLE}),
 		errCounter: dummyCounterIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_CIRCUITBREAKER,
-				     name, "hystrix_err"}),
+				MIXIN_HANDLER_CIRCUITBREAKER,
+				name,
+				MX_HANDLER_CIRCUITBREAKER_CNT_HXERR}),
 	}
 }
 

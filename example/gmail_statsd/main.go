@@ -472,7 +472,7 @@ func main() {
 	// concurrency and/or the order of messages need to be manually
 	// maintained.
 	mx.RegisterMappedStreamMetrics(mxStatter,"gmail", "map1")
-	mx.RegisterBulkStreamMetrics(mxStatter,"gmail", "bulk1")
+	mx.RegisterBulkheadStreamMetrics(mxStatter,"gmail", "bulk1")
 
 	go func() {
 		for {
