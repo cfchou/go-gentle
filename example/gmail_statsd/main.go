@@ -293,7 +293,7 @@ func example_hit_ratelimit(appConfig *oauth2.Config, userTok *oauth2.Token) gent
 
 func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 	lstream := listStream(appConfig, userTok)
-	handler := gentle.NewRateLimitedHandler("gmail",
+	handler := gentle.NewRateLimitedHandler("gmail", "rl1",
 		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
@@ -307,14 +307,14 @@ func example_ratelimited(appConfig *oauth2.Config, userTok *oauth2.Token) gentle
 
 func example_ratelimited_retry(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream {
 	lstream := listStream(appConfig, userTok)
-	rhandler := gentle.NewRateLimitedHandler("gmail",
+	rhandler := gentle.NewRateLimitedHandler("gmail", "rl1",
 		NewGmailMessageHandler(appConfig, userTok),
 		// (1000/request_interval) messages/sec, but it's an upper
 		// bound, the real speed is likely much lower.
 		gentle.NewTokenBucketRateLimit(rateLimitInterval, 1))
 	rhandler.Log.SetHandler(logHandler)
 
-	handler := gentle.NewRetryHandler("gmail", rhandler, []time.Duration{
+	handler := gentle.NewRetryHandler("gmail", "rt1", rhandler, []time.Duration{
 		20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond})
 	handler.Log.SetHandler(logHandler)
 

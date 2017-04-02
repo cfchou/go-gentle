@@ -3,7 +3,7 @@ homepage: https://github.com/cfchou/go-gentle
 license: MIT
 excludeDirs:
 - tmp
-- example
+# - example
 import:
 - package: github.com/juju/ratelimit
 - package: github.com/afex/hystrix-go
@@ -14,12 +14,27 @@ import:
   version: ^3.1.0
   subpackages:
   - statsd
-- package: github.com/inconshreveable/log15
-  version: ^2.11.0
 - package: github.com/prometheus/client_golang
   version: ^0.8.0
   subpackages:
   - prometheus
+- package: gopkg.in/cfchou/go-gentle.v1
+  version: ^1.1.0
+  subpackages:
+  - gentle
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: golang.org/x/oauth2
+  subpackages:
+  - google
+- package: google.golang.org/api
+  subpackages:
+  - gmail/v1
+- package: gopkg.in/inconshreveable/log15.v2
+  version: ^2.11.0
+- package: github.com/cfchou/go-gentle
+  version: dev_prome
 testImport:
 - package: github.com/stretchr/testify
   version: ^1.1.4
