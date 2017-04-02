@@ -121,56 +121,49 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 }
 
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
-	count := 8
 	max_concurrency := 4
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 
 	// requests exceeding MaxConcurrentRequests would get ErrMaxConcurrency
+	// provided Timeout is large enough for this test case
 	conf := GetHystrixDefaultConfig()
 	conf.MaxConcurrentRequests = max_concurrency
+	conf.Timeout = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
-
-	suspend := 1 * time.Second
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
-	var calling int32
+
+	var wg sync.WaitGroup
+	wg.Add(max_concurrency)
+	cond := sync.NewCond(&sync.Mutex{})
 	call := mhandler.On("Handle", mm)
 	call.Run(func(args mock.Arguments) {
-		atomic.AddInt32(&calling, 1)
-		time.Sleep(suspend)
+		// wg.Done() here instead of in the loop guarantees Get() is
+		// running by the circuit
+		wg.Done()
+		cond.L.Lock()
+		cond.Wait()
 	})
 	call.Return(mm, nil)
 
-	lock := &sync.Mutex{}
-	var all_errors []*error
-	//
-	tm := time.NewTimer(suspend + time.Second)
-	for i := 0; i < count; i++ {
+	for i := 0; i < max_concurrency; i++ {
 		go func() {
-			_, err := handler.Handle(mm)
-			if err != nil {
-				lock.Lock()
-				defer lock.Unlock()
-				all_errors = append(all_errors, &err)
-			}
+			handler.Handle(mm)
 		}()
 	}
-	<-tm.C
-	// ErrMaxConcurrency prevents Handle from execution.
-	assert.Equal(t, atomic.LoadInt32(&calling), int32(max_concurrency))
-	lock.Lock()
-	defer lock.Unlock()
-	for _, e := range all_errors {
-		assert.EqualError(t, *e, hystrix.ErrMaxConcurrency.Error())
-		log.Info("[Test]", "err", *e)
-	}
-	assert.Equal(t, count-max_concurrency, len(all_errors))
+	// Make sure previous Handle() are all running before the next
+	wg.Wait()
+	// One more call while all previous calls sticking in the circuit
+	_, err := handler.Handle(mm)
+	assert.EqualError(t, err, ErrMaxConcurrency.Error())
+	cond.Broadcast()
 }
 
 func TestCircuitBreakerHandler_Handle2(t *testing.T) {
+	// Test ErrTimeout and subsequent ErrCircuitOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 	count := 3
@@ -190,41 +183,41 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 
+	// Suspend longer than Timeout
 	suspend := time.Duration(conf.Timeout+500) * time.Millisecond
-	var calling int32
 	call := mhandler.On("Handle", mm)
 	call.Run(func(args mock.Arguments) {
-		atomic.AddInt32(&calling, 1)
 		time.Sleep(suspend)
 	})
 	call.Return(mm, nil)
 
-	// 1st takes more than timeout. Though no error, it causes
-	// ErrCircuitOpen for the subsequent requests.
-	begin := time.Now()
+	// 1st call gets ErrTimeout which make subsequent requests within
+	// SleepWindow see ErrCircuitOpen
 	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
-	dura := time.Now().Sub(begin)
-	assert.True(t, dura > suspend)
+	assert.EqualError(t, err, ErrTimeout.Error())
 
+	var called int64
+	call.Run(func(args mock.Arguments) {
+		atomic.StoreInt64(&called, 1)
+	})
 	for i := 0; i < count; i++ {
 		_, err := handler.Handle(mm)
 		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
 	}
-	// ErrCircuitOpen prevents Handle from execution.
-	assert.Equal(t, atomic.LoadInt32(&calling), int32(1))
+	// ErrCircuitOpen prevents Handle() from execution.
+	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
 	call.Run(func(args mock.Arguments) { /* no-op */ })
-	call.Return(mm, nil)
 	_, err = handler.Handle(mm)
 	assert.NoError(t, err)
 	// In the end, circuit is closed because of no error.
 }
 
 func TestCircuitBreakerHandler_Handle3(t *testing.T) {
+	// Test mockErr and subsequent ErrCircuitOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 	count := 3
@@ -245,24 +238,25 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 
 	mockErr := errors.New("A mocked error")
 
-	var calling int32
 	call := mhandler.On("Handle", mm)
-	call.Run(func(args mock.Arguments) {
-		atomic.AddInt32(&calling, 1)
-	})
 	call.Return(nil, mockErr)
 
-	// 1st return mockErr, it causes ErrCircuitOpen for the subsequent
-	// requests.
+	// 1st call gets mockErr which make subsequent requests within
+	// SleepWindow see ErrCircuitOpen
 	_, err := handler.Handle(mm)
 	assert.EqualError(t, err, mockErr.Error())
 
+	var called int64
+	call.Run(func(args mock.Arguments) {
+		atomic.StoreInt64(&called, 1)
+	})
 	for i := 0; i < count; i++ {
 		_, err := handler.Handle(mm)
 		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
 	}
-	// ErrCircuitOpen prevents Handle from execution.
-	assert.Equal(t, atomic.LoadInt32(&calling), int32(1))
+
+	// ErrCircuitOpen prevents Handle() from execution.
+	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
@@ -274,14 +268,14 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 }
 
 func TestCircuitBreakerHandler_Handle4(t *testing.T) {
+	// Test RequestVolumeThreshold/ErrorPercentThreshold
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 	count := 3
 
 	conf := GetHystrixDefaultConfig()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request returns error would make the subsequent
-	// requests coming within SleepWindow see ErrCircuitOpen
+	// Set ErrorPercentThreshold to be the most sensitive(1%). Once
+	// RequestVolumeThreshold exceeded, the circuit becomes open.
 	conf.RequestVolumeThreshold = count + 3
 	conf.ErrorPercentThreshold = 1
 	conf.SleepWindow = 1000
@@ -302,14 +296,15 @@ func TestCircuitBreakerHandler_Handle4(t *testing.T) {
 		assert.EqualError(t, err, mockErr.Error())
 	}
 
+	// A success on the closed Circuit.
 	call.Return(mm, nil)
 	_, err := handler.Handle(mm)
 	assert.NoError(t, err)
 
 	// Until now, we have $count failed cases and 1 successful case. Need
-	// $(RequestVolumeThreshold - count - 1) cases, doesn't matter successful
-	// or failed because ErrorPercentThreshold is extremely low, to make the
-	// circuit open.
+	// $(RequestVolumeThreshold - count - 1) more cases(doesn't matter
+	// successful or failed because ErrorPercentThreshold is the most
+	// sensitive) to pass RequestVolumeThreshold to make the circuit open.
 	for i := 0; i < conf.RequestVolumeThreshold; i++ {
 		call.Return(mm, nil)
 		_, err := handler.Handle(mm)

@@ -140,23 +140,30 @@ func TestBulkheadStream_Get(t *testing.T) {
 	max_concurrency := 4
 	mstream := &mockStream{}
 	stream := NewBulkheadStream("", "test", mstream, max_concurrency)
-
-	suspend := 1 * time.Second
-	maximum := suspend*time.Duration((count+max_concurrency-1)/max_concurrency) + time.Second
-
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
+
+	suspend := 100 * time.Millisecond
+	lock := &sync.RWMutex{}
 	calling := 0
+	callings := []int{}
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
+		// add calling
+		lock.Lock()
 		calling++
+		callings = append(callings, calling)
+		lock.Unlock()
 		time.Sleep(suspend)
+		// release calling
+		lock.Lock()
+		calling--
+		lock.Unlock()
 	})
 	call.Return(mm, nil)
 
 	var wg sync.WaitGroup
 	wg.Add(count)
-	begin := time.Now()
 	for i := 0; i < count; i++ {
 		go func() {
 			msg, err := stream.Get()
@@ -166,9 +173,10 @@ func TestBulkheadStream_Get(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	dura := time.Now().Sub(begin)
-	log.Info("[Test] spent <= maximum?", "spent", dura, "maximum", maximum)
-	assert.True(t, dura <= maximum)
+	assert.True(t, count == len(callings))
+	for _, c := range callings {
+		assert.True(t, c <= max_concurrency)
+	}
 }
 
 func TestMappedStream_Get(t *testing.T) {
@@ -200,29 +208,37 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 
 	// requests exceeding MaxConcurrentRequests would get ErrMaxConcurrency
-	// if Timeout is large enough.
+	// provided Timeout is large enough for this test case
 	conf := GetHystrixDefaultConfig()
 	conf.MaxConcurrentRequests = max_concurrency
 	conf.Timeout = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	stream := NewCircuitBreakerStream("","test", mstream, circuit)
-
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 
+	var wg sync.WaitGroup
+	wg.Add(max_concurrency)
 	cond := sync.NewCond(&sync.Mutex{})
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
+		// wg.Done() here instead of in the loop guarantees Get() is
+		// running by the circuit
+		wg.Done()
 		cond.L.Lock()
 		cond.Wait()
 	})
 	call.Return(mm, nil)
+
 	for i := 0; i < max_concurrency; i++ {
 		go func() {
 			stream.Get()
 		}()
 	}
+	// Make sure previous Get() are all running before the next
+	wg.Wait()
+	// One more call while all previous calls sticking in the circuit
 	_, err := stream.Get()
 	assert.EqualError(t, err, ErrMaxConcurrency.Error())
 	cond.Broadcast()
@@ -249,10 +265,10 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	mm := &mockMsg{}
 	mm.On("Id").Return("123")
 
+	// Suspend longer than Timeout
 	suspend := time.Duration(conf.Timeout+500) * time.Millisecond
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
-		// Suspend longer than Timeout
 		time.Sleep(suspend)
 	})
 	call.Return(mm, nil)
@@ -264,14 +280,13 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 
 	var called int64
 	call.Run(func(args mock.Arguments) {
-		// cancel previous call.Run
 		atomic.StoreInt64(&called, 1)
 	})
 	for i := 0; i < count; i++ {
 		_, err := stream.Get()
 		assert.EqualError(t, err, ErrCircuitOpen.Error())
 	}
-	// ErrCircuitOpen prevents Handle from execution.
+	// ErrCircuitOpen prevents Get() from execution.
 	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
@@ -315,14 +330,13 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 
 	var called int64
 	call.Run(func(args mock.Arguments) {
-		// cancel previous call.Run
 		atomic.StoreInt64(&called, 1)
 	})
 	for i := 0; i < count; i++ {
 		_, err := stream.Get()
 		assert.EqualError(t, err, ErrCircuitOpen.Error())
 	}
-	// ErrCircuitOpen prevents Handle from execution.
+	// ErrCircuitOpen prevents Get() from execution.
 	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
@@ -335,14 +349,14 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 }
 
 func TestCircuitBreakerStream_Get4(t *testing.T) {
+	// Test RequestVolumeThreshold/ErrorPercentThreshold
 	circuit := xid.New().String()
 	mstream := &mockStream{}
 	count := 3
 
 	conf := GetHystrixDefaultConfig()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request returns error would make the subsequent
-	// requests coming within SleepWindow see ErrCircuitOpen
+	// Set ErrorPercentThreshold to be the most sensitive(1%). Once
+	// RequestVolumeThreshold exceeded, the circuit becomes open.
 	conf.RequestVolumeThreshold = count + 3
 	conf.ErrorPercentThreshold = 1
 	conf.SleepWindow = 1000
@@ -369,9 +383,9 @@ func TestCircuitBreakerStream_Get4(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Until now, we have $count failed cases and 1 successful case. Need
-	// $(RequestVolumeThreshold - count - 1) cases, doesn't matter successful
-	// or failed because ErrorPercentThreshold is extremely sensitive, to make the
-	// circuit open.
+	// $(RequestVolumeThreshold - count - 1) more cases(doesn't matter
+	// successful or failed because ErrorPercentThreshold is the most
+	// sensitive) to pass RequestVolumeThreshold to make the circuit open.
 	for i := 0; i < conf.RequestVolumeThreshold; i++ {
 		call.Return(mm, nil)
 		_, err := stream.Get()
@@ -443,3 +457,4 @@ func TestConcurrentFetchStream_Get2(t *testing.T) {
 	// The 1st msg from upstream is now the last
 	assert.Equal(t, ids[count-1], "0")
 }
+
