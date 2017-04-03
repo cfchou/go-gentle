@@ -1,8 +1,9 @@
 package metrics_statsd
 
 import (
-	"github.com/cactus/go-statsd-client/statsd"
 	"fmt"
+
+	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/cfchou/go-gentle/gentle"
 )
 
@@ -10,7 +11,7 @@ import (
 // info:
 // https://github.com/etsy/statsd/issues/22
 type timingObservationImpl struct {
-	count statsd.SubStatter
+	count  statsd.SubStatter
 	timing statsd.SubStatter
 }
 
@@ -18,7 +19,7 @@ func (p *timingObservationImpl) Observe(value float64, labels map[string]string)
 	for k, v := range labels {
 		suffix := k + "_" + v
 		p.count.Inc(suffix, 1, 1.0)
-		p.timing.Timing(suffix, int64(value * 1000), 1.0)
+		p.timing.Timing(suffix, int64(value*1000), 1.0)
 	}
 }
 
@@ -34,11 +35,11 @@ func (p *counterImpl) Add(value float64, labels map[string]string) {
 }
 
 // Counter:
-// namespace.s_rate.name.get_count.result_ok
-// namespace.s_rate.name.get_count.result_err
+// namespace.sRate.name.get_count.result_ok
+// namespace.sRate.name.get_count.result_err
 // Timing:
-// namespace.s_rate.name.get_duration.result_ok
-// namespace.s_rate.name.get_duration.result_err
+// namespace.sRate.name.get_duration.result_ok
+// namespace.sRate.name.get_duration.result_err
 func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RATELIMITED,
@@ -50,12 +51,11 @@ func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RATELIMITED, name)
 	ob := &timingObservationImpl{
-		count: statter.NewSubStatter(prefix + "get_count"),
+		count:  statter.NewSubStatter(prefix + "get_count"),
 		timing: statter.NewSubStatter(prefix + "get_duration"),
 	}
 	gentle.RegisterObservation(key, ob)
 }
-
 
 // Counter:
 // namespace.sRetry.name.get_count.result_ok
@@ -73,7 +73,7 @@ func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name strin
 		gentle.MIXIN_STREAM_RETRY, name)
 	if gentle.GetObservation(key) == nil {
 		ob := &timingObservationImpl{
-			count: statter.NewSubStatter(prefix + ".get_count"),
+			count:  statter.NewSubStatter(prefix + ".get_count"),
 			timing: statter.NewSubStatter(prefix + ".get_duration"),
 		}
 		gentle.RegisterObservation(key, ob)
@@ -107,7 +107,7 @@ func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name st
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_BULKHEAD, name)
 	ob := &timingObservationImpl{
-		count: statter.NewSubStatter(prefix + ".get_count"),
+		count:  statter.NewSubStatter(prefix + ".get_count"),
 		timing: statter.NewSubStatter(prefix + ".get_duration"),
 	}
 	gentle.RegisterObservation(key, ob)
@@ -131,14 +131,15 @@ func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, n
 		gentle.MIXIN_STREAM_CIRCUITBREAKER, name)
 	if gentle.GetObservation(key) == nil {
 		ob := &timingObservationImpl{
-			count: statter.NewSubStatter(prefix + ".get_count"),
+			count:  statter.NewSubStatter(prefix + ".get_count"),
 			timing: statter.NewSubStatter(prefix + ".get_duration"),
 		}
 		gentle.RegisterObservation(key, ob)
 	}
 	key = &gentle.RegistryKey{namespace,
-				  gentle.MIXIN_STREAM_CIRCUITBREAKER,
-				  name, gentle.MX_STREAM_CIRCUITBREAKER_CNT_HXERR}
+		gentle.MIXIN_STREAM_CIRCUITBREAKER,
+		name,
+		gentle.MX_STREAM_CIRCUITBREAKER_CNT_HXERR}
 	if gentle.GetCounter(key) == nil {
 		counter := &counterImpl{
 			count: statter.NewSubStatter(prefix + ".err_count"),
@@ -164,7 +165,7 @@ func RegisterChannelStreamMetrics(statter statsd.SubStatter, namespace, name str
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CHANNEL, name)
 	ob := &timingObservationImpl{
-		count: statter.NewSubStatter(prefix + ".get_count"),
+		count:  statter.NewSubStatter(prefix + ".get_count"),
 		timing: statter.NewSubStatter(prefix + ".get_duration"),
 	}
 	gentle.RegisterObservation(key, ob)
@@ -187,7 +188,7 @@ func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, 
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CONCURRENTFETCH, name)
 	ob := &timingObservationImpl{
-		count: statter.NewSubStatter(prefix + ".get_count"),
+		count:  statter.NewSubStatter(prefix + ".get_count"),
 		timing: statter.NewSubStatter(prefix + ".get_duration"),
 	}
 	gentle.RegisterObservation(key, ob)
@@ -210,9 +211,8 @@ func RegisterMappedStreamMetrics(statter statsd.SubStatter, namespace, name stri
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_MAPPED, name)
 	ob := &timingObservationImpl{
-		count: statter.NewSubStatter(prefix + ".get_count"),
+		count:  statter.NewSubStatter(prefix + ".get_count"),
 		timing: statter.NewSubStatter(prefix + ".get_duration"),
 	}
 	gentle.RegisterObservation(key, ob)
 }
-
