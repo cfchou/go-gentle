@@ -2,7 +2,6 @@ package gentle
 
 import (
 	"errors"
-	"fmt"
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"strconv"
 )
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
@@ -21,8 +21,7 @@ func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 	go func() {
 		count := 1
 		for {
-			mm := &mockMsg{}
-			mm.On("Id").Return(fmt.Sprint(count))
+			mm := &fakeMsg{id: strconv.Itoa(count)}
 			select {
 			case src <- mm:
 			case <-done:
@@ -40,8 +39,7 @@ func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 	msgs := make([]Message, count)
 	for i := 0; i < count; i++ {
-		mm := &mockMsg{}
-		mm.On("Id").Return(fmt.Sprint(i))
+		mm := &fakeMsg{id: strconv.Itoa(i)}
 		msgs[i] = mm
 	}
 	src := make(chan Message, 1)
@@ -54,8 +52,7 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 }
 
 func TestChannelStream_Get(t *testing.T) {
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 	src := make(chan Message, 1)
 	src <- mm
 	stream := NewChannelStream("","test", src)
@@ -114,8 +111,7 @@ func TestRetryStream_Get(t *testing.T) {
 	stream := NewRetryStream("", "test", mstream, backoffs)
 
 	// 1st: ok
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 	call := mstream.On("Get")
 	call.Return(mm, nil)
 
@@ -140,8 +136,7 @@ func TestBulkheadStream_Get(t *testing.T) {
 	max_concurrency := 4
 	mstream := &mockStream{}
 	stream := NewBulkheadStream("", "test", mstream, max_concurrency)
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	suspend := 100 * time.Millisecond
 	lock := &sync.RWMutex{}
@@ -182,18 +177,18 @@ func TestBulkheadStream_Get(t *testing.T) {
 func TestMappedStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 	mhandler := &mockHandler{}
-	mm := &mockMsg{}
 
 	stream := NewMappedStream("", "test", mstream, mhandler)
 
-	call := mm.On("Id")
-	call.Return("123")
-	receive := mstream.On("Get")
-	receive.Return(mm, nil)
+	mm := &fakeMsg{id: "123"}
+
+	get := mstream.On("Get")
+	get.Return(mm, nil)
+
 	handle := mhandler.On("Handle", mm)
 	handle.Run(func(args mock.Arguments) {
 		log.Info("[Test] handle")
-		call.Return("456")
+		mm.id = "456"
 	})
 	handle.Return(mm, nil)
 
@@ -215,8 +210,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	stream := NewCircuitBreakerStream("","test", mstream, circuit)
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
 	wg.Add(max_concurrency)
@@ -261,15 +255,22 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	stream := NewCircuitBreakerStream("","test", mstream, circuit)
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	// Suspend longer than Timeout
-	suspend := time.Duration(conf.Timeout+500) * time.Millisecond
+	cond := sync.NewCond(&sync.Mutex{})
+	suspended := false
+	suspend := time.Duration(conf.Timeout+1000) * time.Millisecond
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
-		time.Sleep(suspend)
+		cond.L.Lock()
+		defer cond.L.Unlock()
+		if !suspended {
+			// 1st call would suspend for tripping ErrTimeout
+			suspended = true
+			time.Sleep(suspend)
+			cond.Broadcast()
+		}
 	})
 	call.Return(mm, nil)
 
@@ -278,21 +279,22 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	_, err := stream.Get()
 	assert.EqualError(t, err, ErrTimeout.Error())
 
-	var called int64
-	call.Run(func(args mock.Arguments) {
-		atomic.StoreInt64(&called, 1)
-	})
 	for i := 0; i < count; i++ {
 		_, err := stream.Get()
 		assert.EqualError(t, err, ErrCircuitOpen.Error())
 	}
-	// ErrCircuitOpen prevents Get() from execution.
-	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
+
+	// Wait to prevent data race. At this moment 1st call might be still
+	// running.
+	cond.L.Lock()
+	for !suspended {
+		cond.Wait()
+	}
+	cond.L.Unlock()
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
-	call.Run(func(args mock.Arguments) { /* no-op */ })
 	_, err = stream.Get()
 	assert.NoError(t, err)
 	// In the end, circuit is closed because of no error.
@@ -314,10 +316,7 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	stream := NewCircuitBreakerStream("", "test", mstream, circuit)
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
-
+	mm := &fakeMsg{id: "123"}
 	mockErr := errors.New("A mocked error")
 
 	call := mstream.On("Get")
@@ -364,15 +363,13 @@ func TestCircuitBreakerStream_Get4(t *testing.T) {
 
 	stream := NewCircuitBreakerStream("","test", mstream, circuit)
 	mockErr := errors.New("A mocked error")
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 	call := mstream.On("Get")
+	call.Return(nil, mockErr)
 
 	// count is strictly smaller than RequestVolumeThreshold. So circuit is
 	// still closed.
 	for i := 0; i < count; i++ {
-		call.Return(nil, mockErr)
 		_, err := stream.Get()
 		assert.EqualError(t, err, mockErr.Error())
 	}
@@ -387,7 +384,6 @@ func TestCircuitBreakerStream_Get4(t *testing.T) {
 	// successful or failed because ErrorPercentThreshold is the most
 	// sensitive) to pass RequestVolumeThreshold to make the circuit open.
 	for i := 0; i < conf.RequestVolumeThreshold; i++ {
-		call.Return(mm, nil)
 		_, err := stream.Get()
 		if i < conf.RequestVolumeThreshold-count-1 {
 			assert.NoError(t, err)
@@ -401,12 +397,11 @@ func TestConcurrentFetchStream_Get(t *testing.T) {
 	// This test shows that ConcurrentFetchStream reduces running time.
 	max_concurrency := 5
 	count := max_concurrency
-	mm := &mockMsg{}
+	mm := &fakeMsg{id: "123"}
 	mstream := &mockStream{}
 	stream := NewConcurrentFetchStream("", "test", mstream, max_concurrency)
 
 	suspend := 1 * time.Second
-	mm.On("Id").Return("123")
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
 		time.Sleep(suspend)

@@ -19,6 +19,14 @@ func (m *mockMsg) Id() string {
 	return args.Get(0).(string)
 }
 
+type fakeMsg struct {
+	id string
+}
+
+func (m *fakeMsg) Id() string {
+	return m.id
+}
+
 type mockStream struct {
 	mock.Mock
 }
