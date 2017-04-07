@@ -241,7 +241,6 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	// Test ErrTimeout and subsequent ErrCircuitOpen
 	circuit := xid.New().String()
 	mstream := &mockStream{}
-	count := 3
 
 	conf := GetHystrixDefaultConfig()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -273,14 +272,27 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	})
 	call.Return(mm, nil)
 
-	// 1st call gets ErrTimeout which make subsequent requests within
-	// SleepWindow see ErrCircuitOpen
+	// 1st call gets ErrTimeout
 	_, err := stream.Get()
 	assert.EqualError(t, err, ErrTimeout.Error())
 
-	for i := 0; i < count; i++ {
-		_, err := stream.Get()
-		assert.EqualError(t, err, ErrCircuitOpen.Error())
+	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// "Eventually" because hystrix error metrics asynchronously.
+	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
+LOOP:
+	for {
+		log.Debug("[Test] try again")
+		select {
+		case <-tm.C:
+			assert.Fail(t, "[Test] SleepWindow not long enough")
+		default:
+			time.Sleep(100*time.Millisecond)
+			_, err := stream.Get()
+			if err == ErrCircuitOpen {
+				tm.Stop()
+				break LOOP
+			}
+		}
 	}
 
 	// Wait to prevent data race. At this moment 1st call might be still
@@ -343,12 +355,11 @@ LOOP:
 		}
 	}
 
-	// Once circuit is opened, call does not run.
+	// Once circuit is opened, subsequent calls should not run.
 	call.Run(func(args mock.Arguments) {
 		assert.Fail(t, "[Test] Should not run")
 	})
 	stream.Get()
-
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
@@ -380,8 +391,8 @@ func TestCircuitBreakerStream_Get4(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 	call := mstream.On("Get")
 
-	// count is strictly smaller than RequestVolumeThreshold. So circuit is
-	// still closed.
+	// countErr is strictly smaller than RequestVolumeThreshold. So circuit
+	// is still closed.
 	call.Return(nil, fakeErr)
 	for i := 0; i < countErr; i++ {
 		_, err := stream.Get()

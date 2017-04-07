@@ -10,15 +10,6 @@ import (
 // Parent logger for tests
 var log = Log.New()
 
-type mockMsg struct {
-	mock.Mock
-}
-
-func (m *mockMsg) Id() string {
-	args := m.Called()
-	return args.Get(0).(string)
-}
-
 type fakeMsg struct {
 	id string
 }

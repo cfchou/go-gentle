@@ -7,23 +7,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestRateLimitedHandler_Handle(t *testing.T) {
-	count := 3
 	// 1 msg/sec, no burst
 	requests_interval := 100 * time.Millisecond
 	mhandler := &mockHandler{}
 	handler := NewRateLimitedHandler("","test", mhandler,
 		NewTokenBucketRateLimit(requests_interval, 1))
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 	mhandler.On("Handle", mm).Return(mm, nil)
 
+	count := 3
 	minimum := time.Duration(count-1)*requests_interval
 	var wg sync.WaitGroup
 	wg.Add(count)
@@ -53,11 +50,9 @@ func TestRetryHandler_Handle(t *testing.T) {
 
 	mhandler := &mockHandler{}
 	handler := NewRetryHandler("","test", mhandler, backoffs)
-
-	mm := &mockMsg{}
+	mm := &fakeMsg{id: "123"}
 
 	// 1st: ok
-	mm.On("Id").Return("123")
 	call := mhandler.On("Handle", mm)
 	call.Return(mm, nil)
 
@@ -67,6 +62,7 @@ func TestRetryHandler_Handle(t *testing.T) {
 	// 2ed: err, trigger retry with backoffs
 	mockErr := errors.New("A mocked error")
 	call.Return(nil, mockErr)
+
 	begin := time.Now()
 	_, err = handler.Handle(mm)
 	dura := time.Now().Sub(begin)
@@ -81,8 +77,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	max_concurrency := 4
 	mhandler := &mockHandler{}
 	handler := NewBulkheadHandler("","test", mhandler, max_concurrency)
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	suspend := 100 * time.Millisecond
 	lock := &sync.RWMutex{}
@@ -133,8 +128,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
 	wg.Add(max_concurrency)
@@ -166,7 +160,6 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	// Test ErrTimeout and subsequent ErrCircuitOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
-	count := 3
 
 	conf := GetHystrixDefaultConfig()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -179,38 +172,59 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	mm := &fakeMsg{id: "123"}
 
 	// Suspend longer than Timeout
-	suspend := time.Duration(conf.Timeout+500) * time.Millisecond
+	cond := sync.NewCond(&sync.Mutex{})
+	suspended := false
+	suspend := time.Duration(conf.Timeout+1000) * time.Millisecond
 	call := mhandler.On("Handle", mm)
 	call.Run(func(args mock.Arguments) {
-		time.Sleep(suspend)
+		cond.L.Lock()
+		defer cond.L.Unlock()
+		if !suspended {
+			// 1st call would suspend for tripping ErrTimeout
+			suspended = true
+			time.Sleep(suspend)
+			cond.Broadcast()
+		}
 	})
 	call.Return(mm, nil)
 
-	// 1st call gets ErrTimeout which make subsequent requests within
-	// SleepWindow see ErrCircuitOpen
+	// 1st call gets ErrTimeout
 	_, err := handler.Handle(mm)
 	assert.EqualError(t, err, ErrTimeout.Error())
 
-	var called int64
-	call.Run(func(args mock.Arguments) {
-		atomic.StoreInt64(&called, 1)
-	})
-	for i := 0; i < count; i++ {
-		_, err := handler.Handle(mm)
-		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
+	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// "Eventually" because hystrix error metrics asynchronously.
+	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
+LOOP:
+	for {
+		log.Debug("[Test] try again")
+		select {
+		case <-tm.C:
+			assert.Fail(t, "[Test] SleepWindow not long enough")
+		default:
+			time.Sleep(100*time.Millisecond)
+			_, err := handler.Handle(mm)
+			if err == ErrCircuitOpen {
+				tm.Stop()
+				break LOOP
+			}
+		}
 	}
-	// ErrCircuitOpen prevents Handle() from execution.
-	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
+
+	// Wait to prevent data race. At this moment 1st call might be still
+	// running.
+	cond.L.Lock()
+	for !suspended {
+		cond.Wait()
+	}
+	cond.L.Unlock()
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
-	call.Run(func(args mock.Arguments) { /* no-op */ })
 	_, err = handler.Handle(mm)
 	assert.NoError(t, err)
 	// In the end, circuit is closed because of no error.
@@ -220,7 +234,6 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	// Test mockErr and subsequent ErrCircuitOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
-	count := 3
 
 	conf := GetHystrixDefaultConfig()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -232,31 +245,40 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
-
-	mockErr := errors.New("A mocked error")
+	mm := &fakeMsg{id: "123"}
+	fakeErr := errors.New("A fake error")
 
 	call := mhandler.On("Handle", mm)
-	call.Return(nil, mockErr)
+	call.Return(nil, fakeErr)
 
-	// 1st call gets mockErr which make subsequent requests within
-	// SleepWindow see ErrCircuitOpen
+	// 1st call gets fakeErr
 	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, mockErr.Error())
+	assert.EqualError(t, err, fakeErr.Error())
 
-	var called int64
-	call.Run(func(args mock.Arguments) {
-		atomic.StoreInt64(&called, 1)
-	})
-	for i := 0; i < count; i++ {
-		_, err := handler.Handle(mm)
-		assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
+	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// "Eventually" because hystrix error metrics asynchronously.
+	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
+LOOP:
+	for {
+		log.Debug("[Test] try again")
+		select {
+		case <-tm.C:
+			assert.Fail(t, "[Test] SleepWindow not long enough")
+		default:
+			time.Sleep(100*time.Millisecond)
+			_, err := handler.Handle(mm)
+			if err == ErrCircuitOpen {
+				tm.Stop()
+				break LOOP
+			}
+		}
 	}
 
-	// ErrCircuitOpen prevents Handle() from execution.
-	assert.Equal(t, atomic.LoadInt64(&called), int64(0))
+	// Once circuit is opened, subsequent calls should not run.
+	call.Run(func(args mock.Arguments) {
+		assert.Fail(t, "[Test] Should not run")
+	})
+	handler.Handle(mm)
 
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
@@ -271,47 +293,55 @@ func TestCircuitBreakerHandler_Handle4(t *testing.T) {
 	// Test RequestVolumeThreshold/ErrorPercentThreshold
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
-	count := 3
+	countErr := 3
+	countSucc := 1
+	countRest := 3
 
 	conf := GetHystrixDefaultConfig()
 	// Set ErrorPercentThreshold to be the most sensitive(1%). Once
 	// RequestVolumeThreshold exceeded, the circuit becomes open.
-	conf.RequestVolumeThreshold = count + 3
+	conf.RequestVolumeThreshold = countErr + countSucc + countRest
 	conf.ErrorPercentThreshold = 1
-	conf.SleepWindow = 1000
+	conf.SleepWindow = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
 	handler := NewCircuitBreakerHandler("", "test", mhandler, circuit)
-	mockErr := errors.New("A mocked error")
-
-	mm := &mockMsg{}
-	mm.On("Id").Return("123")
+	fakeErr := errors.New("A fake error")
+	mm := &fakeMsg{id: "123"}
 	call := mhandler.On("Handle", mm)
 
-	// count is strictly smaller than RequestVolumeThreshold. So circuit is
-	// still closed.
-	for i := 0; i < count; i++ {
-		call.Return(nil, mockErr)
+	// countErr is strictly smaller than RequestVolumeThreshold. So circuit
+	// is still closed.
+	call.Return(nil, fakeErr)
+	for i := 0; i < countErr; i++ {
 		_, err := handler.Handle(mm)
-		assert.EqualError(t, err, mockErr.Error())
+		assert.EqualError(t, err, fakeErr.Error())
 	}
 
 	// A success on the closed Circuit.
 	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
-
-	// Until now, we have $count failed cases and 1 successful case. Need
-	// $(RequestVolumeThreshold - count - 1) more cases(doesn't matter
-	// successful or failed because ErrorPercentThreshold is the most
-	// sensitive) to pass RequestVolumeThreshold to make the circuit open.
-	for i := 0; i < conf.RequestVolumeThreshold; i++ {
-		call.Return(mm, nil)
+	for i := 0; i < countSucc; i++ {
+		// A success on the closed Circuit.
 		_, err := handler.Handle(mm)
-		if i < conf.RequestVolumeThreshold-count-1 {
-			assert.NoError(t, err)
-		} else {
-			assert.EqualError(t, err, hystrix.ErrCircuitOpen.Error())
+		assert.NoError(t, err)
+	}
+
+	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// "Eventually" because hystrix error metrics asynchronously.
+	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
+LOOP:
+	for {
+		log.Debug("[Test] try again")
+		select {
+		case <-tm.C:
+			assert.Fail(t, "[Test] SleepWindow not long enough")
+		default:
+			time.Sleep(100*time.Millisecond)
+			_, err := handler.Handle(mm)
+			if err == ErrCircuitOpen {
+				tm.Stop()
+				break LOOP
+			}
 		}
 	}
 }
