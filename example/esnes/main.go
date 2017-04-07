@@ -113,7 +113,9 @@ func (s *HesRecvStream) Get() (gentle.Message, error) {
 	// ["task_id" will be added] "recv_req_begin", "recv_req_dura", "recv_resp_bid" ,"recv_resp_count"
 	taskIds := s.parseContent(content)
 	row := []string{
-		strconv.FormatInt(begin.Unix(), 10),
+		//strconv.FormatInt(begin.Unix(), 10),
+		strconv.FormatFloat(float64(begin.UnixNano()/int64(time.Millisecond))/1000,
+			'f', 3, 64),
 		strconv.FormatFloat(timespan.Seconds(), 'f', 3, 64),
 		batchId,
 		strconv.Itoa(len(taskIds)),

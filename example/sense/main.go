@@ -118,8 +118,12 @@ func (s *HesSendHandler) Handle(msg gentle.Message) (gentle.Message, error) {
 
 	begin := time.Now()
 	// "task_id", "mail_id", "mail_sz", "scan_req_begin"
+	// row := []string{hmsg.id, hmsg.mailId, strconv.Itoa(len(hmsg.content)),
+	// 	strconv.FormatInt(begin.Unix(), 10)}
 	row := []string{hmsg.id, hmsg.mailId, strconv.Itoa(len(hmsg.content)),
-		strconv.FormatInt(begin.Unix(), 10)}
+			strconv.FormatFloat(
+				float64(begin.UnixNano()/int64(time.Millisecond))/1000,
+				'f', 3, 64)}
 
 	// defer set here, only "task_id", "mail_id", "mail_sz" and
 	// "scan_req_begin" are guaranteed to exist
