@@ -54,7 +54,7 @@ func NewRateLimitedStream(namespace, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RATELIMITED,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 	}
 }
 
@@ -105,11 +105,11 @@ func NewRetryStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 		tryObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
-				name, MX_STREAM_RETRY_OB_TRY}),
+				name, MX_STREAM_RETRY_TRY}),
 	}
 }
 
@@ -174,7 +174,7 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_BULKHEAD,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 	}
 }
 
@@ -207,7 +207,7 @@ type CircuitBreakerStream struct {
 	Circuit        string
 	stream         Stream
 	getObservation Observation
-	errCounter     Counter
+	errCounter     Observation
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -227,11 +227,11 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
-				name, MX_STREAM_OB_GET}),
-		errCounter: dummyCounterIfNonRegistered(
+				name, MX_STREAM_GET}),
+		errCounter: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
-				name, MX_STREAM_CIRCUITBREAKER_CNT_HXERR}),
+				name, MX_STREAM_CIRCUITBREAKER_HXERR}),
 	}
 }
 
@@ -264,19 +264,19 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrCircuitOpen"})
 			return nil, ErrCircuitOpen
 		case hystrix.ErrMaxConcurrency:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrMaxConcurrency"})
 			return nil, ErrMaxConcurrency
 		case hystrix.ErrTimeout:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrTimeout"})
 			return nil, ErrTimeout
 		default:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func NewChannelStream(namespace string, name string,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CHANNEL,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 	}
 }
 
@@ -355,7 +355,7 @@ func NewConcurrentFetchStream(namespace string, name string, stream Stream,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CONCURRENTFETCH,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 	}
 }
 
@@ -428,7 +428,7 @@ func NewMappedStream(namespace string, name string, stream Stream, handler Handl
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_MAPPED,
-				name, MX_STREAM_OB_GET}),
+				name, MX_STREAM_GET}),
 	}
 }
 

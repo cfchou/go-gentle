@@ -18,16 +18,16 @@ func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 	done := make(chan *struct{}, 1)
 	src := make(chan Message, 1)
 	go func() {
-		count := 1
-		keep := false
-		for keep {
-			mm := &fakeMsg{id: strconv.Itoa(count)}
+		count := 0
+		for {
 			select {
-			case src <- mm:
 			case <-done:
-				log.Info("[Test] Channel closed")
+				log.Info("[Test] Channel closing")
 				close(src)
-				keep = false
+				return
+			default:
+				count++
+				src <- &fakeMsg{id: strconv.Itoa(count)}
 			}
 		}
 	}()

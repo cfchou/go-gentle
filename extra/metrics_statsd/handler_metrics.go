@@ -15,18 +15,17 @@ import (
 func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED,
-		name, gentle.MX_HANDLER_OB_HANDLE}
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
 	}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED, name)
-	ob := &timingObservationImpl{
+	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix + "get_count"),
 		timing: statter.NewSubStatter(prefix + "get_duration"),
-	}
-	gentle.RegisterObservation(key, ob)
+	})
 }
 
 // Counter:
@@ -40,25 +39,23 @@ func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, nam
 func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RETRY,
-		name, gentle.MX_HANDLER_OB_HANDLE}
+		name, gentle.MX_HANDLER_HANDLE}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RETRY, name)
 	if gentle.GetObservation(key) == nil {
-		ob := &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + ".get_count"),
-			timing: statter.NewSubStatter(prefix + ".get_duration"),
-		}
-		gentle.RegisterObservation(key, ob)
+		gentle.RegisterObservation(key, &timingObservationImpl{
+			count:  statter.NewSubStatter(prefix + "get_count"),
+			timing: statter.NewSubStatter(prefix + "get_duration"),
+		})
 	}
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RETRY,
-		name, gentle.MX_HANDLER_RETRY_OB_TRY}
+		name, gentle.MX_HANDLER_RETRY_TRY}
 
-	if gentle.GetCounter(key) == nil {
-		counter := &counterImpl{
+	if gentle.GetObservation(key) == nil {
+		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".try_count"),
-		}
-		gentle.RegisterCounter(key, counter)
+		})
 	}
 }
 
@@ -71,18 +68,17 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD,
-		name, gentle.MX_HANDLER_OB_HANDLE}
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
 	}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD, name)
-	ob := &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix + ".get_count"),
-		timing: statter.NewSubStatter(prefix + ".get_duration"),
-	}
-	gentle.RegisterObservation(key, ob)
+	gentle.RegisterObservation(key, &timingObservationImpl{
+		count:  statter.NewSubStatter(prefix + "get_count"),
+		timing: statter.NewSubStatter(prefix + "get_duration"),
+	})
 }
 
 // Counter:
@@ -98,24 +94,22 @@ func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name s
 func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
-		name, gentle.MX_HANDLER_OB_HANDLE}
+		name, gentle.MX_HANDLER_HANDLE}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name)
 	if gentle.GetObservation(key) == nil {
-		ob := &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + ".get_count"),
-			timing: statter.NewSubStatter(prefix + ".get_duration"),
-		}
-		gentle.RegisterObservation(key, ob)
+		gentle.RegisterObservation(key, &timingObservationImpl{
+			count:  statter.NewSubStatter(prefix + "get_count"),
+			timing: statter.NewSubStatter(prefix + "get_duration"),
+		})
 	}
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
 		name,
-		gentle.MX_HANDLER_CIRCUITBREAKER_CNT_HXERR}
-	if gentle.GetCounter(key) == nil {
-		counter := &counterImpl{
+		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
+	if gentle.GetObservation(key) == nil {
+		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".err_count"),
-		}
-		gentle.RegisterCounter(key, counter)
+		})
 	}
 }

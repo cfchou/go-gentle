@@ -38,7 +38,7 @@ func NewRateLimitedHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RATELIMITED,
-				name, MX_HANDLER_OB_HANDLE}),
+				name, MX_HANDLER_HANDLE}),
 	}
 }
 
@@ -89,11 +89,11 @@ func NewRetryHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RETRY,
-				name, MX_HANDLER_OB_HANDLE}),
+				name, MX_HANDLER_HANDLE}),
 		tryObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RETRY,
-				name, MX_HANDLER_RETRY_OB_TRY}),
+				name, MX_HANDLER_RETRY_TRY}),
 	}
 }
 
@@ -160,7 +160,7 @@ func NewBulkheadHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_BULKHEAD,
-				name, MX_HANDLER_OB_HANDLE}),
+				name, MX_HANDLER_HANDLE}),
 	}
 }
 
@@ -193,7 +193,7 @@ type CircuitBreakerHandler struct {
 	Circuit           string
 	handler           Handler
 	handleObservation Observation
-	errCounter        Counter
+	errCounter        Observation
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -213,12 +213,12 @@ func NewCircuitBreakerHandler(namespace, name string, handler Handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_CIRCUITBREAKER,
-				name, MX_HANDLER_OB_HANDLE}),
-		errCounter: dummyCounterIfNonRegistered(
+				name, MX_HANDLER_HANDLE}),
+		errCounter: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_CIRCUITBREAKER,
 				name,
-				MX_HANDLER_CIRCUITBREAKER_CNT_HXERR}),
+				MX_HANDLER_CIRCUITBREAKER_HXERR}),
 	}
 }
 
@@ -256,19 +256,19 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrCircuitOpen"})
 			return nil, ErrCircuitOpen
 		case hystrix.ErrMaxConcurrency:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrMaxConcurrency"})
 			return nil, ErrMaxConcurrency
 		case hystrix.ErrTimeout:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "ErrTimeout"})
 			return nil, ErrTimeout
 		default:
-			r.errCounter.Add(1,
+			r.errCounter.Observe(1,
 				map[string]string{"err": "NonHystrixErr"})
 			return nil, err
 		}

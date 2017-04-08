@@ -9,8 +9,8 @@ import (
 // namespace_hRate_handle_seconds{name, result}
 func RegisterRateLimitedHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
-				   gentle.MIXIN_HANDLER_RATELIMITED,
-				   name, gentle.MX_HANDLER_OB_HANDLE}
+		gentle.MIXIN_HANDLER_RATELIMITED,
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -25,11 +25,10 @@ func RegisterRateLimitedHandlerMetrics(namespace, name string) {
 		},
 		[]string{"name", "result"})
 	prom.MustRegister(histVec)
-	ob := &promObeservation{
+	gentle.RegisterObservation(key, &promHist{
 		name:    name,
 		histVec: histVec,
-	}
-	gentle.RegisterObservation(key, ob)
+	})
 }
 
 // Histogram:
@@ -37,8 +36,8 @@ func RegisterRateLimitedHandlerMetrics(namespace, name string) {
 // namespace_hRetry_try_total{name, result}
 func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
-				   gentle.MIXIN_HANDLER_RETRY,
-				   name, gentle.MX_HANDLER_OB_HANDLE}
+		gentle.MIXIN_HANDLER_RETRY,
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
@@ -50,15 +49,14 @@ func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 			},
 			[]string{"name", "result"})
 		prom.MustRegister(histVec)
-		ob := &promObeservation{
+		gentle.RegisterObservation(key, &promHist{
 			name:    name,
 			histVec: histVec,
-		}
-		gentle.RegisterObservation(key, ob)
+		})
 	}
 	key = &gentle.RegistryKey{namespace,
-				  gentle.MIXIN_HANDLER_RETRY,
-				  name, gentle.MX_HANDLER_RETRY_OB_TRY}
+		gentle.MIXIN_HANDLER_RETRY,
+		name, gentle.MX_HANDLER_RETRY_TRY}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
@@ -70,11 +68,10 @@ func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 			},
 			[]string{"name", "result"})
 		prom.MustRegister(histVec)
-		ob := &promObeservation{
+		gentle.RegisterObservation(key, &promHist{
 			name:    name,
 			histVec: histVec,
-		}
-		gentle.RegisterObservation(key, ob)
+		})
 	}
 }
 
@@ -82,8 +79,8 @@ func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 // namespace_hBulk_handle_seconds{name, result}
 func RegisterBulkheadHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
-				   gentle.MIXIN_HANDLER_BULKHEAD,
-				   name, gentle.MX_HANDLER_OB_HANDLE}
+		gentle.MIXIN_HANDLER_BULKHEAD,
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) != nil {
 		// registered
 		return
@@ -98,11 +95,10 @@ func RegisterBulkheadHandlerMetrics(namespace, name string) {
 		},
 		[]string{"name", "result"})
 	prom.MustRegister(histVec)
-	ob := &promObeservation{
+	gentle.RegisterObservation(key, &promHist{
 		name:    name,
 		histVec: histVec,
-	}
-	gentle.RegisterObservation(key, ob)
+	})
 }
 
 // Histogram:
@@ -111,8 +107,8 @@ func RegisterBulkheadHandlerMetrics(namespace, name string) {
 // namespace_hCircuit_errors_total{name, err}
 func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
-				   gentle.MIXIN_HANDLER_CIRCUITBREAKER,
-				   name,gentle.MX_HANDLER_OB_HANDLE}
+		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
+		name, gentle.MX_HANDLER_HANDLE}
 	if gentle.GetObservation(key) == nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
@@ -124,17 +120,16 @@ func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 			},
 			[]string{"name", "result"})
 		prom.MustRegister(histVec)
-		ob := &promObeservation{
+		gentle.RegisterObservation(key, &promHist{
 			name:    name,
 			histVec: histVec,
-		}
-		gentle.RegisterObservation(key, ob)
+		})
 	}
 	key = &gentle.RegistryKey{namespace,
-				  gentle.MIXIN_HANDLER_CIRCUITBREAKER,
-				  name,
-				  gentle.MX_HANDLER_CIRCUITBREAKER_CNT_HXERR}
-	if gentle.GetCounter(key) == nil {
+		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
+		name,
+		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
+	if gentle.GetObservation(key) == nil {
 		counterVec := prom.NewCounterVec(
 			prom.CounterOpts{
 				Namespace: namespace,
@@ -148,6 +143,6 @@ func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 			name:       name,
 			counterVec: counterVec,
 		}
-		gentle.RegisterCounter(key, counter)
+		gentle.RegisterObservation(key, counter)
 	}
 }
