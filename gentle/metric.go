@@ -5,11 +5,11 @@ import "sync"
 const (
 	// Observation supported by all Streams, it observes the time spent for
 	// Get() with label "result" of possible values "ok" and "err"
-	MX_STREAM_OB_GET   = "get"
+	MX_STREAM_OB_GET = "get"
 
 	// Observation supported by all Handlers, it observes the time spent for
 	// Handle() with label "result" of possible values "ok" and "err"
-	MX_HANDLER_OB_HANDLE   = "handle"
+	MX_HANDLER_OB_HANDLE = "handle"
 
 	// Observation supported by RetryStreams, it observes the total number
 	// of tries with label "result" of possible values "ok" and "err"
@@ -31,9 +31,9 @@ const (
 )
 
 var gentleMetrics = &metricRegistry{
-	counters: make(map[RegistryKey]Counter),
+	counters:     make(map[RegistryKey]Counter),
 	observations: make(map[RegistryKey]Observation),
-	lock: &sync.RWMutex{},
+	lock:         &sync.RWMutex{},
 }
 
 // Metric
@@ -81,9 +81,9 @@ func GetObservation(key *RegistryKey) Observation {
 }
 
 type metricRegistry struct {
-	counters map[RegistryKey]Counter
-	observations   map[RegistryKey]Observation
-	lock     *sync.RWMutex
+	counters     map[RegistryKey]Counter
+	observations map[RegistryKey]Observation
+	lock         *sync.RWMutex
 }
 
 func (r *metricRegistry) RegisterCounter(key *RegistryKey, counter Counter) {

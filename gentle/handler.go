@@ -9,19 +9,19 @@ import (
 
 const (
 	// Handler types(mixins), are most often used as part of RegistryKey.
-	MIXIN_HANDLER_RATELIMITED     = "hRate"
-	MIXIN_HANDLER_RETRY           = "hRetry"
-	MIXIN_HANDLER_BULKHEAD        = "hBulk"
-	MIXIN_HANDLER_CIRCUITBREAKER  = "hCircuit"
+	MIXIN_HANDLER_RATELIMITED    = "hRate"
+	MIXIN_HANDLER_RETRY          = "hRetry"
+	MIXIN_HANDLER_BULKHEAD       = "hBulk"
+	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Handle().
 type RateLimitedHandler struct {
-	Namespace      string
-	Name    string
-	Log     log15.Logger
-	handler Handler
-	limiter RateLimit
+	Namespace         string
+	Name              string
+	Log               log15.Logger
+	handler           Handler
+	limiter           RateLimit
 	handleObservation Observation
 }
 
@@ -30,15 +30,15 @@ func NewRateLimitedHandler(namespace, name string, handler Handler,
 
 	return &RateLimitedHandler{
 		Namespace: namespace,
-		Name:    name,
+		Name:      name,
 		Log: Log.New("namespace", namespace,
 			"mixin", MIXIN_HANDLER_RATELIMITED, "name", name),
 		handler: handler,
 		limiter: limiter,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_RATELIMITED,
-				     name, MX_HANDLER_OB_HANDLE}),
+				MIXIN_HANDLER_RATELIMITED,
+				name, MX_HANDLER_OB_HANDLE}),
 	}
 }
 
@@ -64,13 +64,13 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 // RetryHandler takes an Handler. When Handler.Handle() encounters an error,
 // RetryHandler back off for some time and then retries.
 type RetryHandler struct {
-	Namespace      string
-	Name     string
-	Log      log15.Logger
-	handler  Handler
-	backoffs []time.Duration
+	Namespace         string
+	Name              string
+	Log               log15.Logger
+	handler           Handler
+	backoffs          []time.Duration
 	handleObservation Observation
-	tryObservation Observation
+	tryObservation    Observation
 }
 
 func NewRetryHandler(namespace, name string, handler Handler,
@@ -81,19 +81,19 @@ func NewRetryHandler(namespace, name string, handler Handler,
 	}
 	return &RetryHandler{
 		Namespace: namespace,
-		Name:     name,
-		Log:       Log.New("namespace", namespace, "mixin",
+		Name:      name,
+		Log: Log.New("namespace", namespace, "mixin",
 			MIXIN_HANDLER_RETRY, "name", name),
 		handler:  handler,
 		backoffs: backoffs,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_RETRY,
-				     name, MX_HANDLER_OB_HANDLE}),
+				MIXIN_HANDLER_RETRY,
+				name, MX_HANDLER_OB_HANDLE}),
 		tryObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_RETRY,
-				     name, MX_HANDLER_RETRY_OB_TRY}),
+				MIXIN_HANDLER_RETRY,
+				name, MX_HANDLER_RETRY_OB_TRY}),
 	}
 }
 
@@ -103,7 +103,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	to_wait := 0 * time.Second
 	for {
 		count := len(r.backoffs) - len(bk) + 1
-		r.Log.Debug("[Handler] Handle() ...","msg_in", msg.Id(),
+		r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id(),
 			"count", count, "wait", to_wait)
 		time.Sleep(to_wait)
 		msg_out, err := r.handler.Handle(msg)
@@ -134,11 +134,11 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 
 // Bulkhead pattern is used to limit the number of concurrent Handle().
 type BulkheadHandler struct {
-	Namespace      string
-	Name      string
-	Log       log15.Logger
-	handler   Handler
-	semaphore chan *struct{}
+	Namespace         string
+	Name              string
+	Log               log15.Logger
+	handler           Handler
+	semaphore         chan *struct{}
 	handleObservation Observation
 }
 
@@ -159,8 +159,8 @@ func NewBulkheadHandler(namespace, name string, handler Handler,
 		semaphore: make(chan *struct{}, max_concurrency),
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_BULKHEAD,
-				     name, MX_HANDLER_OB_HANDLE}),
+				MIXIN_HANDLER_BULKHEAD,
+				name, MX_HANDLER_OB_HANDLE}),
 	}
 }
 
@@ -187,13 +187,13 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 
 // CircuitBreakerHandler is a handler equipped with a circuit-breaker.
 type CircuitBreakerHandler struct {
-	Namespace      string
-	Name    string
-	Log     log15.Logger
-	Circuit string
-	handler Handler
+	Namespace         string
+	Name              string
+	Log               log15.Logger
+	Circuit           string
+	handler           Handler
 	handleObservation Observation
-	errCounter     Counter
+	errCounter        Counter
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -204,7 +204,7 @@ func NewCircuitBreakerHandler(namespace, name string, handler Handler,
 
 	return &CircuitBreakerHandler{
 		Namespace: namespace,
-		Name: name,
+		Name:      name,
 		Log: Log.New("namespace", namespace,
 			"mixin", MIXIN_HANDLER_CIRCUITBREAKER, "name", name,
 			"circuit", circuit),
@@ -212,8 +212,8 @@ func NewCircuitBreakerHandler(namespace, name string, handler Handler,
 		handler: handler,
 		handleObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				     MIXIN_HANDLER_CIRCUITBREAKER,
-				     name, MX_HANDLER_OB_HANDLE}),
+				MIXIN_HANDLER_CIRCUITBREAKER,
+				name, MX_HANDLER_OB_HANDLE}),
 		errCounter: dummyCounterIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_CIRCUITBREAKER,
@@ -275,9 +275,8 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	}
 	msg_out := <-result
 	timespan := time.Now().Sub(begin).Seconds()
-	r.Log.Debug("[Handler] Handle() ok","msg_in", msg.Id(),
+	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", msg_out.Id(), "timespan", timespan)
 	r.handleObservation.Observe(timespan, label_ok)
 	return msg, nil
 }
-

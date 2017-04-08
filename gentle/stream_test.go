@@ -6,10 +6,10 @@ import (
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
-	"strconv"
 )
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
@@ -19,16 +19,17 @@ func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
 	src := make(chan Message, 1)
 	go func() {
 		count := 1
-		for {
+		keep := false
+		for keep {
 			mm := &fakeMsg{id: strconv.Itoa(count)}
 			select {
 			case src <- mm:
 			case <-done:
 				log.Info("[Test] Channel closed")
-				break
+				close(src)
+				keep = false
 			}
 		}
-		close(src)
 	}()
 	return src, done
 }
@@ -54,7 +55,7 @@ func TestChannelStream_Get(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 	src := make(chan Message, 1)
 	src <- mm
-	stream := NewChannelStream("","test", src)
+	stream := NewChannelStream("", "test", src)
 	msg_out, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), mm.Id())
@@ -79,7 +80,7 @@ func TestRateLimitedStream_Get(t *testing.T) {
 		NewChannelStream("", "test", src),
 		NewTokenBucketRateLimit(requests_interval, 1))
 	count := 4
-	minimum := time.Duration(count-1)*requests_interval
+	minimum := time.Duration(count-1) * requests_interval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
@@ -208,7 +209,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	conf.Timeout = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	stream := NewCircuitBreakerStream("","test", mstream, circuit)
+	stream := NewCircuitBreakerStream("", "test", mstream, circuit)
 	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
@@ -252,7 +253,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	conf.Timeout = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	stream := NewCircuitBreakerStream("","test", mstream, circuit)
+	stream := NewCircuitBreakerStream("", "test", mstream, circuit)
 	mm := &fakeMsg{id: "123"}
 
 	// Suspend longer than Timeout
@@ -286,7 +287,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := stream.Get()
 			if err == ErrCircuitOpen {
 				tm.Stop()
@@ -346,7 +347,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := stream.Get()
 			if err == ErrCircuitOpen {
 				tm.Stop()
@@ -386,7 +387,7 @@ func TestCircuitBreakerStream_Get4(t *testing.T) {
 	conf.SleepWindow = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	stream := NewCircuitBreakerStream("","test", mstream, circuit)
+	stream := NewCircuitBreakerStream("", "test", mstream, circuit)
 	fakeErr := errors.New("A fake error")
 	mm := &fakeMsg{id: "123"}
 	call := mstream.On("Get")
@@ -416,7 +417,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := stream.Get()
 			if err == ErrCircuitOpen {
 				tm.Stop()
@@ -455,7 +456,7 @@ func TestConcurrentFetchStream_Get2(t *testing.T) {
 	count := 5
 	cstream, msgs := genChannelStreamWithMessages(count)
 	mhandler := &mockHandler{}
-	mstream := NewMappedStream("","test", cstream, mhandler)
+	mstream := NewMappedStream("", "test", cstream, mhandler)
 
 	calls := make([]*mock.Call, count)
 	for i := 0; i < count; i++ {
@@ -485,4 +486,3 @@ func TestConcurrentFetchStream_Get2(t *testing.T) {
 	// The 1st msg from upstream is now the last
 	assert.Equal(t, ids[count-1], "0")
 }
-

@@ -15,13 +15,13 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	// 1 msg/sec, no burst
 	requests_interval := 100 * time.Millisecond
 	mhandler := &mockHandler{}
-	handler := NewRateLimitedHandler("","test", mhandler,
+	handler := NewRateLimitedHandler("", "test", mhandler,
 		NewTokenBucketRateLimit(requests_interval, 1))
 	mm := &fakeMsg{id: "123"}
 	mhandler.On("Handle", mm).Return(mm, nil)
 
 	count := 3
-	minimum := time.Duration(count-1)*requests_interval
+	minimum := time.Duration(count-1) * requests_interval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
@@ -49,7 +49,7 @@ func TestRetryHandler_Handle(t *testing.T) {
 	}(backoffs)
 
 	mhandler := &mockHandler{}
-	handler := NewRetryHandler("","test", mhandler, backoffs)
+	handler := NewRetryHandler("", "test", mhandler, backoffs)
 	mm := &fakeMsg{id: "123"}
 
 	// 1st: ok
@@ -76,7 +76,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	count := 8
 	max_concurrency := 4
 	mhandler := &mockHandler{}
-	handler := NewBulkheadHandler("","test", mhandler, max_concurrency)
+	handler := NewBulkheadHandler("", "test", mhandler, max_concurrency)
 	mm := &fakeMsg{id: "123"}
 
 	suspend := 100 * time.Millisecond
@@ -127,7 +127,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	conf.Timeout = 10000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("", "test", mhandler, circuit)
 	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
@@ -171,7 +171,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	conf.Timeout = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("", "test", mhandler, circuit)
 	mm := &fakeMsg{id: "123"}
 
 	// Suspend longer than Timeout
@@ -205,7 +205,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
 			if err == ErrCircuitOpen {
 				tm.Stop()
@@ -244,7 +244,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	conf.SleepWindow = 1000
 	hystrix.ConfigureCommand(circuit, *conf)
 
-	handler := NewCircuitBreakerHandler("","test", mhandler, circuit)
+	handler := NewCircuitBreakerHandler("", "test", mhandler, circuit)
 	mm := &fakeMsg{id: "123"}
 	fakeErr := errors.New("A fake error")
 
@@ -265,7 +265,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
 			if err == ErrCircuitOpen {
 				tm.Stop()
@@ -336,7 +336,7 @@ LOOP:
 		case <-tm.C:
 			assert.Fail(t, "[Test] SleepWindow not long enough")
 		default:
-			time.Sleep(100*time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
 			if err == ErrCircuitOpen {
 				tm.Stop()

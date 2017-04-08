@@ -98,10 +98,10 @@ func NewRetryStream(namespace string, name string, stream Stream,
 	return &RetryStream{
 		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("namespace", namespace, "mixin",
+		Log: Log.New("namespace", namespace, "mixin",
 			MIXIN_STREAM_RETRY, "name", name),
-		stream:    stream,
-		backoffs:  backoffs,
+		stream:   stream,
+		backoffs: backoffs,
 		getObservation: dummyObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
