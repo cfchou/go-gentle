@@ -7,11 +7,11 @@ import (
 )
 
 // Counter:
-// namespace.hRate.name.get_count.result_ok
-// namespace.hRate.name.get_count.result_err
+// namespace.hRate.name.get.result_ok
+// namespace.hRate.name.get.result_err
 // Timing:
-// namespace.hRate.name.get_duration.result_ok
-// namespace.hRate.name.get_duration.result_err
+// namespace.hRate.name.get.result_ok
+// namespace.hRate.name.get.result_err
 func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED,
@@ -23,19 +23,19 @@ func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, nam
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED, name)
 	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix + "get_count"),
-		timing: statter.NewSubStatter(prefix + "get_duration"),
+		count:  statter.NewSubStatter(prefix + "get"),
+		timing: statter.NewSubStatter(prefix + "get"),
 	})
 }
 
 // Counter:
-// namespace.hRetry.name.get_count.result_ok
-// namespace.hRetry.name.get_count.result_err
-// namespace.hRetry.name.try_count.result_ok
-// namespace.hRetry.name.try_count.result_err
+// namespace.hRetry.name.get.result_ok
+// namespace.hRetry.name.get.result_err
+// namespace.hRetry.name.try.result_ok
+// namespace.hRetry.name.try.result_err
 // Timing:
-// namespace.hRetry.name.get_duration.result_ok
-// namespace.hRetry.name.get_duration.result_err
+// namespace.hRetry.name.get.result_ok
+// namespace.hRetry.name.get.result_err
 func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RETRY,
@@ -44,8 +44,8 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 		gentle.MIXIN_HANDLER_RETRY, name)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + "get_count"),
-			timing: statter.NewSubStatter(prefix + "get_duration"),
+			count:  statter.NewSubStatter(prefix + "get"),
+			timing: statter.NewSubStatter(prefix + "get"),
 		})
 	}
 	key = &gentle.RegistryKey{namespace,
@@ -54,17 +54,17 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix + ".try_count"),
+			count: statter.NewSubStatter(prefix + ".try"),
 		})
 	}
 }
 
 // Counter:
-// namespace.hBulk.name.get_count.result_ok
-// namespace.hBulk.name.get_count.result_err
+// namespace.hBulk.name.get.result_ok
+// namespace.hBulk.name.get.result_err
 // Timing:
-// namespace.hBulk.name.get_duration.result_ok
-// namespace.hBulk.name.get_duration.result_err
+// namespace.hBulk.name.get.result_ok
+// namespace.hBulk.name.get.result_err
 func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD,
@@ -76,21 +76,21 @@ func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name s
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD, name)
 	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix + "get_count"),
-		timing: statter.NewSubStatter(prefix + "get_duration"),
+		count:  statter.NewSubStatter(prefix + "get"),
+		timing: statter.NewSubStatter(prefix + "get"),
 	})
 }
 
 // Counter:
-// namespace.hCircuit.name.get_count.result_ok
-// namespace.hCircuit.name.get_count.result_err
-// namespace.hCircuit.name.err_count.err_ErrCircuitOpen
-// namespace.hCircuit.name.err_count.err_ErrMaxConcurrency
-// namespace.hCircuit.name.err_count.err_ErrTimeout
-// namespace.hCircuit.name.err_count.err_NonHystrixErr
+// namespace.hCircuit.name.get.result_ok
+// namespace.hCircuit.name.get.result_err
+// namespace.hCircuit.name.err.err_ErrCircuitOpen
+// namespace.hCircuit.name.err.err_ErrMaxConcurrency
+// namespace.hCircuit.name.err.err_ErrTimeout
+// namespace.hCircuit.name.err.err_NonHystrixErr
 // Timing:
-// namespace.hCircuit.name.get_duration.result_ok
-// namespace.hCircuit.name.get_duration.result_err
+// namespace.hCircuit.name.get.result_ok
+// namespace.hCircuit.name.get.result_err
 func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
@@ -99,8 +99,8 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + "get_count"),
-			timing: statter.NewSubStatter(prefix + "get_duration"),
+			count:  statter.NewSubStatter(prefix + "get"),
+			timing: statter.NewSubStatter(prefix + "get"),
 		})
 	}
 	key = &gentle.RegistryKey{namespace,
@@ -109,7 +109,7 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix + ".err_count"),
+			count: statter.NewSubStatter(prefix + ".err"),
 		})
 	}
 }
