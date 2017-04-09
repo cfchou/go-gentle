@@ -5,7 +5,7 @@ import "github.com/cactus/go-statsd-client/statsd"
 // Provide registration APIs for applications don't bother to create a statsd
 // client themselves.
 type StatsdMetrics struct {
-	Client statsd.Client
+	Client *statsd.Client
 	statter statsd.SubStatter
 }
 
@@ -15,7 +15,7 @@ func NewStatsdMetrics(addr, prefix string) (*StatsdMetrics, error) {
 		return nil, err
 	}
 	return &StatsdMetrics{
-		Client: client.(statsd.Client),
+		Client: client.(*statsd.Client),
 		statter: client.NewSubStatter(""),
 	}, nil
 }
