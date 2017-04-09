@@ -1,6 +1,9 @@
 package gentle
 
-import "sync"
+import (
+	"sync"
+	"errors"
+)
 
 const (
 	// Observation supported by all Stream.Get(), it observes the time spent
@@ -31,12 +34,16 @@ const (
 	// of "ErrCircuitOpen", "ErrMaxConcurrency", "ErrTimeout" or
 	// "NonHystrixErr"
 	MX_HANDLER_CIRCUITBREAKER_HXERR = "hxerr"
+
 )
 
-var gentleMetrics = &metricRegistry{
-	observations: make(map[RegistryKey]Observation),
-	lock:         &sync.RWMutex{},
-}
+var (
+	ErrMxNotFound = errors.New("Metric Not found")
+	gentleMetrics = &metricRegistry{
+		metrics: make(map[RegistryKey]Metric),
+		lock:         &sync.RWMutex{},
+	}
+)
 
 // Metric
 type Metric interface{}
@@ -53,52 +60,61 @@ type RegistryKey struct {
 	Namespace, Mixin, Name, Mx string
 }
 
+// Registration helpers. Not thread-safe so synchronization has be done by
+// application if needed.
 func RegisterObservation(key *RegistryKey, observation Observation) {
-	gentleMetrics.RegisterObservation(key, observation)
+	gentleMetrics.RegisterMetric(key, observation)
 }
 
+// Registration helpers. Not thread-safe so synchronization has be done by
+// application if needed.
 func UnRegisterObservation(key *RegistryKey) {
-	gentleMetrics.UnRegisterObservation(key)
+	gentleMetrics.UnRegisterMetric(key)
 }
-func GetObservation(key *RegistryKey) Observation {
-	return gentleMetrics.GetObservation(key)
+
+// Registration helpers. Not thread-safe so synchronization has be done by
+// application if needed.
+func GetObservation(key *RegistryKey) (Observation, error) {
+	mx := gentleMetrics.GetMetric(key)
+	if ob, ok := mx.(Observation); ok {
+		return ob, nil
+	}
+	return nil, ErrMxNotFound
 }
 
 type metricRegistry struct {
-	observations map[RegistryKey]Observation
+	metrics map[RegistryKey]Metric
 	lock         *sync.RWMutex
 }
 
-func (r *metricRegistry) RegisterObservation(key *RegistryKey, observation Observation) {
+func (r *metricRegistry) RegisterMetric(key *RegistryKey, mx Metric) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	r.observations[*key] = observation
+	r.metrics[*key] = mx
 }
 
-func (r *metricRegistry) UnRegisterObservation(key *RegistryKey) {
+func (r *metricRegistry) UnRegisterMetric(key *RegistryKey) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	delete(r.observations, *key)
+	delete(r.metrics, *key)
 }
 
-func (r *metricRegistry) GetObservation(key *RegistryKey) Observation {
+func (r *metricRegistry) GetMetric(key *RegistryKey) Metric {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	return r.observations[*key]
+	return r.metrics[*key]
 }
 
 // A do-nothing Metric
 type dummyMetric struct{}
 
 func (m *dummyMetric) Observe(value float64, labels map[string]string) {}
-func (m *dummyMetric) Add(delta float64, labels map[string]string)     {}
 
 var dummy = &dummyMetric{}
 
 func dummyObservationIfNonRegistered(key *RegistryKey) Observation {
-	m := gentleMetrics.GetObservation(key)
-	if m != nil {
-		return m
+	if ob, err := GetObservation(key); err == nil {
+		return ob
 	}
 	return dummy
 }

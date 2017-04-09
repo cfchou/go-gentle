@@ -39,7 +39,7 @@ func RegisterRateLimitedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RATELIMITED,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -66,7 +66,7 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -85,7 +85,7 @@ func RegisterRetryStreamMetrics(namespace, name string, tryBuckets []float64) {
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
 		name, gentle.MX_STREAM_RETRY_TRY}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -109,7 +109,7 @@ func RegisterBulkheadStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_BULKHEAD,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -137,7 +137,7 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -157,7 +157,7 @@ func RegisterCircuitBreakerStreamMetrics(namespace, name string) {
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name,
 		gentle.MX_STREAM_CIRCUITBREAKER_HXERR}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		counterVec := prom.NewCounterVec(
 			prom.CounterOpts{
 				Namespace: namespace,
@@ -180,7 +180,7 @@ func RegisterChannelStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CHANNEL,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -206,7 +206,7 @@ func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CONCURRENTFETCH,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -232,7 +232,7 @@ func RegisterMappedStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_MAPPED,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}

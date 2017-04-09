@@ -45,7 +45,7 @@ func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RATELIMITED,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -71,7 +71,7 @@ func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name strin
 		name, gentle.MX_STREAM_GET}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RETRY, name)
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
 			count:  statter.NewSubStatter(prefix + "get_count"),
 			timing: statter.NewSubStatter(prefix + "get_duration"),
@@ -81,7 +81,7 @@ func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name strin
 		gentle.MIXIN_STREAM_RETRY,
 		name, gentle.MX_STREAM_RETRY_TRY}
 
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".try_count"),
 		})
@@ -98,7 +98,7 @@ func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name st
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_BULKHEAD,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -126,7 +126,7 @@ func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, n
 		name, gentle.MX_STREAM_GET}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER, name)
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
 			count:  statter.NewSubStatter(prefix + "get_count"),
 			timing: statter.NewSubStatter(prefix + "get_duration"),
@@ -136,7 +136,7 @@ func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, n
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name,
 		gentle.MX_STREAM_CIRCUITBREAKER_HXERR}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".err_count"),
 		})
@@ -153,7 +153,7 @@ func RegisterChannelStreamMetrics(statter statsd.SubStatter, namespace, name str
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CHANNEL,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -175,7 +175,7 @@ func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, 
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CONCURRENTFETCH,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -197,7 +197,7 @@ func RegisterMappedStreamMetrics(statter statsd.SubStatter, namespace, name stri
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_MAPPED,
 		name, gentle.MX_STREAM_GET}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}

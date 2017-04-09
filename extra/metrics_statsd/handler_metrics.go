@@ -16,7 +16,7 @@ func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, nam
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -42,7 +42,7 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 		name, gentle.MX_HANDLER_HANDLE}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RETRY, name)
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
 			count:  statter.NewSubStatter(prefix + "get_count"),
 			timing: statter.NewSubStatter(prefix + "get_duration"),
@@ -52,7 +52,7 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 		gentle.MIXIN_HANDLER_RETRY,
 		name, gentle.MX_HANDLER_RETRY_TRY}
 
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".try_count"),
 		})
@@ -69,7 +69,7 @@ func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name s
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -97,7 +97,7 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		name, gentle.MX_HANDLER_HANDLE}
 	prefix := fmt.Sprintf("%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name)
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
 			count:  statter.NewSubStatter(prefix + "get_count"),
 			timing: statter.NewSubStatter(prefix + "get_duration"),
@@ -107,7 +107,7 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
 		name,
 		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
 			count: statter.NewSubStatter(prefix + ".err_count"),
 		})

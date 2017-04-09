@@ -11,7 +11,7 @@ func RegisterRateLimitedHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -38,7 +38,7 @@ func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RETRY,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -57,7 +57,7 @@ func RegisterRetryHandlerMetrics(namespace, name string, tryBuckets []float64) {
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_RETRY,
 		name, gentle.MX_HANDLER_RETRY_TRY}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -81,7 +81,7 @@ func RegisterBulkheadHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) != nil {
+	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
@@ -109,7 +109,7 @@ func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
 		name, gentle.MX_HANDLER_HANDLE}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		histVec := prom.NewHistogramVec(
 			prom.HistogramOpts{
 				Namespace: namespace,
@@ -129,7 +129,7 @@ func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
 		name,
 		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
-	if gentle.GetObservation(key) == nil {
+	if _, err := gentle.GetObservation(key); err != nil {
 		counterVec := prom.NewCounterVec(
 			prom.CounterOpts{
 				Namespace: namespace,
