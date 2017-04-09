@@ -20,11 +20,11 @@ func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, nam
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s", namespace,
+	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED, name)
 	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix + "get"),
-		timing: statter.NewSubStatter(prefix + "get"),
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	})
 }
 
@@ -44,8 +44,8 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 		gentle.MIXIN_HANDLER_RETRY, name)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + "get"),
-			timing: statter.NewSubStatter(prefix + "get"),
+			count:  statter.NewSubStatter(prefix + ".get"),
+			timing: statter.NewSubStatter(prefix + ".get"),
 		})
 	}
 	key = &gentle.RegistryKey{namespace,
@@ -73,11 +73,11 @@ func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name s
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s", namespace,
+	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD, name)
 	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix + "get"),
-		timing: statter.NewSubStatter(prefix + "get"),
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	})
 }
 
@@ -99,8 +99,8 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + "get"),
-			timing: statter.NewSubStatter(prefix + "get"),
+			count:  statter.NewSubStatter(prefix + ".get"),
+			timing: statter.NewSubStatter(prefix + ".get"),
 		})
 	}
 	key = &gentle.RegistryKey{namespace,
