@@ -7,34 +7,6 @@ import (
 	"github.com/cfchou/go-gentle/gentle"
 )
 
-// A statsd timing maintains a counter too but it doesn't get flushed every
-// interval. Therefore we explicitly set up a statsd counter.
-// More info:
-// https://github.com/etsy/statsd/issues/22
-type timingObservationImpl struct {
-	count  statsd.SubStatter
-	timing statsd.SubStatter
-}
-
-func (p *timingObservationImpl) Observe(value float64, labels map[string]string) {
-	for k, v := range labels {
-		suffix := k + "_" + v
-		p.count.Inc(suffix, 1, 1.0)
-		p.timing.Timing(suffix, int64(value*1000), 1.0)
-	}
-}
-
-type counterImpl struct {
-	count statsd.SubStatter
-}
-
-func (p *counterImpl) Observe(value float64, labels map[string]string) {
-	for k, v := range labels {
-		suffix := k + "_" + v
-		p.count.Inc(suffix, int64(value), 1.0)
-	}
-}
-
 // Counter:
 // namespace.sRate.name.get.result_ok
 // namespace.sRate.name.get.result_err
@@ -208,3 +180,4 @@ func RegisterMappedStreamMetrics(statter statsd.SubStatter, namespace, name stri
 		timing: statter.NewSubStatter(prefix),
 	})
 }
+
