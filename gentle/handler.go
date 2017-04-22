@@ -35,7 +35,7 @@ func NewRateLimitedHandler(namespace, name string, handler Handler,
 			"mixin", MIXIN_HANDLER_RATELIMITED, "name", name),
 		handler: handler,
 		limiter: limiter,
-		handleObservation: dummyObservationIfNonRegistered(
+		handleObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RATELIMITED,
 				name, MX_HANDLER_HANDLE}),
@@ -86,11 +86,11 @@ func NewRetryHandler(namespace, name string, handler Handler,
 			MIXIN_HANDLER_RETRY, "name", name),
 		handler:  handler,
 		backoffs: backoffs,
-		handleObservation: dummyObservationIfNonRegistered(
+		handleObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RETRY,
 				name, MX_HANDLER_HANDLE}),
-		tryObservation: dummyObservationIfNonRegistered(
+		tryObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_RETRY,
 				name, MX_HANDLER_RETRY_TRY}),
@@ -157,7 +157,7 @@ func NewBulkheadHandler(namespace, name string, handler Handler,
 			"mixin", MIXIN_HANDLER_BULKHEAD, "name", name),
 		handler:   handler,
 		semaphore: make(chan *struct{}, max_concurrency),
-		handleObservation: dummyObservationIfNonRegistered(
+		handleObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_BULKHEAD,
 				name, MX_HANDLER_HANDLE}),
@@ -210,11 +210,11 @@ func NewCircuitBreakerHandler(namespace, name string, handler Handler,
 			"circuit", circuit),
 		Circuit: circuit,
 		handler: handler,
-		handleObservation: dummyObservationIfNonRegistered(
+		handleObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_CIRCUITBREAKER,
 				name, MX_HANDLER_HANDLE}),
-		errCounter: dummyObservationIfNonRegistered(
+		errCounter: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_HANDLER_CIRCUITBREAKER,
 				name,

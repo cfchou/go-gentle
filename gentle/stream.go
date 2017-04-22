@@ -20,13 +20,6 @@ const (
 )
 
 var (
-	// Errors that CircuitBreakerStream, in addition to application's errors, might
-	// return. They are replacement of hystrix errors. Get() won't return
-	// any hystrix errors.
-	ErrCircuitOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
-	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
-	ErrTimeout        = errors.New(hystrix.ErrTimeout.Error())
-
 	label_ok  = map[string]string{"result": "ok"}
 	label_err = map[string]string{"result": "err"}
 )
@@ -51,7 +44,7 @@ func NewRateLimitedStream(namespace, name string, stream Stream,
 			"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 		stream:  stream,
 		limiter: limiter,
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RATELIMITED,
 				name, MX_STREAM_GET}),
@@ -102,11 +95,11 @@ func NewRetryStream(namespace string, name string, stream Stream,
 			MIXIN_STREAM_RETRY, "name", name),
 		stream:   stream,
 		backoffs: backoffs,
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
 				name, MX_STREAM_GET}),
-		tryObservation: dummyObservationIfNonRegistered(
+		tryObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_RETRY,
 				name, MX_STREAM_RETRY_TRY}),
@@ -171,7 +164,7 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 			"mixin", MIXIN_STREAM_BULKHEAD, "name", name),
 		stream:    stream,
 		semaphore: make(chan *struct{}, max_concurrency),
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_BULKHEAD,
 				name, MX_STREAM_GET}),
@@ -224,11 +217,11 @@ func NewCircuitBreakerStream(namespace string, name string, stream Stream,
 			"name", name, "circuit", circuit),
 		Circuit: circuit,
 		stream:  stream,
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
 				name, MX_STREAM_GET}),
-		errCounter: dummyObservationIfNonRegistered(
+		errCounter: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CIRCUITBREAKER,
 				name, MX_STREAM_CIRCUITBREAKER_HXERR}),
@@ -294,20 +287,20 @@ type ChannelStream struct {
 	Namespace      string
 	Name           string
 	Log            log15.Logger
-	channel        <-chan Message
+	channel        <-chan interface{}
 	getObservation Observation
 }
 
 // Create a ChannelStream that gets Messages from $channel.
 func NewChannelStream(namespace string, name string,
-	channel <-chan Message) *ChannelStream {
+	channel <-chan interface{}) *ChannelStream {
 
 	return &ChannelStream{
 		Namespace: namespace,
 		Name:      name,
 		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_CHANNEL, "name", name),
 		channel:   channel,
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CHANNEL,
 				name, MX_STREAM_GET}),
@@ -317,12 +310,24 @@ func NewChannelStream(namespace string, name string,
 func (r *ChannelStream) Get() (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
-	msg := <-r.channel
-	timespan := time.Now().Sub(begin).Seconds()
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
-		"timespan", timespan)
-	r.getObservation.Observe(timespan, label_ok)
-	return msg, nil
+	switch v := (<-r.channel).(type) {
+	case Message:
+		timespan := time.Now().Sub(begin).Seconds()
+		r.Log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_ok)
+		return v, nil
+	case error:
+		timespan := time.Now().Sub(begin).Seconds()
+		r.Log.Debug("[Stream] Get() err", "err", v,
+			"timespan", timespan)
+		r.getObservation.Observe(timespan, label_err)
+		return nil, v
+	default:
+		r.Log.Error("[Stream] Get() err, invalid type",
+			"value", v)
+		return nil, ErrInvalidType
+	}
 }
 
 // ConcurrentFetchStream internally keeps fetching a number of items from
@@ -352,7 +357,7 @@ func NewConcurrentFetchStream(namespace string, name string, stream Stream,
 		stream:    stream,
 		receives:  make(chan *tuple, max_concurrency),
 		semaphore: make(chan *struct{}, max_concurrency),
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_CONCURRENTFETCH,
 				name, MX_STREAM_GET}),
@@ -425,7 +430,7 @@ func NewMappedStream(namespace string, name string, stream Stream, handler Handl
 		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
 		stream:    stream,
 		handler:   handler,
-		getObservation: dummyObservationIfNonRegistered(
+		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
 				MIXIN_STREAM_MAPPED,
 				name, MX_STREAM_GET}),
@@ -455,3 +460,13 @@ func (r *MappedStream) Get() (Message, error) {
 	r.getObservation.Observe(timespan, label_ok)
 	return hmsg, nil
 }
+
+// ChannelStream2 forms a stream from a channel.
+type ChannelStream2 struct {
+	Namespace      string
+	Name           string
+	Log            log15.Logger
+	channel        <-chan interface{}
+	getObservation Observation
+}
+

@@ -14,9 +14,9 @@ import (
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
 // Every Message extracted from $src has a monotonically increasing id.
-func genMessageChannelInfinite() (<-chan Message, chan *struct{}) {
+func genMessageChannelInfinite() (<-chan interface{}, chan *struct{}) {
 	done := make(chan *struct{}, 1)
-	src := make(chan Message, 1)
+	src := make(chan interface{}, 1)
 	go func() {
 		count := 0
 		for {
@@ -42,7 +42,7 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 		mm := &fakeMsg{id: strconv.Itoa(i)}
 		msgs[i] = mm
 	}
-	src := make(chan Message, 1)
+	src := make(chan interface{}, 1)
 	go func() {
 		for i := 0; i < count; i++ {
 			src <- msgs[i]
@@ -53,7 +53,7 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 
 func TestChannelStream_Get(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
-	src := make(chan Message, 1)
+	src := make(chan interface{}, 1)
 	src <- mm
 	stream := NewChannelStream("", "test", src)
 	msg_out, err := stream.Get()

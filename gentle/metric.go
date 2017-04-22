@@ -106,15 +106,15 @@ func (r *metricRegistry) GetMetric(key *RegistryKey) Metric {
 }
 
 // A do-nothing Metric
-type dummyMetric struct{}
+type NoOpMetric struct{}
 
-func (m *dummyMetric) Observe(value float64, labels map[string]string) {}
+func (m *NoOpMetric) Observe(value float64, labels map[string]string) {}
 
-var dummy = &dummyMetric{}
+var noop = &NoOpMetric{}
 
-func dummyObservationIfNonRegistered(key *RegistryKey) Observation {
+func NoOpObservationIfNonRegistered(key *RegistryKey) Observation {
 	if ob, err := GetObservation(key); err == nil {
 		return ob
 	}
-	return dummy
+	return noop
 }

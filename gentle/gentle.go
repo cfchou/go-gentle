@@ -4,11 +4,24 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"time"
+	"errors"
 )
 
-// Package level logger. It uses log15(gopkg.in/inconshreveable/log15.v2)
-// to provide finer control over logging.
-var Log = log15.New()
+var (
+	// Package level logger. It uses log15(gopkg.in/inconshreveable/log15.v2)
+	// to provide finer control over logging.
+	Log = log15.New()
+
+	// Errors that CircuitBreakerStream.Get() and
+	// CircuitBreakerHandler.Handle() might return. They are replacement of
+	// hystrix errors.
+	ErrCircuitOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+	ErrTimeout        = errors.New(hystrix.ErrTimeout.Error())
+
+	ErrInvalidType = errors.New("Invalid Type")
+)
+
 
 func init() {
 	Log.SetHandler(log15.DiscardHandler())
