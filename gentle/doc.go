@@ -6,13 +6,13 @@ Stream and Handler and back-pressure
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
 Stream has one method Get() that emits Message. Handler has another method
-Handle() that transforms a given Message. The helper NewMappedStream()
-creates a MappedStream whose Get() emits a Message transformed by a Handler
+Handle() that transforms a given Message. The helper NewHandlerStream()
+creates a HandlerStream whose Get() emits a Message transformed by a Handler
 from a given Stream.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
-  NewMappedStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewMappedStream)
+  NewHandlerStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewHandlerStream)
 
 Resiliency
 
@@ -45,7 +45,7 @@ with each other to form an ad-hoc, combined resiliency. For example:
   		func() []time.Duration {
   			return []time.Duration{time.Second, time.Second}
   		})
-  	return NewMappedStream(name, upstream,
+  	return NewHandlerStream(name, upstream,
   		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
   }
 

@@ -1,10 +1,10 @@
 package gentle
 
 import (
+	"errors"
 	"github.com/afex/hystrix-go/hystrix"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"time"
-	"errors"
 )
 
 var (
@@ -21,7 +21,6 @@ var (
 
 	ErrInvalidType = errors.New("Invalid Type")
 )
-
 
 func init() {
 	Log.SetHandler(log15.DiscardHandler())
@@ -62,11 +61,16 @@ func IntToMillis(millis int) time.Duration {
 // GetHystrixDefaultConfig() returns a new hystrix.CommandConfig filled with defaults(https://godoc.org/github.com/afex/hystrix-go/hystrix#pkg-variables):
 func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	return &hystrix.CommandConfig{
-		Timeout:                hystrix.DefaultTimeout,
-		MaxConcurrentRequests:  hystrix.DefaultMaxConcurrent,
+		// DefaultTimeout = 1000, is how long to wait for command to complete, in milliseconds
+		Timeout: hystrix.DefaultTimeout,
+		// DefaultMaxConcurrent = 10 is how many commands of the same type can run at the same time
+		MaxConcurrentRequests: hystrix.DefaultMaxConcurrent,
+		// DefaultVolumeThreshold = 20 is the minimum number of requests needed before a circuit can be tripped due to health
 		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
-		SleepWindow:            hystrix.DefaultSleepWindow,
-		ErrorPercentThreshold:  hystrix.DefaultErrorPercentThreshold,
+		// DefaultSleepWindow = 5000 is how long, in milliseconds, to wait after a circuit opens before testing for recovery
+		SleepWindow: hystrix.DefaultSleepWindow,
+		// DefaultErrorPercentThreshold = 50 causes circuits to open once the rolling measure of errors exceeds this percent of requests
+		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
 	}
 }
 

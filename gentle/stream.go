@@ -16,7 +16,8 @@ const (
 	MIXIN_STREAM_CIRCUITBREAKER  = "sCircuit"
 	MIXIN_STREAM_CHANNEL         = "sChan"
 	MIXIN_STREAM_CONCURRENTFETCH = "sCon"
-	MIXIN_STREAM_MAPPED          = "sMap"
+	MIXIN_STREAM_HANDLED         = "sHan"
+	MIXIN_STREAM_TRANS           = "sTrans"
 )
 
 var (
@@ -412,9 +413,9 @@ func (r *ConcurrentFetchStream) Get() (Message, error) {
 	return msg, nil
 }
 
-// A MappedStream whose Get() emits a Message transformed by a Handler from
+// A HandlerStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
-type MappedStream struct {
+type HandlerStream struct {
 	Namespace      string
 	Name           string
 	Log            log15.Logger
@@ -423,21 +424,21 @@ type MappedStream struct {
 	getObservation Observation
 }
 
-func NewMappedStream(namespace string, name string, stream Stream, handler Handler) *MappedStream {
-	return &MappedStream{
+func NewHandlerStream(namespace string, name string, stream Stream, handler Handler) *HandlerStream {
+	return &HandlerStream{
 		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_MAPPED, "name", name),
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_HANDLED, "name", name),
 		stream:    stream,
 		handler:   handler,
 		getObservation: NoOpObservationIfNonRegistered(
 			&RegistryKey{namespace,
-				MIXIN_STREAM_MAPPED,
+				MIXIN_STREAM_HANDLED,
 				name, MX_STREAM_GET}),
 	}
 }
 
-func (r *MappedStream) Get() (Message, error) {
+func (r *HandlerStream) Get() (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
@@ -461,12 +462,68 @@ func (r *MappedStream) Get() (Message, error) {
 	return hmsg, nil
 }
 
-// ChannelStream2 forms a stream from a channel.
-type ChannelStream2 struct {
+// TransformStream transforms what Stream.Get() returns.
+type TransformStream struct {
 	Namespace      string
 	Name           string
 	Log            log15.Logger
-	channel        <-chan interface{}
+	stream         Stream
+	transFunc      func(Message, error) (Message, error)
 	getObservation Observation
 }
 
+func NewTransformStream(namespace string, name string, stream Stream,
+	transFunc func(Message, error) (Message, error)) *TransformStream {
+
+	return &TransformStream{
+		Namespace: namespace,
+		Name:      name,
+		Log:       Log.New("namespace", namespace, "mixin", MIXIN_STREAM_TRANS, "name", name),
+		stream:    stream,
+		transFunc: transFunc,
+		getObservation: NoOpObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_STREAM_TRANS,
+				name, MX_STREAM_GET}),
+	}
+}
+
+func (r *TransformStream) Get() (Message, error) {
+	begin := time.Now()
+	r.Log.Debug("[Stream] Get() ...")
+	msg_mid, err := r.stream.Get()
+	if err != nil {
+		r.Log.Debug("[Stream] Get() err, transFunc() ...",
+			"err", err)
+		// enforce the exclusivity
+		msg_mid = nil
+	} else {
+		r.Log.Debug("[Stream] Get() ok, transFunc() ...",
+			"msg_mid", msg_mid.Id())
+	}
+	msg_out, err2 := r.transFunc(msg_mid, err)
+	timespan := time.Now().Sub(begin).Seconds()
+	if err2 != nil {
+		if msg_mid != nil {
+			r.Log.Error("[Stream] transFunc() err",
+				"msg_mid", msg_mid.Id(), "err", err2,
+				"timespan", timespan)
+		} else {
+			r.Log.Error("[Stream] transFunc() err",
+				"err", err2, "timespan", timespan)
+		}
+		r.getObservation.Observe(timespan, label_err)
+		return nil, err2
+	}
+	if msg_mid != nil {
+		r.Log.Debug("[Stream] transFunc() ok",
+			"msg_mid", msg_mid.Id(),
+			"msg_out", msg_out.Id(), "timespan", timespan)
+	} else {
+		r.Log.Debug("[Stream] transFunc() ok",
+			"msg_out", msg_out.Id(), "timespan", timespan)
+
+	}
+	r.getObservation.Observe(timespan, label_ok)
+	return msg_out, nil
+}

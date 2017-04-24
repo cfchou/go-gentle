@@ -1,8 +1,8 @@
 package gentle
 
 import (
-	"sync"
 	"errors"
+	"sync"
 )
 
 const (
@@ -34,14 +34,13 @@ const (
 	// of "ErrCircuitOpen", "ErrMaxConcurrency", "ErrTimeout" or
 	// "NonHystrixErr"
 	MX_HANDLER_CIRCUITBREAKER_HXERR = "hxerr"
-
 )
 
 var (
 	ErrMxNotFound = errors.New("Metric Not found")
 	gentleMetrics = &metricRegistry{
 		metrics: make(map[RegistryKey]Metric),
-		lock:         &sync.RWMutex{},
+		lock:    &sync.RWMutex{},
 	}
 )
 
@@ -84,7 +83,7 @@ func GetObservation(key *RegistryKey) (Observation, error) {
 
 type metricRegistry struct {
 	metrics map[RegistryKey]Metric
-	lock         *sync.RWMutex
+	lock    *sync.RWMutex
 }
 
 func (r *metricRegistry) RegisterMetric(key *RegistryKey, mx Metric) {

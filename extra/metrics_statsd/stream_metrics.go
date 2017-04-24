@@ -160,24 +160,45 @@ func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, 
 }
 
 // Counter:
-// namespace.sMap.name.get.result_ok
-// namespace.sMap.name.get.result_err
+// namespace.sHan.name.get.result_ok
+// namespace.sHan.name.get.result_err
 // Timing:
-// namespace.sMap.name.get.result_ok
-// namespace.sMap.name.get.result_err
-func RegisterMappedStreamMetrics(statter statsd.SubStatter, namespace, name string) {
+// namespace.sHan.name.get.result_ok
+// namespace.sHan.name.get.result_err
+func RegisterHandlerStreamMetrics(statter statsd.SubStatter, namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_MAPPED,
+		gentle.MIXIN_STREAM_HANDLED,
 		name, gentle.MX_STREAM_GET}
 	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
 		return
 	}
 	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_MAPPED, name)
+		gentle.MIXIN_STREAM_HANDLED, name)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
 	})
 }
 
+// Counter:
+// namespace.sTrans.name.get.result_ok
+// namespace.sTrans.name.get.result_err
+// Timing:
+// namespace.sTrans.name.get.result_ok
+// namespace.sTrans.name.get.result_err
+func RegisterTransformStreamMetrics(statter statsd.SubStatter, namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+		gentle.MIXIN_STREAM_TRANS,
+		name, gentle.MX_STREAM_GET}
+	if _, err := gentle.GetObservation(key); err == nil {
+		// registered
+		return
+	}
+	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
+		gentle.MIXIN_STREAM_TRANS, name)
+	gentle.RegisterObservation(key, &timingObservationImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
+	})
+}

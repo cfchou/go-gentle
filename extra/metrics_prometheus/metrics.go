@@ -29,4 +29,3 @@ func (p *promCounter) Observe(value float64, labels map[string]string) {
 	c := p.counterVec.With(m)
 	c.Add(value)
 }
-

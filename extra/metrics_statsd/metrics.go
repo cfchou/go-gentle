@@ -5,7 +5,7 @@ import "github.com/cactus/go-statsd-client/statsd"
 // Provide registration APIs for applications don't bother to create a statsd
 // client themselves.
 type StatsdMetrics struct {
-	Client *statsd.Client
+	Client  *statsd.Client
 	statter statsd.SubStatter
 }
 
@@ -15,7 +15,7 @@ func NewStatsdMetrics(addr, prefix string) (*StatsdMetrics, error) {
 		return nil, err
 	}
 	return &StatsdMetrics{
-		Client: client.(*statsd.Client),
+		Client:  client.(*statsd.Client),
 		statter: client.NewSubStatter(""),
 	}, nil
 }
@@ -44,8 +44,12 @@ func (m *StatsdMetrics) RegisterConcurrentFetchStreamMetrics(namespace, name str
 	RegisterConcurrentFetchStreamMetrics(m.statter, namespace, name)
 }
 
-func (m *StatsdMetrics) RegisterMappedStreamMetrics(namespace, name string) {
-	RegisterMappedStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) RegisterHandlerStreamMetrics(namespace, name string) {
+	RegisterHandlerStreamMetrics(m.statter, namespace, name)
+}
+
+func (m *StatsdMetrics) RegisterTransformStreamMetrics(namespace, name string) {
+	RegisterTransformStreamMetrics(m.statter, namespace, name)
 }
 
 func (m *StatsdMetrics) RegisterRateLimitedHandlerMetrics(namespace, name string) {
@@ -62,6 +66,10 @@ func (m *StatsdMetrics) RegisterBulkheadHandlerMetrics(namespace, name string) {
 
 func (m *StatsdMetrics) RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 	RegisterCircuitBreakerHandlerMetrics(m.statter, namespace, name)
+}
+
+func (m *StatsdMetrics) RegisterTransformHandlerMetrics(namespace, name string) {
+	RegisterTransformHandlerMetrics(m.statter, namespace, name)
 }
 
 // A statsd timing maintains a counter too but it doesn't get flushed every
@@ -91,4 +99,3 @@ func (p *counterImpl) Observe(value float64, labels map[string]string) {
 		p.count.Inc(suffix, int64(value), 1.0)
 	}
 }
-

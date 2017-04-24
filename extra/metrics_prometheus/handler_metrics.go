@@ -146,3 +146,29 @@ func RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
 		gentle.RegisterObservation(key, counter)
 	}
 }
+
+// Histogram:
+// namespace_hTrans_handle_seconds{name, result}
+func RegisterTransformHandlerMetrics(namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+		gentle.MIXIN_HANDLER_TRANS,
+		name, gentle.MX_HANDLER_HANDLE}
+	if _, err := gentle.GetObservation(key); err == nil {
+		// registered
+		return
+	}
+	histVec := prom.NewHistogramVec(
+		prom.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: gentle.MIXIN_HANDLER_TRANS,
+			Name:      "handle_seconds",
+			Help:      "Duration of MappedHandler.Handle() in seconds",
+			Buckets:   prom.DefBuckets,
+		},
+		[]string{"name", "result"})
+	prom.MustRegister(histVec)
+	gentle.RegisterObservation(key, &promHist{
+		name:    name,
+		histVec: histVec,
+	})
+}

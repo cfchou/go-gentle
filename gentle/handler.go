@@ -13,6 +13,7 @@ const (
 	MIXIN_HANDLER_RETRY          = "hRetry"
 	MIXIN_HANDLER_BULKHEAD       = "hBulk"
 	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
+	MIXIN_HANDLER_TRANS          = "hTrans"
 )
 
 // Rate limiting pattern is used to limit the speed of a series of Handle().
@@ -113,7 +114,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 				"msg_out", msg_out.Id(), "timespan", timespan)
 			r.handleObservation.Observe(timespan, label_ok)
 			r.tryObservation.Observe(float64(count), label_ok)
-			return msg_out, err
+			return msg_out, nil
 		}
 		if len(bk) == 0 {
 			r.Log.Error("[Handler] Handle() err and no more backing off",
@@ -182,7 +183,7 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 		"msg_out", msg_out.Id(), "timespan", timespan)
 	r.handleObservation.Observe(timespan, label_ok)
-	return msg_out, err
+	return msg_out, nil
 }
 
 // CircuitBreakerHandler is a handler equipped with a circuit-breaker.
@@ -279,4 +280,71 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		"msg_out", msg_out.Id(), "timespan", timespan)
 	r.handleObservation.Observe(timespan, label_ok)
 	return msg, nil
+}
+
+// TransformHandler transforms what Handler.Handle() returns.
+type TransformHandler struct {
+	Namespace         string
+	Name              string
+	Log               log15.Logger
+	handler           Handler
+	transFunc         func(Message, error) (Message, error)
+	handleObservation Observation
+}
+
+func NewTransformHandler(namespace string, name string, handler Handler,
+	transFunc func(Message, error) (Message, error)) *TransformHandler {
+	return &TransformHandler{
+		Namespace: namespace,
+		Name:      name,
+		Log: Log.New("namespace", namespace,
+			"mixin", MIXIN_HANDLER_TRANS, "name", name),
+		handler:   handler,
+		transFunc: transFunc,
+		handleObservation: NoOpObservationIfNonRegistered(
+			&RegistryKey{namespace,
+				MIXIN_HANDLER_TRANS,
+				name, MX_HANDLER_HANDLE}),
+	}
+}
+
+func (r *TransformHandler) Handle(msg Message) (Message, error) {
+	begin := time.Now()
+	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	msg_mid, err := r.handler.Handle(msg)
+	if err != nil {
+		r.Log.Debug("[Handler] Handle() err, transFunc() ...",
+			"msg_in", msg.Id(), "err", err)
+		// enforce the exclusivity
+		msg_mid = nil
+	} else {
+		r.Log.Debug("[Handler] Handle() ok, transFunc() ...",
+			"msg_in", msg.Id(), "msg_mid", msg_mid.Id())
+	}
+	msg_out, err2 := r.transFunc(msg_mid, err)
+	timespan := time.Now().Sub(begin).Seconds()
+	if err2 != nil {
+		if msg_mid != nil {
+			r.Log.Error("[Handler] transFunc() err",
+				"msg_in", msg.Id(), "msg_mid", msg_mid.Id(),
+				"err", err2, "timespan", timespan)
+		} else {
+			r.Log.Error("[Handler] transFunc() err",
+				"msg_in", msg.Id(), "err", err2,
+				"timespan", timespan)
+		}
+		r.handleObservation.Observe(timespan, label_err)
+		return nil, err2
+	}
+	if msg_mid != nil {
+		r.Log.Debug("[Handler] transFunc() ok",
+			"msg_in", msg.Id(), "msg_mid", msg_mid.Id(),
+			"msg_out", msg_out.Id(), "timespan", timespan)
+	} else {
+		r.Log.Debug("[Handler] transFunc() ok",
+			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
+			"timespan", timespan)
+	}
+	r.handleObservation.Observe(timespan, label_ok)
+	return msg_out, nil
 }

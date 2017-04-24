@@ -113,3 +113,25 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 		})
 	}
 }
+
+// Counter:
+// namespace.hTrans.name.get.result_ok
+// namespace.hTrans.name.get.result_err
+// Timing:
+// namespace.hTrans.name.get.result_ok
+// namespace.hTrans.name.get.result_err
+func RegisterTransformHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+		gentle.MIXIN_HANDLER_TRANS,
+		name, gentle.MX_HANDLER_HANDLE}
+	if _, err := gentle.GetObservation(key); err == nil {
+		// registered
+		return
+	}
+	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
+		gentle.MIXIN_HANDLER_TRANS, name)
+	gentle.RegisterObservation(key, &timingObservationImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
+	})
+}

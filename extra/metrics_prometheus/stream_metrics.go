@@ -199,10 +199,10 @@ func RegisterConcurrentFetchStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_sMap_get_seconds{name, result}
-func RegisterMappedStreamMetrics(namespace, name string) {
+// namespace_sHan_get_seconds{name, result}
+func RegisterHandlerStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_MAPPED,
+		gentle.MIXIN_STREAM_HANDLED,
 		name, gentle.MX_STREAM_GET}
 	if _, err := gentle.GetObservation(key); err == nil {
 		// registered
@@ -211,9 +211,35 @@ func RegisterMappedStreamMetrics(namespace, name string) {
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: gentle.MIXIN_STREAM_MAPPED,
+			Subsystem: gentle.MIXIN_STREAM_HANDLED,
 			Name:      "get_seconds",
-			Help:      "Duration of MappedStream.Get() in seconds",
+			Help:      "Duration of HandlerStream.Get() in seconds",
+			Buckets:   prom.DefBuckets,
+		},
+		[]string{"name", "result"})
+	prom.MustRegister(histVec)
+	gentle.RegisterObservation(key, &promHist{
+		name:    name,
+		histVec: histVec,
+	})
+}
+
+// Histogram:
+// namespace_sTrans_get_seconds{name, result}
+func RegisterTransformStreamMetrics(namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+		gentle.MIXIN_STREAM_TRANS,
+		name, gentle.MX_STREAM_GET}
+	if _, err := gentle.GetObservation(key); err == nil {
+		// registered
+		return
+	}
+	histVec := prom.NewHistogramVec(
+		prom.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: gentle.MIXIN_STREAM_TRANS,
+			Name:      "get_seconds",
+			Help:      "Duration of TransformStream.Get() in seconds",
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})

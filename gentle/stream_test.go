@@ -174,11 +174,11 @@ func TestBulkheadStream_Get(t *testing.T) {
 	}
 }
 
-func TestMappedStream_Get(t *testing.T) {
+func TestHandlerStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 	mhandler := &mockHandler{}
 
-	stream := NewMappedStream("", "test", mstream, mhandler)
+	stream := NewHandlerStream("", "test", mstream, mhandler)
 
 	mm := &fakeMsg{id: "123"}
 
@@ -456,7 +456,7 @@ func TestConcurrentFetchStream_Get2(t *testing.T) {
 	count := 5
 	cstream, msgs := genChannelStreamWithMessages(count)
 	mhandler := &mockHandler{}
-	mstream := NewMappedStream("", "test", cstream, mhandler)
+	mstream := NewHandlerStream("", "test", cstream, mhandler)
 
 	calls := make([]*mock.Call, count)
 	for i := 0; i < count; i++ {
