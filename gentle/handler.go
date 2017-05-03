@@ -133,7 +133,9 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	}
 }
 
-// Bulkhead pattern is used to limit the number of concurrent Handle().
+// Bulkhead pattern is used to limit the number of concurrently hanging Handle().
+// It uses semaphore isolation, similar to the approach used in hystrix.
+// http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 type BulkheadHandler struct {
 	Namespace         string
 	Name              string
@@ -169,21 +171,27 @@ func NewBulkheadHandler(namespace, name string, handler Handler,
 func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
-	r.semaphore <- &struct{}{}
-	msg_out, err := r.handler.Handle(msg)
-	<-r.semaphore
-	// timespan covers <-r.semaphore
-	timespan := time.Now().Sub(begin).Seconds()
-	if err != nil {
-		r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
-			"err", err, "timespan", timespan)
-		r.handleObservation.Observe(timespan, label_err)
-		return nil, err
+	select {
+	case r.semaphore <- &struct{}{}:
+		defer func() {
+			<-r.semaphore
+		}()
+		msg_out, err := r.handler.Handle(msg)
+		timespan := time.Now().Sub(begin).Seconds()
+		if err != nil {
+			r.Log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+				"err", err, "timespan", timespan)
+			r.handleObservation.Observe(timespan, label_err)
+			return nil, err
+		}
+		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
+			"msg_out", msg_out.Id(), "timespan", timespan)
+		r.handleObservation.Observe(timespan, label_ok)
+		return msg_out, nil
+	default:
+		r.Log.Error("[Hander] Handle() err", "err", ErrMaxConcurrency)
+		return nil, ErrMaxConcurrency
 	}
-	r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", msg_out.Id(), "timespan", timespan)
-	r.handleObservation.Observe(timespan, label_ok)
-	return msg_out, nil
 }
 
 // CircuitBreakerHandler is a handler equipped with a circuit-breaker.
@@ -258,19 +266,19 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		switch err {
 		case hystrix.ErrCircuitOpen:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrCircuitOpen"})
-			return nil, ErrCircuitOpen
+				map[string]string{"err": "ErrCbOpen"})
+			return nil, ErrCbOpen
 		case hystrix.ErrMaxConcurrency:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrMaxConcurrency"})
-			return nil, ErrMaxConcurrency
+				map[string]string{"err": "ErrCbMaxConcurrency"})
+			return nil, ErrCbMaxConcurrency
 		case hystrix.ErrTimeout:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrTimeout"})
-			return nil, ErrTimeout
+				map[string]string{"err": "ErrCbTimeout"})
+			return nil, ErrCbTimeout
 		default:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "NonHystrixErr"})
+				map[string]string{"err": "NonCbErr"})
 			return nil, err
 		}
 	}

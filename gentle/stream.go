@@ -140,7 +140,9 @@ func (r *RetryStream) Get() (Message, error) {
 	}
 }
 
-// Bulkhead pattern is used to limit the number of concurrent Get().
+// Bulkhead pattern is used to limit the number of concurrently hanging Get().
+// It uses semaphore isolation, similar to the approach used in hystrix.
+// http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 type BulkheadStream struct {
 	Namespace      string
 	Name           string
@@ -176,21 +178,27 @@ func NewBulkheadStream(namespace string, name string, stream Stream,
 func (r *BulkheadStream) Get() (Message, error) {
 	begin := time.Now()
 	r.Log.Debug("[Stream] Get() ...")
-	r.semaphore <- &struct{}{}
-	msg, err := r.stream.Get()
-	<-r.semaphore
-	// timespan covers <-r.semaphore
-	timespan := time.Now().Sub(begin).Seconds()
-	if err != nil {
-		r.Log.Error("[Stream] Get() err", "err", err,
+	select {
+	case r.semaphore <- &struct{}{}:
+		defer func() {
+			<-r.semaphore
+		}()
+		msg, err := r.stream.Get()
+		timespan := time.Now().Sub(begin).Seconds()
+		if err != nil {
+			r.Log.Error("[Stream] Get() err", "err", err,
+				"timespan", timespan)
+			r.getObservation.Observe(timespan, label_err)
+			return nil, err
+		}
+		r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 			"timespan", timespan)
-		r.getObservation.Observe(timespan, label_err)
-		return nil, err
+		r.getObservation.Observe(timespan, label_ok)
+		return msg, nil
+	default:
+		r.Log.Error("[Stream] Get() err", "err", ErrMaxConcurrency)
+		return nil, ErrMaxConcurrency
 	}
-	r.Log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
-		"timespan", timespan)
-	r.getObservation.Observe(timespan, label_ok)
-	return msg, nil
 }
 
 // CircuitBreakerStream is a Stream equipped with a circuit-breaker.
@@ -259,19 +267,19 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		switch err {
 		case hystrix.ErrCircuitOpen:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrCircuitOpen"})
-			return nil, ErrCircuitOpen
+				map[string]string{"err": "ErrCbOpen"})
+			return nil, ErrCbOpen
 		case hystrix.ErrMaxConcurrency:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrMaxConcurrency"})
-			return nil, ErrMaxConcurrency
+				map[string]string{"err": "ErrCbMaxConcurrency"})
+			return nil, ErrCbMaxConcurrency
 		case hystrix.ErrTimeout:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "ErrTimeout"})
-			return nil, ErrTimeout
+				map[string]string{"err": "ErrCbTimeout"})
+			return nil, ErrCbTimeout
 		default:
 			r.errCounter.Observe(1,
-				map[string]string{"err": "NonHystrixErr"})
+				map[string]string{"err": "NonCbErr"})
 			return nil, err
 		}
 	}

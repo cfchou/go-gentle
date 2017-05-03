@@ -25,14 +25,14 @@ const (
 
 	// Observation supported by CircuitBreakerStream.Get(), when an error is
 	// met, it observes 1 with the label "err" of possible values of
-	// "ErrCircuitOpen", "ErrMaxConcurrency", "ErrTimeout" or
-	// "NonHystrixErr"
+	// "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
+	// "NonCbErr"
 	MX_STREAM_CIRCUITBREAKER_HXERR = "hxerr"
 
 	// Observation supported by CircuitBreakerHandler.Handle(), when an
 	// error is met, it observes 1 with the label "err" of possible values
-	// of "ErrCircuitOpen", "ErrMaxConcurrency", "ErrTimeout" or
-	// "NonHystrixErr"
+	// of "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
+	// "NonCbErr"
 	MX_HANDLER_CIRCUITBREAKER_HXERR = "hxerr"
 )
 

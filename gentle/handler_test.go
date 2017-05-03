@@ -73,45 +73,31 @@ func TestRetryHandler_Handle(t *testing.T) {
 }
 
 func TestBulkheadHandler_Handle(t *testing.T) {
-	count := 8
 	max_concurrency := 4
 	mhandler := &mockHandler{}
 	handler := NewBulkheadHandler("", "test", mhandler, max_concurrency)
 	mm := &fakeMsg{id: "123"}
 
-	suspend := 100 * time.Millisecond
-	lock := &sync.RWMutex{}
-	calling := 0
-	callings := []int{}
+	wg := &sync.WaitGroup{}
+	wg.Add(max_concurrency)
+	block := make(chan struct{}, 0)
 	call := mhandler.On("Handle", mm)
 	call.Run(func(args mock.Arguments) {
-		// add calling
-		lock.Lock()
-		calling++
-		callings = append(callings, calling)
-		lock.Unlock()
-		time.Sleep(suspend)
-		// release calling
-		lock.Lock()
-		calling--
-		lock.Unlock()
+		wg.Done()
+		block <- struct{}{}
 	})
 	call.Return(mm, nil)
 
-	var wg sync.WaitGroup
-	wg.Add(count)
-	for i := 0; i < count; i++ {
-		go func() {
-			msg, err := handler.Handle(mm)
-			wg.Done()
-			assert.NoError(t, err)
-			assert.Equal(t, msg.Id(), mm.Id())
-		}()
+	for i := 0; i < max_concurrency; i++ {
+		go handler.Handle(mm)
 	}
+
 	wg.Wait()
-	assert.True(t, count == len(callings))
-	for _, c := range callings {
-		assert.True(t, c <= max_concurrency)
+	msg, err := handler.Handle(mm)
+	assert.Equal(t, msg, nil)
+	assert.EqualError(t, err, ErrMaxConcurrency.Error())
+	for i := 0; i < max_concurrency; i++ {
+		<-block
 	}
 }
 
@@ -120,7 +106,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 
-	// requests exceeding MaxConcurrentRequests would get ErrMaxConcurrency
+	// requests exceeding MaxConcurrentRequests would get ErrCbMaxConcurrency
 	// provided Timeout is large enough for this test case
 	conf := GetHystrixDefaultConfig()
 	conf.MaxConcurrentRequests = max_concurrency
@@ -152,19 +138,19 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	wg.Wait()
 	// One more call while all previous calls sticking in the circuit
 	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, ErrMaxConcurrency.Error())
+	assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
 	cond.Broadcast()
 }
 
 func TestCircuitBreakerHandler_Handle2(t *testing.T) {
-	// Test ErrTimeout and subsequent ErrCircuitOpen
+	// Test ErrCbTimeout and subsequent ErrCbOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 
 	conf := GetHystrixDefaultConfig()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
 	// sensitive. One request hits timeout would make the subsequent
-	// requests coming within SleepWindow see ErrCircuitOpen
+	// requests coming within SleepWindow see ErrCbOpen
 	conf.RequestVolumeThreshold = 1
 	conf.ErrorPercentThreshold = 1
 	conf.SleepWindow = 1000
@@ -183,7 +169,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 		cond.L.Lock()
 		defer cond.L.Unlock()
 		if !suspended {
-			// 1st call would suspend for tripping ErrTimeout
+			// 1st call would suspend for tripping ErrCbTimeout
 			suspended = true
 			time.Sleep(suspend)
 			cond.Broadcast()
@@ -191,11 +177,11 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	})
 	call.Return(mm, nil)
 
-	// 1st call gets ErrTimeout
+	// 1st call gets ErrCbTimeout
 	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, ErrTimeout.Error())
+	assert.EqualError(t, err, ErrCbTimeout.Error())
 
-	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
 	// "Eventually" because hystrix error metrics asynchronously.
 	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
 LOOP:
@@ -207,7 +193,7 @@ LOOP:
 		default:
 			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
-			if err == ErrCircuitOpen {
+			if err == ErrCbOpen {
 				tm.Stop()
 				break LOOP
 			}
@@ -231,14 +217,14 @@ LOOP:
 }
 
 func TestCircuitBreakerHandler_Handle3(t *testing.T) {
-	// Test mockErr and subsequent ErrCircuitOpen
+	// Test mockErr and subsequent ErrCbOpen
 	circuit := xid.New().String()
 	mhandler := &mockHandler{}
 
 	conf := GetHystrixDefaultConfig()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
 	// sensitive. One request returns error would make the subsequent
-	// requests coming within SleepWindow see ErrCircuitOpen
+	// requests coming within SleepWindow see ErrCbOpen
 	conf.RequestVolumeThreshold = 1
 	conf.ErrorPercentThreshold = 1
 	conf.SleepWindow = 1000
@@ -255,7 +241,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	_, err := handler.Handle(mm)
 	assert.EqualError(t, err, fakeErr.Error())
 
-	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
 	// "Eventually" because hystrix error metrics asynchronously.
 	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
 LOOP:
@@ -267,7 +253,7 @@ LOOP:
 		default:
 			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
-			if err == ErrCircuitOpen {
+			if err == ErrCbOpen {
 				tm.Stop()
 				break LOOP
 			}
@@ -326,7 +312,7 @@ func TestCircuitBreakerHandler_Handle4(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	// Subsequent requests within SleepWindow eventually see ErrCircuitOpen.
+	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
 	// "Eventually" because hystrix error metrics asynchronously.
 	tm := time.NewTimer(IntToMillis(conf.SleepWindow))
 LOOP:
@@ -338,7 +324,7 @@ LOOP:
 		default:
 			time.Sleep(100 * time.Millisecond)
 			_, err := handler.Handle(mm)
-			if err == ErrCircuitOpen {
+			if err == ErrCbOpen {
 				tm.Stop()
 				break LOOP
 			}

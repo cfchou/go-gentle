@@ -15,10 +15,11 @@ var (
 	// Errors that CircuitBreakerStream.Get() and
 	// CircuitBreakerHandler.Handle() might return. They are replacement of
 	// hystrix errors.
-	ErrCircuitOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
-	ErrMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
-	ErrTimeout        = errors.New(hystrix.ErrTimeout.Error())
+	ErrCbOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+	ErrCbTimeout        = errors.New(hystrix.ErrTimeout.Error())
 
+	ErrMaxConcurrency = errors.New("Reached Max Concurrency")
 	ErrInvalidType = errors.New("Invalid Type")
 )
 
