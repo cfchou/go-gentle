@@ -22,8 +22,8 @@ var (
 	ErrEOF = errors.New("EOF")
 	ErrNon2XX = errors.New("Non 2xx returned")
 
-	MIXIN_STREAM_GMAIL_LIST = "list"
-	MIXIN_HANDLER_GMAIL_DOWNLOAD = "download"
+	MIXIN_STREAM_GMAIL_LIST = "sList"
+	MIXIN_HANDLER_GMAIL_DOWNLOAD = "hDownload"
 
 	// Observation supported by GmailListStream.Get(), it observes the time
 	// spent with the labels:
@@ -138,7 +138,7 @@ func NewGmailListStream(appConfig *oauth2.Config, userTok *oauth2.Token,
 	}
 }
 
-func (s *GmailListStream) nextMessage() (*GmailMessage, error) {
+func (s *GmailListStream) nextMessage() *GmailMessage {
 	// assert s.lock is already Locked
 	// zero value of a slice is nil
 	if s.messages == nil || len(s.messages) == 0 {
@@ -149,7 +149,7 @@ func (s *GmailListStream) nextMessage() (*GmailMessage, error) {
 	s.messages = s.messages[1:]
 	s.Log.Debug("List() nextMessge", "msg", msg.Id(), "page", s.page_num,
 		"len_msgs_left", len(s.messages))
-	return msg, nil
+	return msg
 }
 
 func (s *GmailListStream) Restart(force bool) {
@@ -175,7 +175,7 @@ func (s *GmailListStream) Get() (gentle.Message, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.messages != nil && len(s.messages) > 0 {
-		msg, _ := s.nextMessage()
+		msg := s.nextMessage()
 		s.Log.Debug("List() ok", "msg", msg.Id(),
 			"timespan", time.Now().Sub(begin).Seconds())
 		return msg, nil
@@ -230,7 +230,10 @@ func (s *GmailListStream) Get() (gentle.Message, error) {
 		s.Log.Info("List() EOF, no more messages")
 		return nil, ErrEOF
 	}
-	return s.nextMessage()
+	msg := s.nextMessage()
+	s.Log.Debug("List() ok", "msg", msg.Id(),
+		"timespan", time.Now().Sub(begin).Seconds())
+	return msg, nil
 }
 
 
@@ -240,7 +243,7 @@ type GmailMessageHandler struct {
 	Log     log15.Logger
 	service *gmail.Service
 	observation   gentle.Observation
-	totalBytesObservation   gentle.Observation
+	sizeObservation   gentle.Observation
 }
 
 func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token,
@@ -263,7 +266,7 @@ func NewGmailMessageHandler(appConfig *oauth2.Config, userTok *oauth2.Token,
 					    MIXIN_HANDLER_GMAIL_DOWNLOAD,
 					    name,
 					    MX_HANDLER_GMAIL_HANDLE}),
-		totalBytesObservation: gentle.NoOpObservationIfNonRegistered(
+		sizeObservation: gentle.NoOpObservationIfNonRegistered(
 			&gentle.RegistryKey{namespace,
 					    MIXIN_HANDLER_GMAIL_DOWNLOAD,
 					    name,
@@ -303,7 +306,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 			"api": "get",
 			"result": "ok",
 		})
-	h.totalBytesObservation.Observe(float64(gmsg.SizeEstimate),
+	h.sizeObservation.Observe(float64(gmsg.SizeEstimate),
 		map[string]string{})
 	h.Log.Debug("Messages.Get() ok", "msg_in", msg.Id(),
 		"msg_out", gmsg.Id, "size", gmsg.SizeEstimate,
