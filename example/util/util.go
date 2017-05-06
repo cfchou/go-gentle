@@ -80,7 +80,7 @@ func RegisterGmailListStreamMetrics(namespace, name string) {
 			Help:      "Duration of GmailListStream.Get() in seconds",
 			Buckets:   prom.DefBuckets,
 		},
-		[]string{"name", "result"})
+		[]string{"name", "api", "result"})
 	prom.MustRegister(histVec)
 	gentle.RegisterObservation(key, &promHist{
 		name:    "",
@@ -104,7 +104,7 @@ func RegisterGmailMessageHandlerMetrics(namespace, name string) {
 				Help:      "Duration of GmailMessageHandler.Handle() in seconds",
 				Buckets:   prom.DefBuckets,
 			},
-			[]string{"name", "result"})
+			[]string{"name", "api", "result"})
 		prom.MustRegister(histVec)
 		gentle.RegisterObservation(key, &promHist{
 			name:    "",
