@@ -184,12 +184,13 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 			r.handleObservation.Observe(timespan, label_err)
 			return nil, err
 		}
-		r.Log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
+		r.Log.Debug("[Handler] Handle() ok","msg_in", msg.Id(),
 			"msg_out", msg_out.Id(), "timespan", timespan)
 		r.handleObservation.Observe(timespan, label_ok)
 		return msg_out, nil
 	default:
-		r.Log.Error("[Hander] Handle() err", "err", ErrMaxConcurrency)
+		r.Log.Error("[Hander] Handle() err","msg_in", msg.Id(),
+			"err", ErrMaxConcurrency)
 		return nil, ErrMaxConcurrency
 	}
 }
