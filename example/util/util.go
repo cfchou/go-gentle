@@ -5,6 +5,8 @@ import (
 	"os"
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/cfchou/go-gentle/gentle"
+	"github.com/cactus/go-statsd-client/statsd"
+	"fmt"
 )
 
 // Based on times_per_sec to calculate the interval in millis between every
@@ -65,7 +67,7 @@ type promMetrics struct{}
 var PromMetrics = promMetrics{}
 
 // Histogram:
-// namespace_sList_get_seconds{name, result}
+// namespace_sList_get_seconds{name, api, result}
 func (m *promMetrics) RegisterGmailListStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_STREAM_GMAIL_LIST,
@@ -91,8 +93,8 @@ func (m *promMetrics) RegisterGmailListStreamMetrics(namespace, name string) {
 }
 
 // Histogram:
-// namespace_hDownload_handle_seconds{name, result}
-// namespace_hDownload_msg_bytes{name, result}
+// namespace_hDownload_handle_seconds{name, api, result}
+// namespace_hDownload_msg_bytes{name}
 func (m *promMetrics) RegisterGmailMessageHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_HANDLER_GMAIL_DOWNLOAD,
@@ -139,3 +141,86 @@ func (m *promMetrics) RegisterGmailMessageHandlerMetrics(namespace, name string)
 	}
 }
 
+type timingObservationImpl struct {
+	count  statsd.SubStatter
+	timing statsd.SubStatter
+}
+
+func (p *timingObservationImpl) Observe(value float64, labels map[string]string) {
+	for k, v := range labels {
+		suffix := k + "_" + v
+		p.count.Inc(suffix, 1, 1.0)
+		p.timing.Timing(suffix, int64(value*1000), 1.0)
+	}
+}
+
+type counterImpl struct {
+	count statsd.SubStatter
+}
+
+func (p *counterImpl) Observe(value float64, labels map[string]string) {
+	for k, v := range labels {
+		suffix := k + "_" + v
+		p.count.Inc(suffix, int64(value), 1.0)
+	}
+}
+
+type statsdMetrics struct{}
+var StatsdMetrics = statsdMetrics{}
+
+// Counter:
+// namespace.sList.name.get.result_ok
+// namespace.sList.name.get.result_err
+// namespace.sList.name.get.api_list
+// Timing:
+// namespace.sList.name.get.result_ok
+// namespace.sList.name.get.result_err
+// namespace.sList.name.get.api_list
+func (m *statsdMetrics) RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+				   MIXIN_STREAM_GMAIL_LIST,
+				   name, gentle.MX_STREAM_GET}
+	if _, err := gentle.GetObservation(key); err == nil {
+		// registered
+		return
+	}
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		MIXIN_STREAM_GMAIL_LIST, name, gentle.MX_STREAM_GET)
+	gentle.RegisterObservation(key, &timingObservationImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
+	})
+}
+
+// Counter:
+// namespace.hDownload.name.handle.result_ok
+// namespace.hDownload.name.handle.result_err
+// namespace.hDownload.name.handle.api_download
+// Timing:
+// namespace.hDownload.name.handle.result_ok
+// namespace.hDownload.name.handle.result_err
+// namespace.hDownload.name.size
+func RegisterGmailMessageHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
+	key := &gentle.RegistryKey{namespace,
+				   MIXIN_HANDLER_GMAIL_DOWNLOAD,
+				   name, gentle.MX_HANDLER_HANDLE}
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		MIXIN_HANDLER_GMAIL_DOWNLOAD, name, gentle.MX_HANDLER_HANDLE)
+	if _, err := gentle.GetObservation(key); err == nil {
+		gentle.RegisterObservation(key, &timingObservationImpl{
+			count:  statter.NewSubStatter(prefix),
+			timing: statter.NewSubStatter(prefix),
+		})
+	}
+
+	key = &gentle.RegistryKey{namespace,
+				  MIXIN_HANDLER_GMAIL_DOWNLOAD,
+				  name, MX_HANDLER_GMAIL_SIZE}
+	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
+		MIXIN_HANDLER_GMAIL_DOWNLOAD, name, MX_HANDLER_GMAIL_SIZE)
+	if _, err := gentle.GetObservation(key); err == nil {
+		gentle.RegisterObservation(key, &counterImpl{
+			count: statter.NewSubStatter(prefix),
+		})
+	}
+}
