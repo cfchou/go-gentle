@@ -7,6 +7,13 @@ import (
 	"github.com/cfchou/go-gentle/gentle"
 )
 
+// We define statsd metrics for gentle components in this format:
+// <namespace>.<mixin_name>.<name>.<metrics_op>.<label>
+//
+// Unlike prometheus, statsd doesn't support multi-dimensional metrics.
+// Therefore, we squash a pair of key and value into a <label>(in the form of
+// key_value) in the name of metrics.
+
 // Counter:
 // namespace.sRate.name.get.result_ok
 // namespace.sRate.name.get.result_err
@@ -21,8 +28,8 @@ func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_RATELIMITED, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_RATELIMITED, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
@@ -41,21 +48,23 @@ func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name strin
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
 		name, gentle.MX_STREAM_GET}
-	prefix := fmt.Sprintf("%s.%s.%s", namespace,
-		gentle.MIXIN_STREAM_RETRY, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_RETRY, name, gentle.MX_STREAM_GET)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + ".get"),
-			timing: statter.NewSubStatter(prefix + ".get"),
+			count:  statter.NewSubStatter(prefix),
+			timing: statter.NewSubStatter(prefix),
 		})
 	}
+
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_RETRY,
 		name, gentle.MX_STREAM_RETRY_TRY}
-
+	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_RETRY, name, gentle.MX_STREAM_RETRY_TRY)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix + ".try"),
+			count: statter.NewSubStatter(prefix),
 		})
 	}
 }
@@ -74,8 +83,8 @@ func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name st
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_BULKHEAD, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_BULKHEAD, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
@@ -85,10 +94,10 @@ func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name st
 // Counter:
 // namespace.sCircuit.name.get.result_ok
 // namespace.sCircuit.name.get.result_err
-// namespace.sCircuit.name.err.err_ErrCircuitOpen
-// namespace.sCircuit.name.err.err_ErrMaxConcurrency
-// namespace.sCircuit.name.err.err_ErrTimeout
-// namespace.sCircuit.name.err.err_NonHystrixErr
+// namespace.sCircuit.name.herr.err_ErrCircuitOpen
+// namespace.sCircuit.name.herr.err_ErrMaxConcurrency
+// namespace.sCircuit.name.herr.err_ErrTimeout
+// namespace.sCircuit.name.herr.err_NonHystrixErr
 // Timing:
 // namespace.sCircuit.name.get.result_ok
 // namespace.sCircuit.name.get.result_err
@@ -96,21 +105,25 @@ func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, n
 	key := &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name, gentle.MX_STREAM_GET}
-	prefix := fmt.Sprintf("%s.%s.%s", namespace,
-		gentle.MIXIN_STREAM_CIRCUITBREAKER, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_CIRCUITBREAKER, name, gentle.MX_STREAM_GET)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix + ".get"),
-			timing: statter.NewSubStatter(prefix + ".get"),
+			count:  statter.NewSubStatter(prefix),
+			timing: statter.NewSubStatter(prefix),
 		})
 	}
+
 	key = &gentle.RegistryKey{namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER,
 		name,
 		gentle.MX_STREAM_CIRCUITBREAKER_HXERR}
+	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_CIRCUITBREAKER, name,
+		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR)
 	if _, err := gentle.GetObservation(key); err == nil {
 		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix + ".err"),
+			count: statter.NewSubStatter(prefix),
 		})
 	}
 }
@@ -129,8 +142,8 @@ func RegisterChannelStreamMetrics(statter statsd.SubStatter, namespace, name str
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_CHANNEL, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_CHANNEL, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
@@ -151,8 +164,8 @@ func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, 
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_CONCURRENTFETCH, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_CONCURRENTFETCH, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
@@ -173,8 +186,8 @@ func RegisterHandlerStreamMetrics(statter statsd.SubStatter, namespace, name str
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_HANDLED, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_HANDLED, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
@@ -195,8 +208,8 @@ func RegisterTransformStreamMetrics(statter statsd.SubStatter, namespace, name s
 		// registered
 		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.get", namespace,
-		gentle.MIXIN_STREAM_TRANS, name)
+	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
+		gentle.MIXIN_STREAM_TRANS, name, gentle.MX_STREAM_GET)
 	gentle.RegisterObservation(key, &timingObservationImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
