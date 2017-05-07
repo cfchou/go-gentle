@@ -191,7 +191,7 @@ func (s *GmailListStream) Get() (gentle.Message, error) {
 	resp, err := s.listCall.Do()
 	timespan := time.Now().Sub(begin).Seconds()
 	if err != nil {
-		s.observation.Observe(float64(1000 * timespan),
+		s.observation.Observe(timespan,
 			map[string]string{
 				"api": "list",
 				"result": "err",
@@ -200,7 +200,7 @@ func (s *GmailListStream) Get() (gentle.Message, error) {
 		return nil, err
 	}
 	if (resp.HTTPStatusCode < 200 || resp.HTTPStatusCode >= 300) {
-		s.observation.Observe(float64(1000 * timespan),
+		s.observation.Observe(timespan,
 			map[string]string{
 				"api": "list",
 				"result": "err",
@@ -209,7 +209,7 @@ func (s *GmailListStream) Get() (gentle.Message, error) {
 			"status", resp.HTTPStatusCode, "timespan", timespan)
 		return nil, ErrNon2XX
 	}
-	s.observation.Observe(float64(1000 * timespan),
+	s.observation.Observe(timespan,
 		map[string]string{
 			"api": "list",
 			"result": "ok",
@@ -282,7 +282,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	gmsg, err := getCall.Do()
 	timespan := time.Now().Sub(callStart).Seconds()
 	if err != nil {
-		h.observation.Observe(float64(1000 * timespan),
+		h.observation.Observe(timespan,
 			map[string]string{
 				"api": "get",
 				"result": "err",
@@ -292,7 +292,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 		return nil, err
 	}
 	if (gmsg.HTTPStatusCode < 200 || gmsg.HTTPStatusCode >= 300) {
-		h.observation.Observe(float64(1000 * timespan),
+		h.observation.Observe(timespan,
 			map[string]string{
 				"api": "get",
 				"result": "err",
@@ -301,7 +301,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 			"status", gmsg.HTTPStatusCode, "timespan", timespan)
 		return nil, ErrNon2XX
 	}
-	h.observation.Observe(float64(1000 * timespan),
+	h.observation.Observe(timespan,
 		map[string]string{
 			"api": "get",
 			"result": "ok",
