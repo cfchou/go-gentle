@@ -284,7 +284,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	if err != nil {
 		h.observation.Observe(timespan,
 			map[string]string{
-				"api": "get",
+				"api": "download",
 				"result": "err",
 			})
 		h.Log.Error("Messages.Get() err", "msg_in", msg.Id(),
@@ -294,7 +294,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	if (gmsg.HTTPStatusCode < 200 || gmsg.HTTPStatusCode >= 300) {
 		h.observation.Observe(timespan,
 			map[string]string{
-				"api": "get",
+				"api": "download",
 				"result": "err",
 			})
 		h.Log.Error("List() not 2xx",
@@ -303,7 +303,7 @@ func (h *GmailMessageHandler) Handle(msg gentle.Message) (gentle.Message, error)
 	}
 	h.observation.Observe(timespan,
 		map[string]string{
-			"api": "get",
+			"api": "download",
 			"result": "ok",
 		})
 	h.sizeObservation.Observe(float64(gmsg.SizeEstimate),
