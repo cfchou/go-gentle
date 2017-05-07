@@ -33,7 +33,6 @@ func FreqToIntervalMicros(times_per_sec int) time.Duration {
 	return n
 }
 
-
 type promHist struct {
 	name    string
 	histVec *prom.HistogramVec
@@ -62,9 +61,12 @@ func (p *promCounter) Observe(value float64, labels map[string]string) {
 	c.Add(value)
 }
 
+type promMetrics struct{}
+var PromMetrics = promMetrics{}
+
 // Histogram:
 // namespace_sList_get_seconds{name, result}
-func RegisterGmailListStreamMetrics(namespace, name string) {
+func (m *promMetrics) RegisterGmailListStreamMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_STREAM_GMAIL_LIST,
 				   "", gentle.MX_STREAM_GET}
@@ -91,7 +93,7 @@ func RegisterGmailListStreamMetrics(namespace, name string) {
 // Histogram:
 // namespace_hDownload_handle_seconds{name, result}
 // namespace_hDownload_msg_bytes{name, result}
-func RegisterGmailMessageHandlerMetrics(namespace, name string) {
+func (m *promMetrics) RegisterGmailMessageHandlerMetrics(namespace, name string) {
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_HANDLER_GMAIL_DOWNLOAD,
 				   "", gentle.MX_HANDLER_HANDLE}

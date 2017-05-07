@@ -59,8 +59,8 @@ func NewUpstream(appConfig *oauth2.Config, userTok *oauth2.Token) gentle.Stream 
 	mx.RegisterRetryHandlerMetrics(namespace, "", []float64{1, 2, 3, 4,})
 	mx.RegisterHandlerStreamMetrics(namespace, "")
 	mx.RegisterBulkheadHandlerMetrics(namespace, "")
-	util.RegisterGmailListStreamMetrics(namespace, "")
-	util.RegisterGmailMessageHandlerMetrics(namespace, "")
+	util.PromMetrics.RegisterGmailListStreamMetrics(namespace, "")
+	util.PromMetrics.RegisterGmailMessageHandlerMetrics(namespace, "")
 
 	// Enumerating message ids is pretty lite-weight.
 	stream := util.NewGmailListStream(appConfig, userTok,
