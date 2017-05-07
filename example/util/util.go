@@ -176,7 +176,9 @@ var StatsdMetrics = statsdMetrics{}
 // namespace.sList.name.get.result_ok
 // namespace.sList.name.get.result_err
 // namespace.sList.name.get.api_list
-func (m *statsdMetrics) RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name string) {
+func (m *statsdMetrics) RegisterGmailListStreamMetrics(statter statsd.SubStatter,
+	namespace, name string) {
+
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_STREAM_GMAIL_LIST,
 				   name, gentle.MX_STREAM_GET}
@@ -200,7 +202,9 @@ func (m *statsdMetrics) RegisterRateLimitedStreamMetrics(statter statsd.SubStatt
 // namespace.hDownload.name.handle.result_ok
 // namespace.hDownload.name.handle.result_err
 // namespace.hDownload.name.size
-func RegisterGmailMessageHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
+func (m *statsdMetrics) RegisterGmailMessageHandlerMetrics( statter statsd.SubStatter,
+	namespace, name string) {
+
 	key := &gentle.RegistryKey{namespace,
 				   MIXIN_HANDLER_GMAIL_DOWNLOAD,
 				   name, gentle.MX_HANDLER_HANDLE}
