@@ -47,12 +47,47 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
+type Names struct {
+	Namespace      string
+	Mixin 	       string
+	Name           string
+}
+
+type Key interface {
+	GetNames() *Names
+}
+
+// A Logger writes key/value pairs to a Handler
+type Logger interface {
+	// Log a message at the given level with context key/value pairs
+	Debug(msg string, ctx ...interface{})
+	Info(msg string, ctx ...interface{})
+	Warn(msg string, ctx ...interface{})
+	Error(msg string, ctx ...interface{})
+	Crit(msg string, ctx ...interface{})
+}
+
+// A do-nothing Logger
+type noOpLogger struct{}
+func (l *noOpLogger) Debug(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Info(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Warn(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Error(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Crit(msg string, ctx ...interface{}) {}
+var noopLogger = &noOpLogger{}
+
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
 	// Wait for $count tokens are granted(return true) or timeout(return
 	// false). If $timeout == 0, it would block as long as it needs.
 	Wait(count int, timeout time.Duration) bool
 }
+
+type BackOff interface {
+	Next() time.Duration
+}
+
+const BackOffStop time.Duration = -1
 
 // Converts $millis of int to time.Duration.
 func IntToMillis(millis int) time.Duration {
@@ -79,3 +114,4 @@ type tuple struct {
 	fst interface{}
 	snd interface{}
 }
+

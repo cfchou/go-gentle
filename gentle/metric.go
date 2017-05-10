@@ -45,13 +45,15 @@ var (
 )
 
 // Metric
-type Metric interface{}
+type Metric interface{
+	Observe(value float64, labels map[string]string)
+}
 
 // Instead of commonly used Counter/Gauge/Timer/Histogram/Percentile,
 // Observation is a general interface that doesn't limit the implementation. An
 // implementation can be whatever meaningful.
 type Observation interface {
-	Metric
+	//Metric
 	Observe(value float64, labels map[string]string)
 }
 
@@ -105,15 +107,15 @@ func (r *metricRegistry) GetMetric(key *RegistryKey) Metric {
 }
 
 // A do-nothing Metric
-type NoOpMetric struct{}
+type noOpMetric struct{}
 
-func (m *NoOpMetric) Observe(value float64, labels map[string]string) {}
+func (m *noOpMetric) Observe(value float64, labels map[string]string) {}
 
-var noop = &NoOpMetric{}
+var noopMetric = &noOpMetric{}
 
 func NoOpObservationIfNonRegistered(key *RegistryKey) Observation {
 	if ob, err := GetObservation(key); err == nil {
 		return ob
 	}
-	return noop
+	return noopMetric
 }
