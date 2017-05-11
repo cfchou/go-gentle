@@ -53,7 +53,7 @@ type Names struct {
 	Name           string
 }
 
-type Key interface {
+type Identity interface {
 	GetNames() *Names
 }
 
@@ -84,6 +84,7 @@ type RateLimit interface {
 }
 
 type BackOff interface {
+	// Next() should immediately return
 	Next() time.Duration
 }
 

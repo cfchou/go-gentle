@@ -1,15 +1,19 @@
 package gentle
 
 import (
-	"errors"
-	"github.com/afex/hystrix-go/hystrix"
-	"github.com/rs/xid"
+	//"errors"
+	//"github.com/afex/hystrix-go/hystrix"
+	//"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	//"github.com/stretchr/testify/mock"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
+	"errors"
+	"github.com/rs/xid"
+	"github.com/afex/hystrix-go/hystrix"
+	"github.com/benbjohnson/clock"
 )
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
@@ -48,14 +52,16 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 			src <- msgs[i]
 		}
 	}()
-	return NewChannelStream("", "test", src), msgs
+	return NewChannelStream(
+		*NewChannelStreamOpts("", "test", src)), msgs
 }
 
 func TestChannelStream_Get(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 	src := make(chan interface{}, 1)
 	src <- mm
-	stream := NewChannelStream("", "test", src)
+	stream := NewChannelStream(
+		*NewChannelStreamOpts("","test", src))
 	msg_out, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), mm.Id())
@@ -76,9 +82,14 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	src, done := genMessageChannelInfinite()
 	// 1 msg/sec
 	requests_interval := 100 * time.Millisecond
-	stream := NewRateLimitedStream("", "test",
-		NewChannelStream("", "test", src),
-		NewTokenBucketRateLimit(requests_interval, 1))
+
+	chanStream := NewChannelStream(
+		*NewChannelStreamOpts("", "test", src))
+
+	stream := NewRateLimitedStream(
+		*NewRateLimitedStreamOpts("", "test",
+			NewTokenBucketRateLimit(requests_interval, 1)),
+		chanStream)
 	count := 4
 	minimum := time.Duration(count-1) * requests_interval
 	var wg sync.WaitGroup
@@ -98,17 +109,37 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	done <- &struct{}{}
 }
 
+type fakeBackOff struct {
+	lock sync.Mutex
+	backoffs []time.Duration
+}
+
+func (b *fakeBackOff) Next() time.Duration {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	if len(b.backoffs) == 0 {
+		return BackOffStop
+	}
+	tmp := b.backoffs[0]
+	b.backoffs = b.backoffs[1:]
+	return tmp
+}
+
 func TestRetryStream_Get(t *testing.T) {
 	mstream := &mockStream{}
-	backoffs := []time.Duration{1 * time.Second, 2 * time.Second}
-	minimum := func(backoffs []time.Duration) time.Duration {
-		dura_sum := 0 * time.Second
-		for _, dura := range backoffs {
-			dura_sum += dura
-		}
-		return dura_sum
-	}(backoffs)
-	stream := NewRetryStream("", "test", mstream, backoffs)
+
+	mback := &fakeBackOff{
+		backoffs: []time.Duration{
+			1*time.Second,
+			2*time.Second,
+			1*time.Second},
+	}
+
+	mclock := clock.NewMock()
+	opts := NewRetryStreamOpts("", "test", mback)
+	// replace clock with a mock
+	opts.Clock = mclock
+	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -121,6 +152,17 @@ func TestRetryStream_Get(t *testing.T) {
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
 	call.Return(nil, fakeErr)
+
+	total_wait := make(chan time.Duration, 1)
+	go func() {
+		begin := mclock.Now()
+		_, err := stream.Get()
+		// backoffs exhausted
+		assert.EqualError(t, err, fakeErr.Error())
+		total_wait <- mclock.Now().Sub(begin)
+	}()
+
+	mclock.Add(1 * time.Second)
 
 	begin := time.Now()
 	_, err = stream.Get()
@@ -351,7 +393,9 @@ LOOP:
 	// After SleepWindow, circuit becomes half-open. Only one successful
 	// case is needed to close the circuit.
 	time.Sleep(IntToMillis(conf.SleepWindow))
-	call.Run(func(args mock.Arguments) { /* no-op */ })
+	call.Run(func(args mock.Arguments) {
+		// no-op
+	})
 	call.Return(mm, nil)
 	_, err = stream.Get()
 	assert.NoError(t, err)
@@ -413,62 +457,5 @@ LOOP:
 	}
 }
 
-func TestConcurrentFetchStream_Get(t *testing.T) {
-	// This test shows that ConcurrentFetchStream reduces running time.
-	max_concurrency := 5
-	count := max_concurrency
-	mm := &fakeMsg{id: "123"}
-	mstream := &mockStream{}
-	stream := NewConcurrentFetchStream("", "test", mstream, max_concurrency)
+*/
 
-	suspend := 1 * time.Second
-	call := mstream.On("Get")
-	call.Run(func(args mock.Arguments) {
-		time.Sleep(suspend)
-	})
-	call.Return(mm, nil)
-	begin := time.Now()
-	for i := 0; i < count; i++ {
-		_, err := stream.Get()
-		assert.NoError(t, err)
-	}
-	dura := time.Now().Sub(begin)
-	log.Info("[Test]", "dura", dura)
-	assert.True(t, dura < suspend*time.Duration(max_concurrency))
-}
-
-func TestConcurrentFetchStream_Get2(t *testing.T) {
-	// This test shows that ConcurrentFetchStream doesn't preserved order.
-	count := 5
-	cstream, msgs := genChannelStreamWithMessages(count)
-	mhandler := &mockHandler{}
-	mstream := NewHandlerStream("", "test", cstream, mhandler)
-
-	calls := make([]*mock.Call, count)
-	for i := 0; i < count; i++ {
-		calls[i] = mhandler.On("Handle", msgs[i])
-		calls[i].Run(func(args mock.Arguments) {
-			m := args.Get(0).(Message)
-			log.Info("[Test] handling", "msg", m.Id())
-		})
-		calls[i].Return(msgs[i], nil)
-	}
-	// Handler deals with the 1st longer than the others. So it's expected
-	// to be pushed to the end of stream.
-	calls[0].Run(func(args mock.Arguments) {
-		m := args.Get(0).(Message)
-		log.Info("[Test] handling slow", "msg", m.Id())
-		time.Sleep(1 * time.Second)
-	})
-	stream := NewConcurrentFetchStream("", "test", mstream, 2)
-	ids := make([]string, count)
-	for i := 0; i < count; i++ {
-		log.Info("[Test] loop", "i", i)
-		msg, err := stream.Get()
-		assert.NoError(t, err)
-		log.Info("[Test] loop", "msg_out", msg.Id())
-		ids[i] = msg.Id()
-	}
-	// The 1st msg from upstream is now the last
-	assert.Equal(t, ids[count-1], "0")
-}
