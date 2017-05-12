@@ -5,8 +5,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"testing"
-	"time"
-	"sync"
 )
 
 // Parent logger for tests

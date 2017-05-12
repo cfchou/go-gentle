@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 	"errors"
-	"github.com/rs/xid"
-	"github.com/afex/hystrix-go/hystrix"
+	"github.com/stretchr/testify/mock"
 	"github.com/benbjohnson/clock"
 )
 
@@ -109,35 +108,83 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	done <- &struct{}{}
 }
 
-type fakeBackOff struct {
-	lock sync.Mutex
-	backoffs []time.Duration
+type mockBackOff struct {
+	mock.Mock
 }
 
-func (b *fakeBackOff) Next() time.Duration {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	if len(b.backoffs) == 0 {
-		return BackOffStop
-	}
-	tmp := b.backoffs[0]
-	b.backoffs = b.backoffs[1:]
-	return tmp
+func (m *mockBackOff) Next() time.Duration {
+	args := m.Called()
+	return args.Get(0).(time.Duration)
+}
+
+func TestMockBackOff(t *testing.T) {
+	mback := &mockBackOff{}
+	call := mback.On("Next")
+	call.Return(1*time.Second)
+	done := make(chan struct{}, 1)
+	go func() {
+		count := 3
+		for {
+			log.Info("[Test] next", "count", count)
+			d := mback.Next()
+			if d == BackOffStop {
+				break
+			}
+			if count == 0 {
+				call.Return(BackOffStop)
+			} else {
+				count--
+				call.Return(1 *time.Second)
+			}
+		}
+		log.Info("[Test] done!", "count", count)
+		done<-struct{}{}
+	}()
+	log.Info("[Test] done?")
+	<-done
+	log.Info("[Test] exit")
+}
+
+func TestMockBackOff2(t *testing.T) {
+	mback := &mockBackOff{}
+	call := mback.On("Next")
+	num := 3
+	// Call.Run() decides what to Call.Return()
+	call.Run(func(args mock.Arguments) {
+		if (num == 0) {
+			call.Return(BackOffStop)
+		} else {
+			num--
+			call.Return(1*time.Second)
+		}
+	})
+	done := make(chan struct{}, 1)
+	go func() {
+		count := 1
+		for {
+			log.Info("[Test] next", "count", count)
+			d := mback.Next()
+			if d == BackOffStop {
+				break
+			}
+			count++
+		}
+		log.Info("[Test] done!", "count", count)
+		done<-struct{}{}
+	}()
+	log.Info("[Test] done?")
+	<-done
+	log.Info("[Test] exit")
 }
 
 func TestRetryStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 
-	mback := &fakeBackOff{
-		backoffs: []time.Duration{
-			1*time.Second,
-			2*time.Second,
-			1*time.Second},
-	}
-
+	mback := &mockBackOff{}
+	// mock clock so that we don't need to wait for the real timer to move
+	// forward
 	mclock := clock.NewMock()
 	opts := NewRetryStreamOpts("", "test", mback)
-	// replace clock with a mock
 	opts.Clock = mclock
 	stream := NewRetryStream(*opts, mstream)
 
@@ -153,26 +200,41 @@ func TestRetryStream_Get(t *testing.T) {
 	fakeErr := errors.New("A fake error")
 	call.Return(nil, fakeErr)
 
-	total_wait := make(chan time.Duration, 1)
+	count := 3
+	minimum := time.Duration(count) * time.Second
+	mback_next := mback.On("Next")
+	mback_next.Run(func(args mock.Arguments) {
+		if count == 0 {
+			mback_next.Return(BackOffStop)
+		} else {
+			count--
+			mback_next.Return(1 * time.Second)
+		}
+	})
+
+	timespan := make(chan time.Duration, 1)
 	go func() {
 		begin := mclock.Now()
-		_, err := stream.Get()
+		_, err = stream.Get()
 		// backoffs exhausted
 		assert.EqualError(t, err, fakeErr.Error())
-		total_wait <- mclock.Now().Sub(begin)
+		timespan <- mclock.Now().Sub(begin)
 	}()
 
-	mclock.Add(1 * time.Second)
-
-	begin := time.Now()
-	_, err = stream.Get()
-	dura := time.Now().Sub(begin)
-	// backoffs exhausted
-	assert.EqualError(t, err, fakeErr.Error())
-	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
-	assert.True(t, dura >= minimum)
+	for {
+		select {
+		case dura :=<-timespan:
+			log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
+			assert.True(t, dura >= minimum)
+			return
+		default:
+			// advance an arbitrary time to pass backoff
+			mclock.Add(1*time.Second)
+		}
+	}
 }
 
+/*
 func TestBulkheadStream_Get(t *testing.T) {
 	max_concurrency := 4
 	mstream := &mockStream{}
