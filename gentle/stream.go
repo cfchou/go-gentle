@@ -27,7 +27,6 @@ type StreamOpts struct {
 	Namespace      string
 	Name           string
 	Log            Logger
-	Clock 	       clock.Clock
 	MetricGet 	       Metric
 }
 
@@ -43,7 +42,6 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 			Name:name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
-			Clock: clock.New(),
 			MetricGet: noopMetric,
 		},
 		Limiter: limiter,
@@ -55,7 +53,6 @@ type RateLimitedStream struct {
 	namespace      string
 	name           string
 	log            Logger
-	clock 	       clock.Clock
 	mxGet 	       Metric
 	limiter        RateLimit
 	stream         Stream
@@ -66,7 +63,6 @@ func NewRateLimitedStream(opts RateLimitedStreamOpts, upstream Stream) *RateLimi
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		clock:     opts.Clock,
 		mxGet:     opts.MetricGet,
 		limiter:   opts.Limiter,
 		stream:    upstream,
@@ -75,11 +71,11 @@ func NewRateLimitedStream(opts RateLimitedStreamOpts, upstream Stream) *RateLimi
 
 // Get() is blocked when the limit is exceeded.
 func (r *RateLimitedStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	r.limiter.Wait(1, 0)
 	msg, err := r.stream.Get()
-	timespan := r.clock.Now().Sub(begin).Seconds()
+	timespan := time.Now().Sub(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
@@ -103,6 +99,7 @@ func (r *RateLimitedStream) GetNames() *Names {
 type RetryStreamOpts struct {
 	StreamOpts
 	MetricTryNum       Metric
+	Clock     clock.Clock
 	BackOff    BackOff
 }
 
@@ -113,10 +110,10 @@ func NewRetryStreamOpts(namespace, name string, backoff BackOff) *RetryStreamOpt
 			Name:name,
 			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_RETRY, "name", name),
-			Clock: clock.New(),
 			MetricGet: noopMetric,
 		},
 		MetricTryNum: noopMetric,
+		Clock: clock.New(),
 		BackOff: backoff,
 	}
 }
@@ -127,9 +124,9 @@ type RetryStream struct {
 	namespace string
 	name      string
 	log       Logger
-	clock     clock.Clock
 	mxGet     Metric
 	obTryNum  Metric
+	clock     clock.Clock
 	backoff   BackOff
 	stream    Stream
 }
@@ -139,9 +136,9 @@ func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		clock:     opts.Clock,
 		mxGet:     opts.MetricGet,
 		obTryNum:  opts.MetricTryNum,
+		clock:     opts.Clock,
 		backoff:   opts.BackOff,
 		stream:    upstream,
 	}
@@ -208,7 +205,6 @@ func NewBulkheadStreamOpts(namespace, name string, max_concurrency int) *Bulkhea
 			Name:name,
 			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_BULKHEAD, "name", name),
-			Clock: clock.New(),
 			MetricGet: noopMetric,
 		},
 		MaxConcurrency: max_concurrency,
@@ -222,7 +218,6 @@ type BulkheadStream struct {
 	namespace      string
 	name           string
 	log            Logger
-	clock 	       clock.Clock
 	stream         Stream
 	mxGet 	       Metric
 	semaphore      chan struct{}
@@ -236,7 +231,6 @@ func NewBulkheadStream(opts BulkheadStreamOpts, upstream Stream) *BulkheadStream
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		clock:     opts.Clock,
 		mxGet:     opts.MetricGet,
 		stream:    upstream,
 		semaphore: make(chan struct{}, opts.MaxConcurrency),
@@ -245,7 +239,7 @@ func NewBulkheadStream(opts BulkheadStreamOpts, upstream Stream) *BulkheadStream
 
 // Get() is blocked when the limit is exceeded.
 func (r *BulkheadStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	select {
 	case r.semaphore <- struct{}{}:
@@ -253,7 +247,7 @@ func (r *BulkheadStream) Get() (Message, error) {
 			<-r.semaphore
 		}()
 		msg, err := r.stream.Get()
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
 			r.log.Error("[Stream] Get() err", "err", err,
 				"timespan", timespan)
@@ -301,38 +295,38 @@ const (
 )
 
 type CircuitBreakerConf struct {
-	CbTimeout               time.Duration
-	CbMaxConcurrent         int
-	CbVolumeThreshold       uint64
-	CbErrorPercentThreshold int
-	CbSleepWindow           time.Duration
+	Timeout               time.Duration
+	MaxConcurrent         int
+	VolumeThreshold       int
+	ErrorPercentThreshold int
+	SleepWindow           time.Duration
 }
 
 var cbConfdefault = CircuitBreakerConf{
-	CbTimeout:               CbTimeoutDefault,
-	CbMaxConcurrent:         CbMaxConcurrentDefault,
-	CbVolumeThreshold:       CbVolumeThresholdDefault,
-	CbErrorPercentThreshold: CbErrorPercentThresholdDefault,
-	CbSleepWindow:           CbSleepWindowDefault,
+	Timeout:               CbTimeoutDefault,
+	MaxConcurrent:         CbMaxConcurrentDefault,
+	VolumeThreshold:       CbVolumeThresholdDefault,
+	ErrorPercentThreshold: CbErrorPercentThresholdDefault,
+	SleepWindow:           CbSleepWindowDefault,
 }
 
 func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
 	return &CircuitBreakerConf{
-		CbTimeout:               CbTimeoutDefault,
-		CbMaxConcurrent:         CbMaxConcurrentDefault,
-		CbVolumeThreshold:       CbVolumeThresholdDefault,
-		CbErrorPercentThreshold: CbErrorPercentThresholdDefault,
-		CbSleepWindow:           CbSleepWindowDefault,
+		Timeout:               CbTimeoutDefault,
+		MaxConcurrent:         CbMaxConcurrentDefault,
+		VolumeThreshold:       CbVolumeThresholdDefault,
+		ErrorPercentThreshold: CbErrorPercentThresholdDefault,
+		SleepWindow:           CbSleepWindowDefault,
 	}
 }
 
-func (c *CircuitBreakerConf) RegisterAs(circuit string) {
+func (c *CircuitBreakerConf) RegisterFor(circuit string) {
 	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{
-		Timeout:                int(c.CbTimeout / time.Millisecond),
-		MaxConcurrentRequests:  c.CbMaxConcurrent,
-		RequestVolumeThreshold: c.CbErrorPercentThreshold,
-		SleepWindow:            int(c.CbSleepWindow / time.Millisecond),
-		ErrorPercentThreshold:  c.CbErrorPercentThreshold,
+		Timeout:                int(c.Timeout / time.Millisecond),
+		MaxConcurrentRequests:  c.MaxConcurrent,
+		RequestVolumeThreshold: c.VolumeThreshold,
+		SleepWindow:            int(c.SleepWindow / time.Millisecond),
+		ErrorPercentThreshold:  c.ErrorPercentThreshold,
 	})
 }
 
@@ -350,7 +344,6 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_STREAM_CIRCUITBREAKER,
 				"name", name, "circuit", circuit),
-			Clock: clock.New(),
 			MetricGet: noopMetric,
 		},
 		MetricCbErr: noopMetric,
@@ -363,7 +356,6 @@ type CircuitBreakerStream struct {
 	namespace      string
 	name           string
 	log            Logger
-	clock 	       clock.Clock
 	mxGet Metric
 	mxCbErr Metric
 	circuit        string
@@ -383,14 +375,13 @@ func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *Circ
 	// registering the same circuit.
 	allCircuits := hystrix.GetCircuitSettings()
 	if _, ok := allCircuits[opts.Circuit]; !ok {
-		NewDefaultCircuitBreakerConf().RegisterAs(opts.Circuit)
+		NewDefaultCircuitBreakerConf().RegisterFor(opts.Circuit)
 	}
 
 	return &CircuitBreakerStream{
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:  opts.Log,
-		clock:   opts.Clock,
 		mxGet:   opts.MetricGet,
 		mxCbErr:   opts.MetricCbErr,
 		circuit: opts.Circuit,
@@ -399,12 +390,12 @@ func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *Circ
 }
 
 func (r *CircuitBreakerStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	result := make(chan Message, 1)
 	err := hystrix.Do(r.circuit, func() error {
 		msg, err := r.stream.Get()
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
 			r.log.Error("[Stream] Get() in CB err",
 				"err", err, "timespan", timespan)
@@ -417,7 +408,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	}, nil)
 	if err != nil {
 		defer func() {
-			timespan := r.clock.Now().Sub(begin).Seconds()
+			timespan := time.Now().Sub(begin).Seconds()
 			r.log.Error("[Stream] Circuit err", "err", err,
 				"timespan", timespan)
 			r.mxGet.Observe(timespan, label_err)
@@ -445,7 +436,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		}
 	}
 	msg := <-result
-	timespan := r.clock.Now().Sub(begin).Seconds()
+	timespan := time.Now().Sub(begin).Seconds()
 	r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
@@ -472,7 +463,6 @@ func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *C
 			Name:      name,
 			Log:       Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_CHANNEL, "name", name),
-			Clock:     clock.New(),
 			MetricGet:     noopMetric,
 		},
 		Channel: channel,
@@ -484,7 +474,6 @@ type ChannelStream struct {
 	namespace      string
 	name           string
 	log            Logger
-	clock 	       clock.Clock
 	mxGet 	       Metric
 	channel        <-chan interface{}
 }
@@ -501,23 +490,23 @@ func NewChannelStream(opts ChannelStreamOpts) *ChannelStream {
 }
 
 func (r *ChannelStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	switch v := (<-r.channel).(type) {
 	case Message:
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := time.Now().Sub(begin).Seconds()
 		r.log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
 		return v, nil
 	case error:
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := time.Now().Sub(begin).Seconds()
 		r.log.Debug("[Stream] Get() err", "err", v,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_err)
 		return nil, v
 	default:
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := time.Now().Sub(begin).Seconds()
 		r.log.Error("[Stream] Get() err, invalid type",
 			"value", v, "timespan", timespan)
 		return nil, ErrInvalidType
@@ -540,7 +529,6 @@ func NewHandlerStreamOpts(namespace, name string) *HandlerStreamOpts {
 		Name:      name,
 		Log:       Log.New("namespace", namespace, "mixin",
 			MIXIN_STREAM_HANDLED, "name", name),
-		Clock:     clock.New(),
 		MetricGet:     noopMetric,
 	}
 }
@@ -551,7 +539,6 @@ type HandlerStream struct {
 	namespace      string
 	name           string
 	log            Logger
-	clock clock.Clock
 	stream         Stream
 	handler        Handler
 	mxGet Metric
@@ -562,7 +549,6 @@ func NewHandlerStream(opts HandlerStreamOpts, upstream Stream, handler Handler) 
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		clock: opts.Clock,
 		mxGet: opts.MetricGet,
 		stream:    upstream,
 		handler:   handler,
@@ -570,17 +556,17 @@ func NewHandlerStream(opts HandlerStreamOpts, upstream Stream, handler Handler) 
 }
 
 func (r *HandlerStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
 	if err != nil {
 		r.log.Error("[Stream] Get() err", "err", err)
-		r.mxGet.Observe(r.clock.Now().Sub(begin).Seconds(), label_err)
+		r.mxGet.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, err
 	}
 	r.log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
-	timespan := r.clock.Now().Sub(begin).Seconds()
+	timespan := time.Now().Sub(begin).Seconds()
 	if herr != nil {
 		r.log.Error("[Stream] Handle() err", "err", herr,
 			"timespan", timespan)
@@ -614,7 +600,6 @@ func NewTransformStreamOpts(namespace, name string,
 			Name:name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_STREAM_TRANS, "name", name),
-			Clock: clock.New(),
 			MetricGet: noopMetric,
 		},
 		TransFunc: transFunc,
@@ -626,7 +611,6 @@ type TransformStream struct {
 	namespace string
 	name      string
 	log       Logger
-	clock     clock.Clock
 	mxGet     Metric
 	stream    Stream
 	transFunc func(Message, error) (Message, error)
@@ -637,7 +621,6 @@ func NewTransformStream(opts TransformStreamOpts, upstream Stream) *TransformStr
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		clock: opts.Clock,
 		mxGet: opts.MetricGet,
 		stream:    upstream,
 		transFunc: opts.TransFunc,
@@ -645,7 +628,7 @@ func NewTransformStream(opts TransformStreamOpts, upstream Stream) *TransformStr
 }
 
 func (r *TransformStream) Get() (Message, error) {
-	begin := r.clock.Now()
+	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	msg_mid, err := r.stream.Get()
 	if err != nil {
@@ -658,7 +641,7 @@ func (r *TransformStream) Get() (Message, error) {
 			"msg_mid", msg_mid.Id())
 	}
 	msg_out, err2 := r.transFunc(msg_mid, err)
-	timespan := r.clock.Now().Sub(begin).Seconds()
+	timespan := time.Now().Sub(begin).Seconds()
 	if err2 != nil {
 		if msg_mid != nil {
 			r.log.Error("[Stream] transFunc() err",

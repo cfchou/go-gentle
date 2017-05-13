@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"testing"
+	"time"
 )
 
 // Parent logger for tests
@@ -44,6 +45,15 @@ func (m *mockHandler) Handle(msg_in Message) (Message, error) {
 		return nil, err.(error)
 	}
 	return msg.(Message), nil
+}
+
+type mockBackOff struct {
+	mock.Mock
+}
+
+func (m *mockBackOff) Next() time.Duration {
+	args := m.Called()
+	return args.Get(0).(time.Duration)
 }
 
 func TestMain(m *testing.M) {
