@@ -111,6 +111,43 @@ func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 	}
 }
 
+type CircuitBreakerConf struct {
+	// Timeout is how long to wait for command to complete
+	Timeout               time.Duration
+	// MaxConcurrent is how many commands of the same type can run
+	// at the same time
+	MaxConcurrent         int
+	// VolumeThreshold is the minimum number of requests needed
+	// before a circuit can be tripped due to health
+	VolumeThreshold       int
+	// ErrorPercentThreshold causes circuits to open once the
+	// rolling measure of errors exceeds this percent of requests
+	ErrorPercentThreshold int
+	// SleepWindow is how long to wait after a circuit opens before testing
+	// for recovery is allowed
+	SleepWindow           time.Duration
+}
+
+func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
+	return &CircuitBreakerConf{
+		Timeout:               10 * time.Second,
+		MaxConcurrent:         1024,
+		VolumeThreshold:       20,
+		ErrorPercentThreshold: 50,
+		SleepWindow:           5 * time.Second,
+	}
+}
+
+func (c *CircuitBreakerConf) RegisterFor(circuit string) {
+	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{
+		Timeout:                int(c.Timeout / time.Millisecond),
+		MaxConcurrentRequests:  c.MaxConcurrent,
+		RequestVolumeThreshold: c.VolumeThreshold,
+		SleepWindow:            int(c.SleepWindow / time.Millisecond),
+		ErrorPercentThreshold:  c.ErrorPercentThreshold,
+	})
+}
+
 type tuple struct {
 	fst interface{}
 	snd interface{}

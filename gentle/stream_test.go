@@ -110,30 +110,27 @@ func TestRateLimitedStream_Get(t *testing.T) {
 }
 
 func TestRetryStream_Get(t *testing.T) {
-	mstream := &mockStream{}
-
 	mback := &mockBackOff{}
 	// mock clock so that we don't need to wait for the real timer to move
 	// forward
 	mclock := clock.NewMock()
 	opts := NewRetryStreamOpts("", "test", mback)
 	opts.Clock = mclock
+	mstream := &mockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
 	call := mstream.On("Get")
 	call.Return(mm, nil)
-
 	_, err := stream.Get()
 	assert.NoError(t, err)
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
 	call.Return(nil, fakeErr)
-
 	count := 3
-	minimum := time.Duration(count) * time.Second
+	timespan_minimum := time.Duration(count) * time.Second
 	mback_next := mback.On("Next")
 	mback_next.Run(func(args mock.Arguments) {
 		if count == 0 {
@@ -156,11 +153,11 @@ func TestRetryStream_Get(t *testing.T) {
 	for {
 		select {
 		case dura :=<-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
-			assert.True(t, dura >= minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
+			assert.True(t, dura >= timespan_minimum)
 			return
 		default:
-			// advance an arbitrary time to pass backoff
+			// advance an arbitrary time to pass all backoffs
 			mclock.Add(1*time.Second)
 		}
 	}
@@ -181,6 +178,7 @@ func TestBulkheadStream_Get(t *testing.T) {
 	call := mstream.On("Get")
 	call.Run(func(args mock.Arguments) {
 		wg.Done()
+		// every Get() would be blocked here
 		block <- struct{}{}
 	})
 	call.Return(mm, nil)
@@ -189,10 +187,13 @@ func TestBulkheadStream_Get(t *testing.T) {
 		go stream.Get()
 	}
 
+	// Wait() until $max_concurrency of Get() are blocked
 	wg.Wait()
+	// one more Get() would cause ErrMaxConcurrency
 	msg, err := stream.Get()
 	assert.Equal(t, msg, nil)
 	assert.EqualError(t, err, ErrMaxConcurrency.Error())
+	// Release blocked
 	for i := 0; i < max_concurrency; i++ {
 		<-block
 	}
@@ -228,8 +229,9 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &mockStream{}
 
-	// requests exceeding MaxConcurrentRequests would get ErrCbMaxConcurrency
-	// provided Timeout is large enough for this test case
+	// requests exceeding MaxConcurrentRequests would get
+	// ErrCbMaxConcurrency provided that Timeout is large enough for this
+	// test case
 	conf := NewDefaultCircuitBreakerConf()
 	conf.MaxConcurrent = max_concurrency
 	conf.Timeout = 10 * time.Second
@@ -310,7 +312,6 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 
 	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
 	// "Eventually" because hystrix updates metrics asynchronously.
-	//tm := time.NewTimer(IntToMillis(conf.SleepWindow))
 	tm := time.NewTimer(conf.SleepWindow)
 LOOP:
 	for {
