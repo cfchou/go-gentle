@@ -39,6 +39,15 @@ type streamFields struct {
 	mxGet 	       Metric
 }
 
+func newStreamFields(opts *StreamOpts) *streamFields {
+	return &streamFields{
+		namespace: opts.Namespace,
+		name:      opts.Name,
+		log:       opts.Log,
+		mxGet:     opts.MetricGet,
+	}
+}
+
 type RateLimitedStreamOpts struct {
 	StreamOpts
 	Limiter        RateLimit
@@ -66,12 +75,7 @@ type RateLimitedStream struct {
 
 func NewRateLimitedStream(opts RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
 	return &RateLimitedStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		limiter:   opts.Limiter,
 		stream:    upstream,
 	}
@@ -138,12 +142,7 @@ type RetryStream struct {
 
 func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
 	return &RetryStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		obTryNum:  opts.MetricTryNum,
 		clock:     opts.Clock,
 		backOff:   opts.BackOff,
@@ -232,12 +231,7 @@ type BulkheadStream struct {
 func NewBulkheadStream(opts BulkheadStreamOpts, upstream Stream) *BulkheadStream {
 
 	return &BulkheadStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		stream:    upstream,
 		semaphore: make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -328,12 +322,7 @@ func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *Circ
 	}
 
 	return &CircuitBreakerStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		mxCbErr:   opts.MetricCbErr,
 		circuit: opts.Circuit,
 		stream:  stream,
@@ -434,12 +423,7 @@ type TransformStream struct {
 
 func NewTransformStream(opts TransformStreamOpts, upstream Stream) *TransformStream {
 	return &TransformStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		transFunc: opts.TransFunc,
 		stream:    upstream,
 	}
@@ -520,12 +504,7 @@ type ChannelStream struct {
 // Create a ChannelStream that gets Messages from $channel.
 func NewChannelStream(opts ChannelStreamOpts) *ChannelStream {
 	return &ChannelStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
+		streamFields: *newStreamFields(&opts.StreamOpts),
 		channel:   opts.Channel,
 	}
 }

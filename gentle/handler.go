@@ -32,6 +32,15 @@ type handlerFields struct {
 	mxHandle 	Metric
 }
 
+func newHandlerFields(opts *HandlerOpts) *handlerFields {
+	return &handlerFields{
+		namespace: opts.Namespace,
+		name:      opts.Name,
+		log:       opts.Log,
+		mxHandle:     opts.MetricHandle,
+	}
+}
+
 type RateLimitedHandlerOpts struct {
 	HandlerOpts
 	Limiter           RateLimit
@@ -59,12 +68,7 @@ type RateLimitedHandler struct {
 
 func NewRateLimitedHandler(opts RateLimitedHandlerOpts, handler Handler) *RateLimitedHandler {
 	return &RateLimitedHandler{
-		handlerFields: handlerFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log: opts.Log,
-			mxHandle: opts.MetricHandle,
-		},
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		limiter: opts.Limiter,
 		handler: handler,
 	}
@@ -131,12 +135,7 @@ type RetryHandler struct {
 
 func NewRetryHandler(opts RetryHandlerOpts, handler Handler) *RetryHandler {
 	return &RetryHandler{
-		handlerFields: handlerFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log: opts.Log,
-			mxHandle: opts.MetricHandle,
-		},
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		mxTryNum: opts.MetricTryNum,
 		clock: opts.Clock,
 		backOff: opts.BackOff,
@@ -224,12 +223,7 @@ type BulkheadHandler struct {
 func NewBulkheadHandler(opts BulkheadHandlerOpts, handler Handler) *BulkheadHandler {
 
 	return &BulkheadHandler{
-		handlerFields: handlerFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log: opts.Log,
-			mxHandle: opts.MetricHandle,
-		},
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		handler:   handler,
 		semaphore: make(chan *struct{}, opts.MaxConcurrency),
 	}
@@ -305,12 +299,7 @@ type CircuitBreakerHandler struct {
 // circuit-breaker named $circuit.
 func NewCircuitBreakerHandler(opts CircuitBreakerHandlerOpts, handler Handler) *CircuitBreakerHandler {
 	return &CircuitBreakerHandler{
-		handlerFields: handlerFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log: opts.Log,
-			mxHandle: opts.MetricHandle,
-		},
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		mxCbErr: opts.MetricCbErr,
 		circuit: opts.Circuit,
 		handler: handler,
@@ -416,12 +405,7 @@ type TransformHandler struct {
 
 func NewTransformHandler(opts TransformHandlerOpts, handler Handler) *TransformHandler {
 	return &TransformHandler{
-		handlerFields: handlerFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log: opts.Log,
-			mxHandle: opts.MetricHandle,
-		},
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		transFunc: opts.TransFunc,
 		handler:   handler,
 	}
