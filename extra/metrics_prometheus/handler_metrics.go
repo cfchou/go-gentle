@@ -8,6 +8,7 @@ import (
 // Histogram:
 // namespace_hRate_handle_seconds{name, result}
 func NewRateLimitedHandlerOpts(namespace, name string, limiter gentle.RateLimit) *gentle.RateLimitedHandlerOpts {
+
 	opts := gentle.NewRateLimitedHandlerOpts(namespace, name, limiter)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
@@ -68,6 +69,7 @@ func NewRetryHandlerOpts(namespace, name string, backoff gentle.BackOff,
 // Histogram:
 // namespace_hBulk_handle_seconds{name, result}
 func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *gentle.BulkheadHandlerOpts {
+
 	opts := gentle.NewBulkheadHandlerOpts(namespace, name, max_concurrency)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
@@ -91,6 +93,7 @@ func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *gentle
 // Counter:
 // namespace_hCircuit_errors_total{name, err}
 func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *gentle.CircuitBreakerHandlerOpts {
+
 	opts := gentle.NewCircuitBreakerHandlerOpts(namespace, name, circuit)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
@@ -127,6 +130,7 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *gentle.Circu
 // namespace_hTrans_handle_seconds{name, result}
 func NewTransformHandlerOpts(namespace, name string,
 	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
+
 	opts := gentle.NewTransformHandlerOpts(namespace, name, transFunc)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{

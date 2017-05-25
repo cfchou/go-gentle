@@ -20,20 +20,15 @@ import (
 // Timing:
 // namespace.sRate.name.get.result_ok
 // namespace.sRate.name.get.result_err
-func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_RATELIMITED,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewRateLimitedStreamOpts(statter statsd.SubStatter, namespace, name string, limiter gentle.RateLimit) *gentle.RateLimitedStreamOpts {
+	opts := gentle.NewRateLimitedStreamOpts(namespace, name, limiter)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RATELIMITED, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix),
-		timing: statter.NewSubStatter(prefix),
-	})
+	opts.MetricGet = &timingImpl{
+			count:  statter.NewSubStatter(prefix),
+			timing: statter.NewSubStatter(prefix),
+	}
+	return opts
 }
 
 // Counter:
@@ -44,29 +39,24 @@ func RegisterRateLimitedStreamMetrics(statter statsd.SubStatter, namespace, name
 // Timing:
 // namespace.sRetry.name.get.result_ok
 // namespace.sRetry.name.get.result_err
-func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_RETRY,
-		name, gentle.MX_STREAM_GET}
+func NewRetryStreamOpts(statter statsd.SubStatter, namespace, name string,
+	backoff gentle.BackOff, tryBuckets []float64) *gentle.RetryStreamOpts {
+
+	opts := gentle.NewRetryStreamOpts(namespace, name, backoff)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RETRY, name, gentle.MX_STREAM_GET)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix),
-			timing: statter.NewSubStatter(prefix),
-		})
+
+	opts.MetricGet = &timingImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	}
 
-	key = &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_RETRY,
-		name, gentle.MX_STREAM_RETRY_TRY}
 	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RETRY, name, gentle.MX_STREAM_RETRY_TRY)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix),
-		})
+	opts.MetricTryNum = &counterImpl{
+		count: statter.NewSubStatter(prefix),
 	}
+	return opts
 }
 
 // Counter:
@@ -75,20 +65,17 @@ func RegisterRetryStreamMetrics(statter statsd.SubStatter, namespace, name strin
 // Timing:
 // namespace.sBulk.name.get.result_ok
 // namespace.sBulk.name.get.result_err
-func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_BULKHEAD,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewBulkStreamOpts(statter statsd.SubStatter, namespace, name string,
+	max_concurrency int) *gentle.BulkheadStreamOpts {
+
+	opts := gentle.NewBulkheadStreamOpts(namespace, name, max_concurrency)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_BULKHEAD, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricGet = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
 
 // Counter:
@@ -101,31 +88,24 @@ func RegisterBulkheadStreamMetrics(statter statsd.SubStatter, namespace, name st
 // Timing:
 // namespace.sCircuit.name.get.result_ok
 // namespace.sCircuit.name.get.result_err
-func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_CIRCUITBREAKER,
-		name, gentle.MX_STREAM_GET}
+func NewCircuitBreakerStreamOpts(statter statsd.SubStatter, namespace, name string,
+	circuit string) *gentle.CircuitBreakerStreamOpts {
+
+	opts := gentle.NewCircuitBreakerStreamOpts(namespace, name, circuit)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER, name, gentle.MX_STREAM_GET)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix),
-			timing: statter.NewSubStatter(prefix),
-		})
+	opts.MetricGet = &timingImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	}
 
-	key = &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_CIRCUITBREAKER,
-		name,
-		gentle.MX_STREAM_CIRCUITBREAKER_HXERR}
 	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CIRCUITBREAKER, name,
 		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix),
-		})
+	opts.MetricCbErr = &counterImpl{
+		count: statter.NewSubStatter(prefix),
 	}
+	return opts
 }
 
 // Counter:
@@ -134,42 +114,17 @@ func RegisterCircuitBreakerStreamMetrics(statter statsd.SubStatter, namespace, n
 // Timing:
 // namespace.sChan.name.get.result_ok
 // namespace.sChan.name.get.result_err
-func RegisterChannelStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_CHANNEL,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewChannelStreamOpts(statter statsd.SubStatter, namespace, name string,
+	channel <-chan interface{}) *gentle.ChannelStreamOpts {
+
+	opts := gentle.NewChannelStreamOpts(namespace, name, channel)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_CHANNEL, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricGet = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
-}
-
-// Counter:
-// namespace.sCon.name.get.result_ok
-// namespace.sCon.name.get.result_err
-// Timing:
-// namespace.sCon.name.get.result_ok
-// namespace.sCon.name.get.result_err
-func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_CONCURRENTFETCH,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
 	}
-	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
-		gentle.MIXIN_STREAM_CONCURRENTFETCH, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
-		count:  statter.NewSubStatter(prefix),
-		timing: statter.NewSubStatter(prefix),
-	})
+	return opts
 }
 
 // Counter:
@@ -178,20 +133,15 @@ func RegisterConcurrentFetchStreamMetrics(statter statsd.SubStatter, namespace, 
 // Timing:
 // namespace.sHan.name.get.result_ok
 // namespace.sHan.name.get.result_err
-func RegisterHandlerStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_HANDLED,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewHandlerStreamOpts(statter statsd.SubStatter, namespace, name string) *gentle.HandlerStreamOpts {
+	opts := gentle.NewHandlerStreamOpts(namespace, name)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_HANDLED, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricGet = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
 
 // Counter:
@@ -200,18 +150,16 @@ func RegisterHandlerStreamMetrics(statter statsd.SubStatter, namespace, name str
 // Timing:
 // namespace.sTrans.name.get.result_ok
 // namespace.sTrans.name.get.result_err
-func RegisterTransformStreamMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_STREAM_TRANS,
-		name, gentle.MX_STREAM_GET}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewTransformStreamOpts(statter statsd.SubStatter, namespace, name string,
+	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformStreamOpts {
+
+	opts := gentle.NewTransformStreamOpts(namespace, name, transFunc)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_TRANS, name, gentle.MX_STREAM_GET)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricGet = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
+

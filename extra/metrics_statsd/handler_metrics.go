@@ -12,20 +12,15 @@ import (
 // Timing:
 // namespace.hRate.name.handle.result_ok
 // namespace.hRate.name.handle.result_err
-func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_RATELIMITED,
-		name, gentle.MX_HANDLER_HANDLE}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewRateLimitedHandlerOpts(statter statsd.SubStatter, namespace, name string, limiter gentle.RateLimit) *gentle.RateLimitedHandlerOpts {
+	opts := gentle.NewRateLimitedHandlerOpts(namespace, name, limiter)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RATELIMITED, name, gentle.MX_HANDLER_HANDLE)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricHandle = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
 
 // Counter:
@@ -36,30 +31,22 @@ func RegisterRateLimitedHandlerMetrics(statter statsd.SubStatter, namespace, nam
 // Timing:
 // namespace.hRetry.name.handle.result_ok
 // namespace.hRetry.name.handle.result_err
-func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_RETRY,
-		name, gentle.MX_HANDLER_HANDLE}
+func NewRetryHandlerOpts(statter statsd.SubStatter, namespace, name string,
+	backoff gentle.BackOff, tryBuckets []float64) *gentle.RetryHandlerOpts {
+
+	opts := gentle.NewRetryHandlerOpts(namespace, name, backoff)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RETRY, name, gentle.MX_HANDLER_HANDLE)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix),
-			timing: statter.NewSubStatter(prefix),
-		})
+	opts.MetricHandle = &timingImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	}
-
-	key = &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_RETRY,
-		name, gentle.MX_HANDLER_RETRY_TRY}
 	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_RETRY, name, gentle.MX_HANDLER_RETRY_TRY)
-
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix),
-		})
+	opts.MetricTryNum = &counterImpl{
+		count: statter.NewSubStatter(prefix),
 	}
+	return opts
 }
 
 // Counter:
@@ -68,20 +55,17 @@ func RegisterRetryHandlerMetrics(statter statsd.SubStatter, namespace, name stri
 // Timing:
 // namespace.hBulk.name.handle.result_ok
 // namespace.hBulk.name.handle.result_err
-func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_BULKHEAD,
-		name, gentle.MX_HANDLER_HANDLE}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewBulkheadHandlerOpts(statter statsd.SubStatter, namespace, name string,
+	max_concurrency int) *gentle.BulkheadHandlerOpts {
+
+	opts := gentle.NewBulkheadHandlerOpts(namespace, name, max_concurrency)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_BULKHEAD, name, gentle.MX_HANDLER_HANDLE)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricHandle = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
 
 // Counter:
@@ -94,31 +78,24 @@ func RegisterBulkheadHandlerMetrics(statter statsd.SubStatter, namespace, name s
 // Timing:
 // namespace.hCircuit.name.handle.result_ok
 // namespace.hCircuit.name.handle.result_err
-func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
-		name, gentle.MX_HANDLER_HANDLE}
+func NewCircuitBreakerHandlerOpts(statter statsd.SubStatter, namespace, name,
+	circuit string) *gentle.CircuitBreakerHandlerOpts {
+
+	opts := gentle.NewCircuitBreakerHandlerOpts(namespace, name, circuit)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name,
 		gentle.MX_HANDLER_HANDLE)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &timingObservationImpl{
-			count:  statter.NewSubStatter(prefix),
-			timing: statter.NewSubStatter(prefix),
-		})
+	opts.MetricHandle = &timingImpl{
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	}
-	key = &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_CIRCUITBREAKER,
-		name,
-		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR}
 	prefix = fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_CIRCUITBREAKER, name,
 		gentle.MX_HANDLER_CIRCUITBREAKER_HXERR)
-	if _, err := gentle.GetObservation(key); err == nil {
-		gentle.RegisterObservation(key, &counterImpl{
-			count: statter.NewSubStatter(prefix),
-		})
+	opts.MetricCbErr = &counterImpl{
+		count: statter.NewSubStatter(prefix),
 	}
+	return opts
 }
 
 // Counter:
@@ -127,18 +104,16 @@ func RegisterCircuitBreakerHandlerMetrics(statter statsd.SubStatter, namespace, 
 // Timing:
 // namespace.hTrans.name.handle.result_ok
 // namespace.hTrans.name.handle.result_err
-func RegisterTransformHandlerMetrics(statter statsd.SubStatter, namespace, name string) {
-	key := &gentle.RegistryKey{namespace,
-		gentle.MIXIN_HANDLER_TRANS,
-		name, gentle.MX_HANDLER_HANDLE}
-	if _, err := gentle.GetObservation(key); err == nil {
-		// registered
-		return
-	}
+func NewTransformHandlerOpts(statter statsd.SubStatter, namespace, name string,
+	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
+
+	opts := gentle.NewTransformHandlerOpts(namespace, name, transFunc)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_HANDLER_TRANS, name, gentle.MX_HANDLER_HANDLE)
-	gentle.RegisterObservation(key, &timingObservationImpl{
+	opts.MetricHandle = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
-	})
+	}
+	return opts
 }
+

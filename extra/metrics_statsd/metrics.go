@@ -1,6 +1,9 @@
 package metrics_statsd
 
-import "github.com/cactus/go-statsd-client/statsd"
+import (
+	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/cfchou/go-gentle/gentle"
+)
 
 // Provide registration APIs for applications don't bother to create a statsd
 // client themselves.
@@ -20,68 +23,77 @@ func NewStatsdMetrics(addr, prefix string) (*StatsdMetrics, error) {
 	}, nil
 }
 
-func (m *StatsdMetrics) RegisterRateLimitedStreamMetrics(namespace, name string) {
-	RegisterRateLimitedStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewRateLimitedStreamOpts(namespace, name string,
+	limiter gentle.RateLimit) *gentle.RateLimitedStreamOpts {
+	return NewRateLimitedStreamOpts(m.statter, namespace, name, limiter)
 }
 
-func (m *StatsdMetrics) RegisterRetryStreamMetrics(namespace, name string) {
-	RegisterRetryStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewRetryStreamOpts(namespace, name string,
+	backoff gentle.BackOff, tryBuckets []float64) *gentle.RetryStreamOpts {
+	return NewRetryStreamOpts(m.statter, namespace, name, backoff,
+		tryBuckets)
 }
 
-func (m *StatsdMetrics) RegisterBulkheadStreamMetrics(namespace, name string) {
-	RegisterBulkheadStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewBulkheadStreamOpts(namespace, name string,
+	max_concurrency int) *gentle.BulkheadHandlerOpts {
+	return NewBulkheadHandlerOpts(m.statter, namespace, name,
+		max_concurrency)
 }
 
-func (m *StatsdMetrics) RegisterCircuitBreakerStreamMetrics(namespace, name string) {
-	RegisterCircuitBreakerStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewCircuitBreakerStreamOpts(namespace, name, circuit string) *gentle.CircuitBreakerStreamOpts {
+	return NewCircuitBreakerStreamOpts(m.statter, namespace, name, circuit)
 }
 
-func (m *StatsdMetrics) RegisterChannelStreamMetrics(namespace, name string) {
-	RegisterChannelStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewChannelStreamOpts(namespace, name string,
+	channel <-chan interface{}) *gentle.ChannelStreamOpts {
+	return NewChannelStreamOpts(m.statter, namespace, name, channel)
 }
 
-func (m *StatsdMetrics) RegisterConcurrentFetchStreamMetrics(namespace, name string) {
-	RegisterConcurrentFetchStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewHandlerStreamOpts(namespace, name string) *gentle.HandlerStreamOpts {
+	return NewHandlerStreamOpts(m.statter, namespace, name)
 }
 
-func (m *StatsdMetrics) RegisterHandlerStreamMetrics(namespace, name string) {
-	RegisterHandlerStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewTransformStreamOpts(namespace, name string,
+	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformStreamOpts {
+	return NewTransformStreamOpts(m.statter, namespace, name, transFunc)
 }
 
-func (m *StatsdMetrics) RegisterTransformStreamMetrics(namespace, name string) {
-	RegisterTransformStreamMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewRateLimitedHandlerOpts(namespace, name string,
+	limiter gentle.RateLimit) *gentle.RateLimitedHandlerOpts {
+	return NewRateLimitedHandlerOpts(m.statter, namespace, name, limiter)
 }
 
-func (m *StatsdMetrics) RegisterRateLimitedHandlerMetrics(namespace, name string) {
-	RegisterRateLimitedHandlerMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewRetryHandlerOpts(namespace, name string,
+	backoff gentle.BackOff, tryBuckets []float64) *gentle.RetryHandlerOpts {
+	return NewRetryHandlerOpts(m.statter, namespace, name, backoff,
+		tryBuckets)
 }
 
-func (m *StatsdMetrics) RegisterRetryHandlerMetrics(namespace, name string) {
-	RegisterRetryHandlerMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewBulkheadHandlerOpts(namespace, name string,
+	max_concurrency int) *gentle.BulkheadHandlerOpts {
+	return NewBulkheadHandlerOpts(m.statter, namespace, name,
+		max_concurrency)
 }
 
-func (m *StatsdMetrics) RegisterBulkheadHandlerMetrics(namespace, name string) {
-	RegisterBulkheadHandlerMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *gentle.CircuitBreakerHandlerOpts {
+	return NewCircuitBreakerHandlerOpts(m.statter, namespace, name, circuit)
 }
 
-func (m *StatsdMetrics) RegisterCircuitBreakerHandlerMetrics(namespace, name string) {
-	RegisterCircuitBreakerHandlerMetrics(m.statter, namespace, name)
+func (m *StatsdMetrics) NewTransformHandlerOpts(namespace, name string,
+	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
+	return NewTransformHandlerOpts(m.statter, namespace, name, transFunc)
 }
 
-func (m *StatsdMetrics) RegisterTransformHandlerMetrics(namespace, name string) {
-	RegisterTransformHandlerMetrics(m.statter, namespace, name)
-}
-
-// A statsd timing maintains a counter too but it doesn't get flushed every
-// interval. Therefore we explicitly set up a statsd counter.
+// A statsd native timing maintains a counter too, but it doesn't get flushed
+// every interval. Therefore we explicitly set up a statsd counter.
 // More info:
 // https://github.com/etsy/statsd/issues/22
-type timingObservationImpl struct {
+type timingImpl struct {
 	count  statsd.SubStatter
 	timing statsd.SubStatter
 }
 
-func (p *timingObservationImpl) Observe(value float64, labels map[string]string) {
+func (p *timingImpl) Observe(value float64, labels map[string]string) {
 	for k, v := range labels {
 		suffix := k + "_" + v
 		p.count.Inc(suffix, 1, 1.0)
