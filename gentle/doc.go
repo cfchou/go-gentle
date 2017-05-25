@@ -5,10 +5,11 @@ Stream and Handler.
 Stream and Handler and back-pressure
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
-Stream has one method Get() that emits Message. Handler has another method
-Handle() that transforms a given Message. The helper NewHandlerStream()
-creates a HandlerStream whose Get() emits a Message transformed by a Handler
-from a given Stream.
+They are collectively called as mixins. Stream has one method Get() that emits
+Message. Handler has another method Handle() that transforms a given Message. A
+Stream may chain with other Streams and a Handler may chain with with other
+Handlers. The helper NewHandlerStream() creates a HandlerStream whose Get()
+emits a Message transformed by a Handler from a given Stream.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
@@ -18,8 +19,8 @@ Resiliency
 
 Besides back-pressure, resiliency patterns are indispensable in distributed
 systems as external services are not reliable at all time. Some of the patterns
-come to useful include rate-limiting, retry/back-off, circuit-breaker and bulkhead.
-Each of our implementations of Stream and Handler features one resiliency
+come to useful include rate-limiting, retry(also known as back-off),
+circuit-breaker and bulkhead. Each of our implementations of mixins features one
 pattern:
 
   RateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedStream)
@@ -31,6 +32,18 @@ pattern:
   RetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryHandler)
   BulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadHandler)
   CircuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerHandler)
+
+Mixin creation and options
+
+To create a mixin, either a Stream or a Handler, you must firstly create a
+corresponding XXXOpts struct which can be done by using a helper. For instance,
+NewRateLimitedStreamOpts() creates and initialises RateLimitedStreamOpts for
+NewRateLimitedStream().
+
+Helper NewXXXOpts() creates and initialises XXXOpts struct with facilities like
+hierarchical naming, built-in logger but no support for metric collection.
+XXXOpts is a plain-old structure you can overwrite fields to replace
+logger or to add metric support, etc..
 
 Composability
 
