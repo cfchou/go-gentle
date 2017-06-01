@@ -99,21 +99,20 @@ func NewCircuitBreakerHandlerOpts(statter statsd.SubStatter, namespace, name,
 }
 
 // Counter:
-// namespace.hTrans.name.handle.result_ok
-// namespace.hTrans.name.handle.result_err
+// namespace.hFb.name.handle.result_ok
+// namespace.hFb.name.handle.result_err
 // Timing:
-// namespace.hTrans.name.handle.result_ok
-// namespace.hTrans.name.handle.result_err
-func NewTransformHandlerOpts(statter statsd.SubStatter, namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
+// namespace.hFb.name.handle.result_ok
+// namespace.hFb.name.handle.result_err
+func NewFallbackHandlerOpts(statter statsd.SubStatter, namespace, name string,
+	fallbackFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.FallbackHandlerOpts {
 
-	opts := gentle.NewTransformHandlerOpts(namespace, name, transFunc)
+	opts := gentle.NewFallbackHandlerOpts(namespace, name, fallbackFunc)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
-		gentle.MIXIN_HANDLER_TRANS, name, gentle.MX_HANDLER_HANDLE)
+		gentle.MIXIN_HANDLER_FB, name, gentle.MX_HANDLER_HANDLE)
 	opts.MetricHandle = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
 	}
 	return opts
 }
-

@@ -3,8 +3,8 @@ package gentle
 import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
-	"time"
 	"github.com/benbjohnson/clock"
+	"time"
 )
 
 const (
@@ -13,23 +13,23 @@ const (
 	MIXIN_HANDLER_RETRY          = "hRetry"
 	MIXIN_HANDLER_BULKHEAD       = "hBulk"
 	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
-	MIXIN_HANDLER_TRANS          = "hTrans"
+	MIXIN_HANDLER_FB             = "hFb"
 )
 
 // Common options for XXXHandlerOpts
 type HandlerOpts struct {
-	Namespace      string
-	Name           string
-	Log            Logger
-	MetricHandle 	       Metric
+	Namespace    string
+	Name         string
+	Log          Logger
+	MetricHandle Metric
 }
 
 // Common fields for XXXHandler
 type handlerFields struct {
-	namespace         string
-	name              string
-	log               Logger
-	mxHandle 	Metric
+	namespace string
+	name      string
+	log       Logger
+	mxHandle  Metric
 }
 
 func newHandlerFields(opts *HandlerOpts) *handlerFields {
@@ -37,20 +37,20 @@ func newHandlerFields(opts *HandlerOpts) *handlerFields {
 		namespace: opts.Namespace,
 		name:      opts.Name,
 		log:       opts.Log,
-		mxHandle:     opts.MetricHandle,
+		mxHandle:  opts.MetricHandle,
 	}
 }
 
 type RateLimitedHandlerOpts struct {
 	HandlerOpts
-	Limiter           RateLimit
+	Limiter RateLimit
 }
 
 func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateLimitedHandlerOpts {
 	return &RateLimitedHandlerOpts{
 		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_HANDLER_RATELIMITED, "name", name),
 			MetricHandle: noopMetric,
@@ -62,15 +62,15 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 // Rate limiting pattern is used to limit the speed of a series of Handle().
 type RateLimitedHandler struct {
 	handlerFields
-	limiter           RateLimit
-	handler           Handler
+	limiter RateLimit
+	handler Handler
 }
 
 func NewRateLimitedHandler(opts RateLimitedHandlerOpts, handler Handler) *RateLimitedHandler {
 	return &RateLimitedHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		limiter: opts.Limiter,
-		handler: handler,
+		limiter:       opts.Limiter,
+		handler:       handler,
 	}
 }
 
@@ -96,30 +96,30 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 func (r *RateLimitedHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_HANDLER_RATELIMITED,
-		Name: r.name,
+		Mixin:     MIXIN_HANDLER_RATELIMITED,
+		Name:      r.name,
 	}
 }
 
 type RetryHandlerOpts struct {
 	HandlerOpts
-	MetricTryNum       Metric
-	Clock     clock.Clock
-	BackOff    BackOff
+	MetricTryNum Metric
+	Clock        clock.Clock
+	BackOff      BackOff
 }
 
 func NewRetryHandlerOpts(namespace, name string, backoff BackOff) *RetryHandlerOpts {
 	return &RetryHandlerOpts{
 		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_HANDLER_RETRY, "name", name),
 			MetricHandle: noopMetric,
 		},
 		MetricTryNum: noopMetric,
-		Clock: clock.New(),
-		BackOff: backoff,
+		Clock:        clock.New(),
+		BackOff:      backoff,
 	}
 }
 
@@ -127,19 +127,19 @@ func NewRetryHandlerOpts(namespace, name string, backoff BackOff) *RetryHandlerO
 // RetryHandler back off for some time and then retries.
 type RetryHandler struct {
 	handlerFields
-	mxTryNum    Metric
-	clock clock.Clock
-	backOff    BackOff
-	handler           Handler
+	mxTryNum Metric
+	clock    clock.Clock
+	backOff  BackOff
+	handler  Handler
 }
 
 func NewRetryHandler(opts RetryHandlerOpts, handler Handler) *RetryHandler {
 	return &RetryHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		mxTryNum: opts.MetricTryNum,
-		clock: opts.Clock,
-		backOff: opts.BackOff,
-		handler:  handler,
+		mxTryNum:      opts.MetricTryNum,
+		clock:         opts.Clock,
+		backOff:       opts.BackOff,
+		handler:       handler,
 	}
 }
 
@@ -183,8 +183,8 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 func (r *RetryHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_HANDLER_RETRY,
-		Name: r.name,
+		Mixin:     MIXIN_HANDLER_RETRY,
+		Name:      r.name,
 	}
 }
 
@@ -198,9 +198,9 @@ func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *Bulkhe
 		panic(errors.New("max_concurrent must be greater than 0"))
 	}
 	return &BulkheadHandlerOpts{
-		HandlerOpts: HandlerOpts {
+		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_HANDLER_BULKHEAD, "name", name),
 			MetricHandle: noopMetric,
@@ -214,8 +214,8 @@ func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *Bulkhe
 // http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 type BulkheadHandler struct {
 	handlerFields
-	handler           Handler
-	semaphore         chan *struct{}
+	handler   Handler
+	semaphore chan *struct{}
 }
 
 // Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
@@ -224,8 +224,8 @@ func NewBulkheadHandler(opts BulkheadHandlerOpts, handler Handler) *BulkheadHand
 
 	return &BulkheadHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		handler:   handler,
-		semaphore: make(chan *struct{}, opts.MaxConcurrency),
+		handler:       handler,
+		semaphore:     make(chan *struct{}, opts.MaxConcurrency),
 	}
 }
 
@@ -246,12 +246,12 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 			r.mxHandle.Observe(timespan, label_err)
 			return nil, err
 		}
-		r.log.Debug("[Handler] Handle() ok","msg_in", msg.Id(),
+		r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 			"msg_out", msg_out.Id(), "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_ok)
 		return msg_out, nil
 	default:
-		r.log.Error("[Hander] Handle() err","msg_in", msg.Id(),
+		r.log.Error("[Hander] Handle() err", "msg_in", msg.Id(),
 			"err", ErrMaxConcurrency)
 		return nil, ErrMaxConcurrency
 	}
@@ -267,22 +267,22 @@ func (r *BulkheadHandler) GetCurrentConcurrency() int {
 
 type CircuitBreakerHandlerOpts struct {
 	HandlerOpts
-	MetricCbErr     Metric
-	Circuit   string
+	MetricCbErr Metric
+	Circuit     string
 }
 
 func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreakerHandlerOpts {
 	return &CircuitBreakerHandlerOpts{
 		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_HANDLER_CIRCUITBREAKER,
 				"name", name, "circuit", circuit),
 			MetricHandle: noopMetric,
 		},
 		MetricCbErr: noopMetric,
-		Circuit: circuit,
+		Circuit:     circuit,
 	}
 }
 
@@ -290,8 +290,8 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreak
 type CircuitBreakerHandler struct {
 	handlerFields
 	mxCbErr Metric
-	circuit           string
-	handler           Handler
+	circuit string
+	handler Handler
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -300,9 +300,9 @@ type CircuitBreakerHandler struct {
 func NewCircuitBreakerHandler(opts CircuitBreakerHandlerOpts, handler Handler) *CircuitBreakerHandler {
 	return &CircuitBreakerHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		mxCbErr: opts.MetricCbErr,
-		circuit: opts.Circuit,
-		handler: handler,
+		mxCbErr:       opts.MetricCbErr,
+		circuit:       opts.Circuit,
+		handler:       handler,
 	}
 }
 
@@ -368,8 +368,8 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 func (r *CircuitBreakerHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_HANDLER_CIRCUITBREAKER,
-		Name: r.name,
+		Mixin:     MIXIN_HANDLER_CIRCUITBREAKER,
+		Name:      r.name,
 	}
 }
 
@@ -377,85 +377,73 @@ func (r *CircuitBreakerHandler) GetCircuitName() string {
 	return r.circuit
 }
 
-type TransformHandlerOpts struct {
+type FallbackHandlerOpts struct {
 	HandlerOpts
-	TransFunc      func(Message, error) (Message, error)
+	FallbackFunc func(Message, error) (Message, error)
 }
 
-func NewTransformHandlerOpts(namespace, name string,
-	transFunc func(Message, error) (Message, error)) *TransformHandlerOpts {
-	return &TransformHandlerOpts{
+func NewFallbackHandlerOpts(namespace, name string,
+	fallbackFunc func(Message, error) (Message, error)) *FallbackHandlerOpts {
+	return &FallbackHandlerOpts{
 		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_TRANS, "name", name),
+				"mixin", MIXIN_HANDLER_FB, "name", name),
 			MetricHandle: noopMetric,
 		},
-		TransFunc: transFunc,
+		FallbackFunc: fallbackFunc,
 	}
 }
 
-// TransformHandler transforms what Handler.Handle() returns.
-type TransformHandler struct {
+// FallbackHandler transforms what Handler.Handle() returns.
+type FallbackHandler struct {
 	handlerFields
-	transFunc         func(Message, error) (Message, error)
-	handler           Handler
+	fallbackFunc func(Message, error) (Message, error)
+	handler      Handler
 }
 
-func NewTransformHandler(opts TransformHandlerOpts, handler Handler) *TransformHandler {
-	return &TransformHandler{
+func NewFallbackHandler(opts FallbackHandlerOpts, handler Handler) *FallbackHandler {
+	return &FallbackHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		transFunc: opts.TransFunc,
-		handler:   handler,
+		fallbackFunc:  opts.FallbackFunc,
+		handler:       handler,
 	}
 }
 
-func (r *TransformHandler) Handle(msg Message) (Message, error) {
+func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
-	msg_mid, err := r.handler.Handle(msg)
-	if err != nil {
-		r.log.Debug("[Handler] Handle() err, transFunc() ...",
-			"msg_in", msg.Id(), "err", err)
-		// enforce the exclusivity
-		msg_mid = nil
-	} else {
-		r.log.Debug("[Handler] Handle() ok, transFunc() ...",
-			"msg_in", msg.Id(), "msg_mid", msg_mid.Id())
+	msg_out, err := r.handler.Handle(msg)
+	if err == nil {
+		timespan := time.Now().Sub(begin).Seconds()
+		r.log.Debug("[Handler] Handle() ok, skip fallbackFunc",
+			"msg_in", msg.Id(), "msg_out", msg_out.Id(), timespan)
+		r.mxHandle.Observe(timespan, label_ok)
+		return msg_out, nil
 	}
-	msg_out, err2 := r.transFunc(msg_mid, err)
+	r.log.Error("[Handler] Handle() err, fallbackFunc() ...",
+		"msg_in", msg.Id(), "err", err)
+	// fallback to deal with the err and the msg that caused it.
+	msg_out, err = r.fallbackFunc(msg, err)
 	timespan := time.Now().Sub(begin).Seconds()
-	if err2 != nil {
-		if msg_mid != nil {
-			r.log.Error("[Handler] transFunc() err",
-				"msg_in", msg.Id(), "msg_mid", msg_mid.Id(),
-				"err", err2, "timespan", timespan)
-		} else {
-			r.log.Error("[Handler] transFunc() err",
-				"msg_in", msg.Id(), "err", err2,
-				"timespan", timespan)
-		}
+	if err != nil {
+		r.log.Error("[Handler] fallbackFunc() err",
+			"msg_in", msg.Id(), "err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
-		return nil, err2
+		return nil, err
 	}
-	if msg_mid != nil {
-		r.log.Debug("[Handler] transFunc() ok",
-			"msg_in", msg.Id(), "msg_mid", msg_mid.Id(),
-			"msg_out", msg_out.Id(), "timespan", timespan)
-	} else {
-		r.log.Debug("[Handler] transFunc() ok",
-			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
-			"timespan", timespan)
-	}
+	r.log.Debug("[Handler] fallbackFunc() ok",
+		"msg_in", msg.Id(), "msg_out", msg_out.Id(),
+		"timespan", timespan)
 	r.mxHandle.Observe(timespan, label_ok)
 	return msg_out, nil
 }
 
-func (r *TransformHandler) GetNames() *Names {
+func (r *FallbackHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_HANDLER_TRANS,
-		Name: r.name,
+		Mixin:     MIXIN_HANDLER_FB,
+		Name:      r.name,
 	}
 }

@@ -15,12 +15,12 @@ var (
 	// Errors that CircuitBreakerStream.Get() and
 	// CircuitBreakerHandler.Handle() might return. They are replacement of
 	// hystrix errors.
-	ErrCbOpen    = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrCbOpen           = errors.New(hystrix.ErrCircuitOpen.Error())
 	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
 	ErrCbTimeout        = errors.New(hystrix.ErrTimeout.Error())
 
 	ErrMaxConcurrency = errors.New("Reached Max Concurrency")
-	ErrInvalidType = errors.New("Invalid Type")
+	ErrInvalidType    = errors.New("Invalid Type")
 )
 
 func init() {
@@ -48,9 +48,9 @@ type Handler interface {
 }
 
 type Names struct {
-	Namespace      string
-	Mixin 	       string
-	Name           string
+	Namespace string
+	Mixin     string
+	Name      string
 }
 
 type Identity interface {
@@ -69,11 +69,13 @@ type Logger interface {
 
 // A do-nothing Logger
 type noOpLogger struct{}
+
 func (l *noOpLogger) Debug(msg string, ctx ...interface{}) {}
-func (l *noOpLogger) Info(msg string, ctx ...interface{}) {}
-func (l *noOpLogger) Warn(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Info(msg string, ctx ...interface{})  {}
+func (l *noOpLogger) Warn(msg string, ctx ...interface{})  {}
 func (l *noOpLogger) Error(msg string, ctx ...interface{}) {}
-func (l *noOpLogger) Crit(msg string, ctx ...interface{}) {}
+func (l *noOpLogger) Crit(msg string, ctx ...interface{})  {}
+
 var noopLogger = &noOpLogger{}
 
 // RateLimit is an interface for a "token bucket" algorithm.
@@ -113,19 +115,19 @@ func GetHystrixDefaultConfig() *hystrix.CommandConfig {
 
 type CircuitBreakerConf struct {
 	// Timeout is how long to wait for command to complete
-	Timeout               time.Duration
+	Timeout time.Duration
 	// MaxConcurrent is how many commands of the same type can run
 	// at the same time
-	MaxConcurrent         int
+	MaxConcurrent int
 	// VolumeThreshold is the minimum number of requests needed
 	// before a circuit can be tripped due to health
-	VolumeThreshold       int
+	VolumeThreshold int
 	// ErrorPercentThreshold causes circuits to open once the
 	// rolling measure of errors exceeds this percent of requests
 	ErrorPercentThreshold int
 	// SleepWindow is how long to wait after a circuit opens before testing
 	// for recovery is allowed
-	SleepWindow           time.Duration
+	SleepWindow time.Duration
 }
 
 func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
@@ -152,4 +154,3 @@ type tuple struct {
 	fst interface{}
 	snd interface{}
 }
-

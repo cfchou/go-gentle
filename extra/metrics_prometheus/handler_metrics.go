@@ -127,15 +127,15 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *gentle.Circu
 }
 
 // Histogram:
-// namespace_hTrans_handle_seconds{name, result}
-func NewTransformHandlerOpts(namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
+// namespace_hFb_handle_seconds{name, result}
+func NewFallbackHandlerOpts(namespace, name string,
+	fallbackFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.FallbackHandlerOpts {
 
-	opts := gentle.NewTransformHandlerOpts(namespace, name, transFunc)
+	opts := gentle.NewFallbackHandlerOpts(namespace, name, fallbackFunc)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: gentle.MIXIN_HANDLER_TRANS,
+			Subsystem: gentle.MIXIN_HANDLER_FB,
 			Name:      "handle_seconds",
 			Help:      "Duration of MappedHandler.Handle() in seconds",
 			Buckets:   prom.DefBuckets,
@@ -148,4 +148,3 @@ func NewTransformHandlerOpts(namespace, name string,
 	}
 	return opts
 }
-

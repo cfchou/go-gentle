@@ -25,8 +25,8 @@ func NewRateLimitedStreamOpts(statter statsd.SubStatter, namespace, name string,
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
 		gentle.MIXIN_STREAM_RATELIMITED, name, gentle.MX_STREAM_GET)
 	opts.MetricGet = &timingImpl{
-			count:  statter.NewSubStatter(prefix),
-			timing: statter.NewSubStatter(prefix),
+		count:  statter.NewSubStatter(prefix),
+		timing: statter.NewSubStatter(prefix),
 	}
 	return opts
 }
@@ -145,21 +145,20 @@ func NewHandlerStreamOpts(statter statsd.SubStatter, namespace, name string) *ge
 }
 
 // Counter:
-// namespace.sTrans.name.get.result_ok
-// namespace.sTrans.name.get.result_err
+// namespace.sFb.name.get.result_ok
+// namespace.sFb.name.get.result_err
 // Timing:
-// namespace.sTrans.name.get.result_ok
-// namespace.sTrans.name.get.result_err
-func NewTransformStreamOpts(statter statsd.SubStatter, namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformStreamOpts {
+// namespace.sFb.name.get.result_ok
+// namespace.sFb.name.get.result_err
+func NewFallbackStreamOpts(statter statsd.SubStatter, namespace, name string,
+	fallbackFunc func(error) (gentle.Message, error)) *gentle.FallbackStreamOpts {
 
-	opts := gentle.NewTransformStreamOpts(namespace, name, transFunc)
+	opts := gentle.NewFallbackStreamOpts(namespace, name, fallbackFunc)
 	prefix := fmt.Sprintf("%s.%s.%s.%s", namespace,
-		gentle.MIXIN_STREAM_TRANS, name, gentle.MX_STREAM_GET)
+		gentle.MIXIN_STREAM_FB, name, gentle.MX_STREAM_GET)
 	opts.MetricGet = &timingImpl{
 		count:  statter.NewSubStatter(prefix),
 		timing: statter.NewSubStatter(prefix),
 	}
 	return opts
 }
-

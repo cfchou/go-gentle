@@ -44,7 +44,7 @@ func NewRetryStreamOpts(namespace, name string, backoff gentle.BackOff,
 		},
 		[]string{"name", "result"})
 	prom.MustRegister(histVec)
-	opts.MetricGet = &promHist{ name:    name,
+	opts.MetricGet = &promHist{name: name,
 		histVec: histVec,
 	}
 
@@ -119,8 +119,8 @@ func NewCircuitBreakerStreamOpts(namespace, name string, circuit string) *gentle
 		[]string{"name", "err"})
 	prom.MustRegister(counterVec)
 	opts.MetricCbErr = &promCounter{
-			name:       name,
-			counterVec: counterVec,
+		name:       name,
+		counterVec: counterVec,
 	}
 	return opts
 }
@@ -170,17 +170,17 @@ func NewHandlerStreamOpts(namespace, name string) *gentle.HandlerStreamOpts {
 }
 
 // Histogram:
-// namespace_sTrans_get_seconds{name, result}
-func NewTransformStreamOpts(namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformStreamOpts {
+// namespace_sFb_get_seconds{name, result}
+func NewFallbackStreamOpts(namespace, name string,
+	fallbackFunc func(error) (gentle.Message, error)) *gentle.FallbackStreamOpts {
 
-	opts := gentle.NewTransformStreamOpts(namespace, name, transFunc)
+	opts := gentle.NewFallbackStreamOpts(namespace, name, fallbackFunc)
 	histVec := prom.NewHistogramVec(
 		prom.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: gentle.MIXIN_STREAM_TRANS,
+			Subsystem: gentle.MIXIN_STREAM_FB,
 			Name:      "get_seconds",
-			Help:      "Duration of TransformStream.Get() in seconds",
+			Help:      "Duration of FallbackStream.Get() in seconds",
 			Buckets:   prom.DefBuckets,
 		},
 		[]string{"name", "result"})
@@ -191,4 +191,3 @@ func NewTransformStreamOpts(namespace, name string,
 	}
 	return opts
 }
-

@@ -3,19 +3,19 @@ package gentle
 import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
-	"time"
 	"github.com/benbjohnson/clock"
+	"time"
 )
 
 const (
 	// Stream types(mixins), are most often used as part of RegistryKey.
-	MIXIN_STREAM_RATELIMITED     = "sRate"
-	MIXIN_STREAM_RETRY           = "sRetry"
-	MIXIN_STREAM_BULKHEAD        = "sBulk"
-	MIXIN_STREAM_CIRCUITBREAKER  = "sCircuit"
-	MIXIN_STREAM_CHANNEL         = "sChan"
-	MIXIN_STREAM_HANDLED         = "sHan"
-	MIXIN_STREAM_TRANS           = "sTrans"
+	MIXIN_STREAM_RATELIMITED    = "sRate"
+	MIXIN_STREAM_RETRY          = "sRetry"
+	MIXIN_STREAM_BULKHEAD       = "sBulk"
+	MIXIN_STREAM_CIRCUITBREAKER = "sCircuit"
+	MIXIN_STREAM_CHANNEL        = "sChan"
+	MIXIN_STREAM_HANDLED        = "sHan"
+	MIXIN_STREAM_FB             = "sFb"
 )
 
 var (
@@ -25,18 +25,18 @@ var (
 
 // Common options for XXXStreamOpts
 type StreamOpts struct {
-	Namespace      string
-	Name           string
-	Log            Logger
-	MetricGet 	       Metric
+	Namespace string
+	Name      string
+	Log       Logger
+	MetricGet Metric
 }
 
 // Common fields for XXXStream
 type streamFields struct {
-	namespace      string
-	name           string
-	log            Logger
-	mxGet 	       Metric
+	namespace string
+	name      string
+	log       Logger
+	mxGet     Metric
 }
 
 func newStreamFields(opts *StreamOpts) *streamFields {
@@ -50,14 +50,14 @@ func newStreamFields(opts *StreamOpts) *streamFields {
 
 type RateLimitedStreamOpts struct {
 	StreamOpts
-	Limiter        RateLimit
+	Limiter RateLimit
 }
 
 func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLimitedStreamOpts {
 	return &RateLimitedStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_STREAM_RATELIMITED, "name", name),
 			MetricGet: noopMetric,
@@ -69,15 +69,15 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type RateLimitedStream struct {
 	streamFields
-	limiter        RateLimit
-	stream         Stream
+	limiter RateLimit
+	stream  Stream
 }
 
 func NewRateLimitedStream(opts RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
 	return &RateLimitedStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		limiter:   opts.Limiter,
-		stream:    upstream,
+		limiter:      opts.Limiter,
+		stream:       upstream,
 	}
 }
 
@@ -103,30 +103,30 @@ func (r *RateLimitedStream) Get() (Message, error) {
 func (r *RateLimitedStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_RATELIMITED,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_RATELIMITED,
+		Name:      r.name,
 	}
 }
 
 type RetryStreamOpts struct {
 	StreamOpts
-	MetricTryNum       Metric
-	Clock     clock.Clock
-	BackOff    BackOff
+	MetricTryNum Metric
+	Clock        clock.Clock
+	BackOff      BackOff
 }
 
 func NewRetryStreamOpts(namespace, name string, backoff BackOff) *RetryStreamOpts {
 	return &RetryStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_RETRY, "name", name),
 			MetricGet: noopMetric,
 		},
 		MetricTryNum: noopMetric,
-		Clock: clock.New(),
-		BackOff: backoff,
+		Clock:        clock.New(),
+		BackOff:      backoff,
 	}
 }
 
@@ -134,19 +134,19 @@ func NewRetryStreamOpts(namespace, name string, backoff BackOff) *RetryStreamOpt
 // and then retries.
 type RetryStream struct {
 	streamFields
-	obTryNum  Metric
-	clock     clock.Clock
-	backOff   BackOff
-	stream    Stream
+	obTryNum Metric
+	clock    clock.Clock
+	backOff  BackOff
+	stream   Stream
 }
 
 func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
 	return &RetryStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		obTryNum:  opts.MetricTryNum,
-		clock:     opts.Clock,
-		backOff:   opts.BackOff,
-		stream:    upstream,
+		obTryNum:     opts.MetricTryNum,
+		clock:        opts.Clock,
+		backOff:      opts.BackOff,
+		stream:       upstream,
 	}
 }
 
@@ -190,8 +190,8 @@ func (r *RetryStream) Get() (Message, error) {
 func (r *RetryStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_RETRY,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_RETRY,
+		Name:      r.name,
 	}
 }
 
@@ -208,7 +208,7 @@ func NewBulkheadStreamOpts(namespace, name string, max_concurrency int) *Bulkhea
 	return &BulkheadStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_BULKHEAD, "name", name),
 			MetricGet: noopMetric,
@@ -222,8 +222,8 @@ func NewBulkheadStreamOpts(namespace, name string, max_concurrency int) *Bulkhea
 // http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 type BulkheadStream struct {
 	streamFields
-	stream         Stream
-	semaphore      chan struct{}
+	stream    Stream
+	semaphore chan struct{}
 }
 
 // Create a BulkheadStream that allows at maximum $max_concurrency Get() to
@@ -232,8 +232,8 @@ func NewBulkheadStream(opts BulkheadStreamOpts, upstream Stream) *BulkheadStream
 
 	return &BulkheadStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		stream:    upstream,
-		semaphore: make(chan struct{}, opts.MaxConcurrency),
+		stream:       upstream,
+		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
@@ -267,8 +267,8 @@ func (r *BulkheadStream) Get() (Message, error) {
 func (r *BulkheadStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_BULKHEAD,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_BULKHEAD,
+		Name:      r.name,
 	}
 }
 
@@ -282,22 +282,22 @@ func (r *BulkheadStream) GetCurrentConcurrency() int {
 
 type CircuitBreakerStreamOpts struct {
 	StreamOpts
-	MetricCbErr     Metric
-	Circuit   string
+	MetricCbErr Metric
+	Circuit     string
 }
 
 func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreakerStreamOpts {
 	return &CircuitBreakerStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"mixin", MIXIN_STREAM_CIRCUITBREAKER,
 				"name", name, "circuit", circuit),
 			MetricGet: noopMetric,
 		},
 		MetricCbErr: noopMetric,
-		Circuit: circuit,
+		Circuit:     circuit,
 	}
 }
 
@@ -305,8 +305,8 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 type CircuitBreakerStream struct {
 	streamFields
 	mxCbErr Metric
-	circuit        string
-	stream         Stream
+	circuit string
+	stream  Stream
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -323,9 +323,9 @@ func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *Circ
 
 	return &CircuitBreakerStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		mxCbErr:   opts.MetricCbErr,
-		circuit: opts.Circuit,
-		stream:  stream,
+		mxCbErr:      opts.MetricCbErr,
+		circuit:      opts.Circuit,
+		stream:       stream,
 	}
 }
 
@@ -386,8 +386,8 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 func (r *CircuitBreakerStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_CIRCUITBREAKER,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_CIRCUITBREAKER,
+		Name:      r.name,
 	}
 }
 
@@ -395,91 +395,79 @@ func (r *CircuitBreakerStream) GetCircuitName() string {
 	return r.circuit
 }
 
-type TransformStreamOpts struct {
+type FallbackStreamOpts struct {
 	StreamOpts
-	TransFunc      func(Message, error) (Message, error)
+	FallbackFunc func(error) (Message, error)
 }
 
-func NewTransformStreamOpts(namespace, name string,
-	transFunc func(Message, error) (Message, error)) *TransformStreamOpts {
-	return &TransformStreamOpts{
+func NewFallbackStreamOpts(namespace, name string,
+	fallbackFunc func(error) (Message, error)) *FallbackStreamOpts {
+	return &FallbackStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
-			Name:name,
+			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_STREAM_TRANS, "name", name),
+				"mixin", MIXIN_STREAM_FB, "name", name),
 			MetricGet: noopMetric,
 		},
-		TransFunc: transFunc,
+		FallbackFunc: fallbackFunc,
 	}
 }
 
-// TransformStream transforms what Stream.Get() returns.
-type TransformStream struct {
+// FallbackStream transforms what Stream.Get() returns.
+type FallbackStream struct {
 	streamFields
-	transFunc func(Message, error) (Message, error)
-	stream    Stream
+	fallbackFunc func(error) (Message, error)
+	stream       Stream
 }
 
-func NewTransformStream(opts TransformStreamOpts, upstream Stream) *TransformStream {
-	return &TransformStream{
+func NewFallbackStream(opts FallbackStreamOpts, upstream Stream) *FallbackStream {
+	return &FallbackStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		transFunc: opts.TransFunc,
-		stream:    upstream,
+		fallbackFunc: opts.FallbackFunc,
+		stream:       upstream,
 	}
 }
 
-func (r *TransformStream) Get() (Message, error) {
+func (r *FallbackStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
-	msg_mid, err := r.stream.Get()
-	if err != nil {
-		r.log.Debug("[Stream] Get() err, transFunc() ...",
-			"err", err)
-		// enforce the exclusivity
-		msg_mid = nil
-	} else {
-		r.log.Debug("[Stream] Get() ok, transFunc() ...",
-			"msg_mid", msg_mid.Id())
+	msg, err := r.stream.Get()
+	if err == nil {
+		timespan := time.Now().Sub(begin).Seconds()
+		r.log.Debug("[Stream] Get() ok, skip fallbackFunc",
+			"msg", msg.Id(), "timespan", timespan)
+		r.mxGet.Observe(timespan, label_ok)
+		return msg, nil
 	}
-	msg_out, err2 := r.transFunc(msg_mid, err)
+	r.log.Error("[Stream] Get() err, fallbackFunc() ...",
+		"msg", msg.Id(), "err", err)
+	// fallback to deal with the err
+	msg, err = r.fallbackFunc(err)
 	timespan := time.Now().Sub(begin).Seconds()
-	if err2 != nil {
-		if msg_mid != nil {
-			r.log.Error("[Stream] transFunc() err",
-				"msg_mid", msg_mid.Id(), "err", err2,
-				"timespan", timespan)
-		} else {
-			r.log.Error("[Stream] transFunc() err",
-				"err", err2, "timespan", timespan)
-		}
+	if err != nil {
+		r.log.Error("[Stream] fallbackFunc() err",
+			"err", err, "timespan", timespan)
 		r.mxGet.Observe(timespan, label_err)
-		return nil, err2
+		return nil, err
 	}
-	if msg_mid != nil {
-		r.log.Debug("[Stream] transFunc() ok",
-			"msg_mid", msg_mid.Id(),
-			"msg_out", msg_out.Id(), "timespan", timespan)
-	} else {
-		r.log.Debug("[Stream] transFunc() ok",
-			"msg_out", msg_out.Id(), "timespan", timespan)
-
-	}
+	r.log.Debug("[Stream] fallbackFunc() ok",
+		"msg", msg.Id(), "timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msg, nil
 }
 
-func (r *TransformStream) GetNames() *Names {
+func (r *FallbackStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_TRANS,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_FB,
+		Name:      r.name,
 	}
 }
 
 type ChannelStreamOpts struct {
 	StreamOpts
-	Channel        <-chan interface{}
+	Channel <-chan interface{}
 }
 
 func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *ChannelStreamOpts {
@@ -487,9 +475,9 @@ func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *C
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
 			Name:      name,
-			Log:       Log.New("namespace", namespace, "mixin",
+			Log: Log.New("namespace", namespace, "mixin",
 				MIXIN_STREAM_CHANNEL, "name", name),
-			MetricGet:     noopMetric,
+			MetricGet: noopMetric,
 		},
 		Channel: channel,
 	}
@@ -498,14 +486,14 @@ func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *C
 // ChannelStream forms a stream from a channel.
 type ChannelStream struct {
 	streamFields
-	channel        <-chan interface{}
+	channel <-chan interface{}
 }
 
 // Create a ChannelStream that gets Messages from $channel.
 func NewChannelStream(opts ChannelStreamOpts) *ChannelStream {
 	return &ChannelStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
-		channel:   opts.Channel,
+		channel:      opts.Channel,
 	}
 }
 
@@ -536,8 +524,8 @@ func (r *ChannelStream) Get() (Message, error) {
 func (r *ChannelStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_CHANNEL,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_CHANNEL,
+		Name:      r.name,
 	}
 }
 
@@ -547,9 +535,9 @@ func NewHandlerStreamOpts(namespace, name string) *HandlerStreamOpts {
 	return &HandlerStreamOpts{
 		Namespace: namespace,
 		Name:      name,
-		Log:       Log.New("namespace", namespace, "mixin",
+		Log: Log.New("namespace", namespace, "mixin",
 			MIXIN_STREAM_HANDLED, "name", name),
-		MetricGet:     noopMetric,
+		MetricGet: noopMetric,
 	}
 }
 
@@ -557,8 +545,8 @@ func NewHandlerStreamOpts(namespace, name string) *HandlerStreamOpts {
 // a given Stream.
 type HandlerStream struct {
 	streamFields
-	stream         Stream
-	handler        Handler
+	stream  Stream
+	handler Handler
 }
 
 func NewHandlerStream(opts HandlerStreamOpts, upstream Stream, handler Handler) *HandlerStream {
@@ -569,8 +557,8 @@ func NewHandlerStream(opts HandlerStreamOpts, upstream Stream, handler Handler) 
 			log:       opts.Log,
 			mxGet:     opts.MetricGet,
 		},
-		stream:    upstream,
-		handler:   handler,
+		stream:  upstream,
+		handler: handler,
 	}
 }
 
@@ -601,8 +589,7 @@ func (r *HandlerStream) Get() (Message, error) {
 func (r *HandlerStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin: MIXIN_STREAM_HANDLED,
-		Name: r.name,
+		Mixin:     MIXIN_STREAM_HANDLED,
+		Name:      r.name,
 	}
 }
-

@@ -2,14 +2,14 @@ package gentle
 
 import (
 	"errors"
+	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-	"github.com/benbjohnson/clock"
-	"sync/atomic"
 )
 
 func TestRateLimitedHandler_Handle(t *testing.T) {
@@ -83,13 +83,13 @@ func TestRetryHandler_Handle(t *testing.T) {
 
 	for {
 		select {
-		case dura :=<-timespan:
+		case dura := <-timespan:
 			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
 			assert.True(t, dura >= timespan_minimum)
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1*time.Second)
+			mclock.Add(1 * time.Second)
 		}
 	}
 }
@@ -287,4 +287,3 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 		}
 	}
 }
-

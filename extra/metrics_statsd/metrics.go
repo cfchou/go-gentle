@@ -53,9 +53,9 @@ func (m *StatsdMetrics) NewHandlerStreamOpts(namespace, name string) *gentle.Han
 	return NewHandlerStreamOpts(m.statter, namespace, name)
 }
 
-func (m *StatsdMetrics) NewTransformStreamOpts(namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformStreamOpts {
-	return NewTransformStreamOpts(m.statter, namespace, name, transFunc)
+func (m *StatsdMetrics) NewFallbackStreamOpts(namespace, name string,
+	fallbackFunc func(error) (gentle.Message, error)) *gentle.FallbackStreamOpts {
+	return NewFallbackStreamOpts(m.statter, namespace, name, fallbackFunc)
 }
 
 func (m *StatsdMetrics) NewRateLimitedHandlerOpts(namespace, name string,
@@ -79,9 +79,9 @@ func (m *StatsdMetrics) NewCircuitBreakerHandlerOpts(namespace, name, circuit st
 	return NewCircuitBreakerHandlerOpts(m.statter, namespace, name, circuit)
 }
 
-func (m *StatsdMetrics) NewTransformHandlerOpts(namespace, name string,
-	transFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.TransformHandlerOpts {
-	return NewTransformHandlerOpts(m.statter, namespace, name, transFunc)
+func (m *StatsdMetrics) NewFallbackHandlerOpts(namespace, name string,
+	fallbackFunc func(gentle.Message, error) (gentle.Message, error)) *gentle.FallbackHandlerOpts {
+	return NewFallbackHandlerOpts(m.statter, namespace, name, fallbackFunc)
 }
 
 // A statsd native timing maintains a counter too, but it doesn't get flushed

@@ -45,7 +45,7 @@ var (
 )
 
 // Metric
-type Metric interface{
+type Metric interface {
 	Observe(value float64, labels map[string]string)
 }
 

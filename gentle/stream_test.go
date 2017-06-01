@@ -6,15 +6,15 @@ import (
 	//"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	//"github.com/stretchr/testify/mock"
-	"strconv"
-	"sync"
-	"testing"
-	"time"
 	"errors"
-	"github.com/stretchr/testify/mock"
 	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
+	"github.com/stretchr/testify/mock"
+	"strconv"
+	"sync"
 	"sync/atomic"
+	"testing"
+	"time"
 )
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
@@ -62,7 +62,7 @@ func TestChannelStream_Get(t *testing.T) {
 	src := make(chan interface{}, 1)
 	src <- mm
 	stream := NewChannelStream(
-		*NewChannelStreamOpts("","test", src))
+		*NewChannelStreamOpts("", "test", src))
 	msg_out, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), mm.Id())
@@ -153,13 +153,13 @@ func TestRetryStream_Get(t *testing.T) {
 
 	for {
 		select {
-		case dura :=<-timespan:
+		case dura := <-timespan:
 			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
 			assert.True(t, dura >= timespan_minimum)
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1*time.Second)
+			mclock.Add(1 * time.Second)
 		}
 	}
 }
@@ -382,4 +382,3 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 		}
 	}
 }
-
