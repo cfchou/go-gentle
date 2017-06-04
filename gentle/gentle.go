@@ -32,6 +32,20 @@ type Message interface {
 	Id() string
 }
 
+// errors that implements IgnorableError would be examined and ignored if
+// necessary by RetryXXX and CircuitBreakerXXX.
+type IgnorableError interface {
+	Ignore() bool
+}
+
+func ToIgnore(err error) bool {
+	if ig, ok := err.(IgnorableError); !ok {
+		return false
+	} else {
+		return ig.Ignore()
+	}
+}
+
 // Stream emits Message. Messages of a stream goes one way. Though two streams
 // can simulate two-way communication but it would require out-of-band logic.
 type Stream interface {

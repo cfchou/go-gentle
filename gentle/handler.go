@@ -157,6 +157,15 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 			r.mxTryNum.Observe(float64(count), label_ok)
 			return msg_out, nil
 		}
+		if ToIgnore(err) {
+			timespan := r.clock.Now().Sub(begin).Seconds()
+			r.log.Error("[Handler] Handle() err ignored",
+				"msg_in", msg.Id(), "err", err,
+				"timespan", timespan)
+			r.mxHandle.Observe(timespan, label_err_ignored)
+			r.mxTryNum.Observe(float64(count), label_err)
+			return nil, err
+		}
 		to_wait := r.backOff.Next()
 		// Next() should immediately return but we can't guarantee so
 		// timespan is calculated after Next().
@@ -309,15 +318,20 @@ func NewCircuitBreakerHandler(opts CircuitBreakerHandlerOpts, handler Handler) *
 func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
-	result := make(chan Message, 1)
+	result := make(chan interface{}, 1)
 	err := hystrix.Do(r.circuit, func() error {
 		msg_out, err := r.handler.Handle(msg)
 		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
-			r.log.Error("[Handler] Handle() in CB err",
-				"msg_in", msg.Id(),
-				"err", err, "timespan", timespan)
-			return err
+			if !ToIgnore(err) {
+				r.log.Error("[Handler] Handle() in CB err",
+					"msg_in", msg.Id(),
+					"err", err, "timespan", timespan)
+				return err
+			}
+			// faking a success to bypass hystrix's error metrics
+			result <- err
+			return nil
 		}
 		r.log.Debug("[Handler] Handle() in CB ok",
 			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
@@ -325,6 +339,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		result <- msg_out
 		return nil
 	}, nil)
+	// hystrix errors can overwrite stream.Get()'s err.
 	// hystrix.ErrTimeout doesn't interrupt work anyway.
 	// It just contributes to circuit's metrics.
 	if err != nil {
@@ -357,12 +372,25 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 			return nil, err
 		}
 	}
-	msg_out := <-result
-	timespan := time.Now().Sub(begin).Seconds()
-	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", msg_out.Id(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, label_ok)
-	return msg, nil
+	switch v := (<-result).(type) {
+	case error:
+		timespan := time.Now().Sub(begin).Seconds()
+		r.log.Debug("[Handler] Handle() in CB err ignored",
+			"msg_in", msg.Id(),
+			"err", err, "timespan", timespan)
+		r.mxCbErr.Observe(1,
+			map[string]string{"err": "NonCbErr"})
+		r.mxHandle.Observe(timespan, label_err_ignored)
+		return nil, v
+	case Message:
+		timespan := time.Now().Sub(begin).Seconds()
+		r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
+			"msg_out", v.Id(), "timespan", timespan)
+		r.mxHandle.Observe(timespan, label_ok)
+		return msg, nil
+	default:
+		panic("Never be here")
+	}
 }
 
 func (r *CircuitBreakerHandler) GetNames() *Names {

@@ -1,3 +1,4 @@
+# Document is a work-in-progress
 
 ## Go-gentle
 Talk to external services like a gentleman.
@@ -5,7 +6,6 @@ Talk to external services like a gentleman.
 ## Intro
 This package provides composable resilient implementations of two interfaces:
 Stream and Handler.
-
 
 ## Stream, Handler and back-pressure
 __Stream__ and __Handler__ are our fundamental abstractions to achieve back-pressure.
