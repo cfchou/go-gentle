@@ -35,14 +35,14 @@ type Message interface {
 // errors that implements IgnorableError would be examined and ignored if
 // necessary by RetryXXX and CircuitBreakerXXX.
 type IgnorableError interface {
-	Ignore() bool
+	Ignored() bool
 }
 
 func ToIgnore(err error) bool {
 	if ig, ok := err.(IgnorableError); !ok {
 		return false
 	} else {
-		return ig.Ignore()
+		return ig.Ignored()
 	}
 }
 
