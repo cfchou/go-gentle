@@ -35,6 +35,7 @@ type Message interface {
 // errors that implements IgnorableError would be examined and ignored if
 // necessary by RetryXXX and CircuitBreakerXXX.
 type IgnorableError interface {
+	error
 	Ignored() bool
 }
 
