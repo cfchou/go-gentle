@@ -109,8 +109,6 @@ type BackOff interface {
 	Next() time.Duration
 }
 
-const BackOffStop time.Duration = -1
-
 // Converts $millis of int to time.Duration.
 func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
