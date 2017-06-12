@@ -100,6 +100,10 @@ type RateLimit interface {
 	Wait(count int, timeout time.Duration) bool
 }
 
+type BackOffFactory interface {
+	NewBackOff() BackOff
+}
+
 type BackOff interface {
 	// Next() should immediately return
 	Next() time.Duration

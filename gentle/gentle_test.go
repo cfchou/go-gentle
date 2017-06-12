@@ -47,6 +47,15 @@ func (m *mockHandler) Handle(msg_in Message) (Message, error) {
 	return msg.(Message), nil
 }
 
+type mockBackOffFactory struct {
+	mock.Mock
+}
+
+func (m *mockBackOffFactory) NewBackOff() BackOff {
+	args := m.Called()
+	return args.Get(0).(BackOff)
+}
+
 type mockBackOff struct {
 	mock.Mock
 }

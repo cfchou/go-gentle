@@ -111,14 +111,16 @@ func TestRateLimitedStream_Get(t *testing.T) {
 }
 
 func TestRetryStream_Get(t *testing.T) {
+	mfactory := &mockBackOffFactory{}
 	mback := &mockBackOff{}
 	// mock clock so that we don't need to wait for the real timer to move
 	// forward
 	mclock := clock.NewMock()
-	opts := NewRetryStreamOpts("", "test", mback)
+	opts := NewRetryStreamOpts("", "test", mfactory)
 	opts.Clock = mclock
 	mstream := &mockStream{}
 	stream := NewRetryStream(*opts, mstream)
+
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -132,6 +134,8 @@ func TestRetryStream_Get(t *testing.T) {
 	call.Return(nil, fakeErr)
 	count := 3
 	timespan_minimum := time.Duration(count) * time.Second
+
+	mfactory.On("NewBackOff").Return(mback)
 	mback_next := mback.On("Next")
 	mback_next.Run(func(args mock.Arguments) {
 		if count == 0 {

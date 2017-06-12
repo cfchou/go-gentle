@@ -5,6 +5,7 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
 	"time"
+	"sync"
 )
 
 const (
@@ -113,10 +114,10 @@ type RetryStreamOpts struct {
 	StreamOpts
 	MetricTryNum Metric
 	Clock        clock.Clock
-	BackOff      BackOff
+	BackOffFactory      BackOffFactory
 }
 
-func NewRetryStreamOpts(namespace, name string, backoff BackOff) *RetryStreamOpts {
+func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *RetryStreamOpts {
 	return &RetryStreamOpts{
 		StreamOpts: StreamOpts{
 			Namespace: namespace,
@@ -127,7 +128,7 @@ func NewRetryStreamOpts(namespace, name string, backoff BackOff) *RetryStreamOpt
 		},
 		MetricTryNum: noopMetric,
 		Clock:        clock.New(),
-		BackOff:      backoff,
+		BackOffFactory:      backOffFactory,
 	}
 }
 
@@ -137,7 +138,7 @@ type RetryStream struct {
 	streamFields
 	obTryNum Metric
 	clock    clock.Clock
-	backOff  BackOff
+	backOffFactory      BackOffFactory
 	stream   Stream
 }
 
@@ -146,7 +147,7 @@ func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
 		streamFields: *newStreamFields(&opts.StreamOpts),
 		obTryNum:     opts.MetricTryNum,
 		clock:        opts.Clock,
-		backOff:      opts.BackOff,
+		backOffFactory:      opts.BackOffFactory,
 		stream:       upstream,
 	}
 }
@@ -155,6 +156,8 @@ func (r *RetryStream) Get() (Message, error) {
 	begin := r.clock.Now()
 	count := 1
 	r.log.Debug("[Stream] Get() ...", "count", count)
+	var once sync.Once
+	var backOff BackOff
 	for {
 		msg, err := r.stream.Get()
 		if err == nil {
@@ -174,7 +177,10 @@ func (r *RetryStream) Get() (Message, error) {
 			r.obTryNum.Observe(float64(count), label_ok)
 			return nil, err
 		}
-		to_wait := r.backOff.Next()
+		once.Do(func() {
+			backOff = r.backOffFactory.NewBackOff()
+		})
+		to_wait := backOff.Next()
 		// Next() should immediately return but we can't guarantee so
 		// timespan is calculated after Next().
 		timespan := r.clock.Now().Sub(begin).Seconds()
