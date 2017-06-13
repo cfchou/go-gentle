@@ -481,3 +481,20 @@ func (r *FallbackHandler) GetNames() *Names {
 		Name:      r.name,
 	}
 }
+
+type simpleHandler struct {
+	handleFunc func(Message) (Message, error)
+}
+
+func (r *simpleHandler) Handle(msg Message) (Message, error) {
+	return r.handleFunc(msg)
+}
+
+// A helper to create a simplest Handler without facilities like logger and
+// metrics.
+func NewSimpleHandler(handleFunc func(Message) (Message, error)) Handler {
+	return &simpleHandler{
+		handleFunc: handleFunc,
+	}
+}
+

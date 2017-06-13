@@ -629,3 +629,21 @@ func (r *HandlerStream) GetNames() *Names {
 		Name:      r.name,
 	}
 }
+
+type simpleStream struct {
+	getFunc func() (Message, error)
+}
+
+func (r *simpleStream) Get() (Message, error) {
+	return r.getFunc()
+}
+
+// A helper to create a simplest Stream without facilities like logger and
+// metrics.
+func NewSimpleStream(getFunc func() (Message, error)) Stream {
+	return &simpleStream{
+		getFunc: getFunc,
+	}
+}
+
+
