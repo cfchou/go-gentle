@@ -6,6 +6,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"sync"
 	"time"
+	"gopkg.in/cfchou/go-gentle.v1/gentle"
 )
 
 const (
@@ -13,6 +14,7 @@ const (
 	MIXIN_HANDLER_RATELIMITED    = "hRate"
 	MIXIN_HANDLER_RETRY          = "hRetry"
 	MIXIN_HANDLER_BULKHEAD       = "hBulk"
+	MIXIN_HANDLER_SEMAPHORE      = "hSem"
 	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
 	MIXIN_HANDLER_HANDLED        = "hHan"
 	MIXIN_HANDLER_FALLBACK       = "hFb"
@@ -209,9 +211,9 @@ type BulkheadHandlerOpts struct {
 	MaxConcurrency int
 }
 
-func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *BulkheadHandlerOpts {
-	if max_concurrency <= 0 {
-		panic(errors.New("max_concurrent must be greater than 0"))
+func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *BulkheadHandlerOpts {
+	if maxConcurrency <= 0 {
+		panic(errors.New("maxCconcurrent must be greater than 0"))
 	}
 	return &BulkheadHandlerOpts{
 		HandlerOpts: HandlerOpts{
@@ -221,7 +223,7 @@ func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *Bulkhe
 				"mixin", MIXIN_HANDLER_BULKHEAD, "name", name),
 			MetricHandle: noopMetric,
 		},
-		MaxConcurrency: max_concurrency,
+		MaxConcurrency: maxConcurrency,
 	}
 }
 
@@ -231,7 +233,7 @@ func NewBulkheadHandlerOpts(namespace, name string, max_concurrency int) *Bulkhe
 type BulkheadHandler struct {
 	handlerFields
 	handler   Handler
-	semaphore chan *struct{}
+	semaphore chan struct{}
 }
 
 // Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
@@ -241,7 +243,7 @@ func NewBulkheadHandler(opts BulkheadHandlerOpts, handler Handler) *BulkheadHand
 	return &BulkheadHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		handler:       handler,
-		semaphore:     make(chan *struct{}, opts.MaxConcurrency),
+		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
@@ -250,7 +252,7 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	select {
-	case r.semaphore <- &struct{}{}:
+	case r.semaphore <- struct{}{}:
 		defer func() {
 			<-r.semaphore
 		}()
@@ -279,6 +281,86 @@ func (r *BulkheadHandler) GetMaxConcurrency() int {
 
 func (r *BulkheadHandler) GetCurrentConcurrency() int {
 	return len(r.semaphore)
+}
+
+func (r *BulkheadHandler) GetNames() *Names {
+	return &Names{
+		Namespace: r.namespace,
+		Mixin:     MIXIN_HANDLER_BULKHEAD,
+		Name:      r.name,
+	}
+}
+
+type SemaphoreHandlerOpts struct {
+	HandlerOpts
+	MaxConcurrency int
+}
+
+func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *SemaphoreHandlerOpts {
+	if maxConcurrency <= 0 {
+		panic(errors.New("maxCconcurrent must be greater than 0"))
+	}
+	return &SemaphoreHandlerOpts{
+		HandlerOpts: HandlerOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace,
+				"mixin", MIXIN_HANDLER_SEMAPHORE, "name", name),
+			MetricHandle: noopMetric,
+		},
+		MaxConcurrency: maxConcurrency,
+	}
+}
+
+// It allows at maximum $max_concurrency Handle() to run concurrently. Similar
+// to Bulkhead, but it blocks when MaxConcurrency is reached.
+type SemaphoreHandler struct {
+	handlerFields
+	handler   gentle.Handler
+	semaphore chan struct{}
+}
+
+func NewSemaphoreHandler(opts SemaphoreHandlerOpts, handler gentle.Handler) *SemaphoreHandler {
+	return &SemaphoreHandler{
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handler:       handler,
+		semaphore:     make(chan struct{}, opts.MaxConcurrency),
+	}
+}
+
+func (r *SemaphoreHandler) Handle(msg gentle.Message) (gentle.Message, error) {
+	begin := time.Now()
+	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	r.semaphore <- struct{}{}
+	defer func() { <-r.semaphore }()
+	msg_out, err := r.handler.Handle(msg)
+	timespan := time.Now().Sub(begin).Seconds()
+	if err != nil {
+		r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+			"err", err, "timespan", timespan)
+		r.mxHandle.Observe(timespan, label_err)
+		return nil, err
+	}
+	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
+		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.mxHandle.Observe(timespan, label_ok)
+	return msg_out, nil
+}
+
+func (r *SemaphoreHandler) GetMaxConcurrency() int {
+	return cap(r.semaphore)
+}
+
+func (r *SemaphoreHandler) GetCurrentConcurrency() int {
+	return len(r.semaphore)
+}
+
+func (r *SemaphoreHandler) GetNames() *Names {
+	return &Names{
+		Namespace: r.namespace,
+		Mixin:     MIXIN_HANDLER_SEMAPHORE,
+		Name:      r.name,
+	}
 }
 
 type CircuitBreakerHandlerOpts struct {

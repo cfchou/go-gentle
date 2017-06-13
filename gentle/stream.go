@@ -13,6 +13,7 @@ const (
 	MIXIN_STREAM_RATELIMITED    = "sRate"
 	MIXIN_STREAM_RETRY          = "sRetry"
 	MIXIN_STREAM_BULKHEAD       = "sBulk"
+	MIXIN_STREAM_SEMAPHORE      = "sSem"
 	MIXIN_STREAM_CIRCUITBREAKER = "sCircuit"
 	MIXIN_STREAM_CHANNEL        = "sChan"
 	MIXIN_STREAM_HANDLED        = "sHan"
@@ -293,6 +294,80 @@ func (r *BulkheadStream) GetMaxConcurrency() int {
 }
 
 func (r *BulkheadStream) GetCurrentConcurrency() int {
+	return len(r.semaphore)
+}
+
+type SemaphoreStreamOpts struct {
+	StreamOpts
+	MaxConcurrency int
+}
+
+func NewSemaphoreStreamOpts(namespace, name string, max_concurrency int) *SemaphoreStreamOpts {
+	if max_concurrency <= 0 {
+		panic(errors.New("max_concurrent must be greater than 0"))
+	}
+
+	return &SemaphoreStreamOpts{
+		StreamOpts: StreamOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace, "mixin",
+				MIXIN_STREAM_SEMAPHORE, "name", name),
+			MetricGet: noopMetric,
+		},
+		MaxConcurrency: max_concurrency,
+	}
+}
+
+// It allows at maximum $max_concurrency Get() to run concurrently. Similar
+// to Bulkhead, but it blocks when MaxConcurrency is reached.
+type SemaphoreStream struct {
+	streamFields
+	stream    Stream
+	semaphore chan struct{}
+}
+
+func NewSemaphoreStream(opts SemaphoreStreamOpts, upstream Stream) *SemaphoreStream {
+
+	return &SemaphoreStream{
+		streamFields: *newStreamFields(&opts.StreamOpts),
+		stream:       upstream,
+		semaphore:    make(chan struct{}, opts.MaxConcurrency),
+	}
+}
+
+func (r *SemaphoreStream) Get() (Message, error) {
+	begin := time.Now()
+	r.log.Debug("[Stream] Get() ...")
+	r.semaphore <- struct{}{}
+	defer func() { <-r.semaphore }()
+	msg, err := r.stream.Get()
+	timespan := time.Now().Sub(begin).Seconds()
+	if err != nil {
+		r.log.Error("[Stream] Get() err", "err", err,
+			"timespan", timespan)
+		r.mxGet.Observe(timespan, label_err)
+		return nil, err
+	}
+	r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		"timespan", timespan)
+	r.mxGet.Observe(timespan, label_ok)
+	return msg, nil
+}
+
+func (r *SemaphoreStream) GetNames() *Names {
+	return &Names{
+		Namespace: r.namespace,
+		Mixin:     MIXIN_STREAM_SEMAPHORE,
+		Name:      r.name,
+	}
+}
+
+func (r *SemaphoreStream) GetMaxConcurrency() int {
+	return cap(r.semaphore)
+}
+
+func (r *SemaphoreStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
@@ -593,7 +668,7 @@ func NewHandlerMappedStream(opts HandlerMappedStreamOpts, upstream Stream, handl
 	return &HandlerMappedStream{
 		streamFields: *newStreamFields(&opts.StreamOpts),
 		upstream:     upstream,
-		handler: handler,
+		handler:      handler,
 	}
 }
 
@@ -644,5 +719,3 @@ func NewSimpleStream(getFunc func() (Message, error)) Stream {
 		getFunc: getFunc,
 	}
 }
-
-
