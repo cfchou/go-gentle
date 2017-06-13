@@ -1,59 +1,58 @@
 package gentle
 
 import (
-	"time"
-	"github.com/cenkalti/backoff"
 	"github.com/benbjohnson/clock"
+	"github.com/cenkalti/backoff"
+	"time"
 )
 
 const BackOffStop time.Duration = -1
 
 type ConstantBackOffFactoryOpts struct {
-	Interval  time.Duration
+	Interval time.Duration
 	// After MaxElapsedTime the BackOff stops.
 	// It never stops if MaxElapsedTime == 0.
 	MaxElapsedTime time.Duration
-	Clock clock.Clock
+	Clock          Clock
 }
 
 func NewConstantBackOffFactoryOpts(interval time.Duration,
 	maxElapsedTime time.Duration) *ConstantBackOffFactoryOpts {
-
 	return &ConstantBackOffFactoryOpts{
-		Interval: interval,
+		Interval:       interval,
 		MaxElapsedTime: maxElapsedTime,
-		Clock: clock.New(),
+		Clock:          clock.New(),
 	}
 }
 
 type ConstantBackOffFactory struct {
-	interval  time.Duration
+	interval       time.Duration
 	maxElapsedTime time.Duration
-	clock clock.Clock
+	clock          Clock
 }
 
 func NewConstantBackOffFactory(opts ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
 	return &ConstantBackOffFactory{
-		interval: opts.Interval,
+		interval:       opts.Interval,
 		maxElapsedTime: opts.MaxElapsedTime,
-		clock: opts.Clock,
+		clock:          opts.Clock,
 	}
 }
 
 func (f *ConstantBackOffFactory) NewBackOff() BackOff {
 	return &constantBackOff{
-		backOff: backoff.NewConstantBackOff(f.interval),
+		backOff:        backoff.NewConstantBackOff(f.interval),
 		maxElapsedTime: f.maxElapsedTime,
-		clock: f.clock,
-		startTime: f.clock.Now(),
+		clock:          f.clock,
+		startTime:      f.clock.Now(),
 	}
 }
 
 type constantBackOff struct {
-	backOff *backoff.ConstantBackOff
+	backOff        *backoff.ConstantBackOff
 	maxElapsedTime time.Duration
-	clock clock.Clock
-	startTime       time.Time
+	clock          Clock
+	startTime      time.Time
 }
 
 func (b *constantBackOff) getElapsedTime() time.Duration {
@@ -72,7 +71,7 @@ func (b *constantBackOff) Next() time.Duration {
 	return next
 }
 
-type ExponentialBackoffFactoryOpts struct {
+type ExponentialBackOffFactoryOpts struct {
 	// Next() returns a randomizedInterval which is:
 	// currentInterval * rand(range [1-RandomizationFactor, 1+RandomizationFactor])
 	InitialInterval     time.Duration
@@ -81,47 +80,47 @@ type ExponentialBackoffFactoryOpts struct {
 
 	// If currentInterval * Multiplier >= MaxInterval, then currentInterval = b.MaxInterval
 	// Otherwise, currentInterval *= Multiplier
-	MaxInterval         time.Duration
+	MaxInterval time.Duration
 
 	// After MaxElapsedTime the ExponentialBackOff stops.
 	// It never stops if MaxElapsedTime == 0.
 	MaxElapsedTime time.Duration
-	Clock    clock.Clock
+	Clock          Clock
 }
 
-func NewExponentialBackoffFactoryOpts(initInterval time.Duration,
-	multiplier float64, maxInterval time.Duration, maxElapsedTime time.Duration) *ExponentialBackoffFactoryOpts {
-	return &ExponentialBackoffFactoryOpts{
-		InitialInterval: initInterval,
+func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
+	multiplier float64, maxInterval time.Duration, maxElapsedTime time.Duration) *ExponentialBackOffFactoryOpts {
+	return &ExponentialBackOffFactoryOpts{
+		InitialInterval:     initInterval,
 		RandomizationFactor: 0.5,
-		Multiplier: 	multiplier,
-		MaxInterval: maxInterval,
-		MaxElapsedTime: maxElapsedTime,
+		Multiplier:          multiplier,
+		MaxInterval:         maxInterval,
+		MaxElapsedTime:      maxElapsedTime,
 	}
 }
 
-type ExponentialBackoffFactory struct {
+type ExponentialBackOffFactory struct {
 	initialInterval     time.Duration
 	randomizationFactor float64
 	multiplier          float64
 	maxInterval         time.Duration
-	maxElapsedTime time.Duration
-	clock    clock.Clock
+	maxElapsedTime      time.Duration
+	clock               Clock
 }
 
-func NewExponentialBackoffFactory(opts ExponentialBackoffFactoryOpts) *ExponentialBackoffFactory {
-	return &ExponentialBackoffFactory{
-		initialInterval: opts.InitialInterval,
+func NewExponentialBackOffFactory(opts ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {
+	return &ExponentialBackOffFactory{
+		initialInterval:     opts.InitialInterval,
 		randomizationFactor: opts.RandomizationFactor,
-		multiplier: opts.Multiplier,
-		maxInterval: opts.MaxInterval,
-		maxElapsedTime: opts.MaxElapsedTime,
-		clock: opts.Clock,
+		multiplier:          opts.Multiplier,
+		maxInterval:         opts.MaxInterval,
+		maxElapsedTime:      opts.MaxElapsedTime,
+		clock:               opts.Clock,
 	}
 
 }
 
-func (f *ExponentialBackoffFactory) NewBackOff() BackOff {
+func (f *ExponentialBackOffFactory) NewBackOff() BackOff {
 	b := &backoff.ExponentialBackOff{
 		InitialInterval:     f.initialInterval,
 		RandomizationFactor: f.randomizationFactor,
@@ -152,5 +151,3 @@ func (b *exponentialBackOff) Next() time.Duration {
 	}
 	return next
 }
-
-

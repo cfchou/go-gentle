@@ -3,7 +3,7 @@ package gentle
 import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
-	log15 "gopkg.in/inconshreveable/log15.v2"
+	"gopkg.in/inconshreveable/log15.v2"
 	"time"
 )
 
@@ -107,6 +107,11 @@ type BackOffFactory interface {
 type BackOff interface {
 	// Next() should immediately return
 	Next() time.Duration
+}
+
+type Clock interface {
+	Now() time.Time
+	Sleep(d time.Duration)
 }
 
 // Converts $millis of int to time.Duration.

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
-	"time"
 	"sync"
+	"time"
 )
 
 const (
@@ -20,8 +20,8 @@ const (
 )
 
 var (
-	label_ok  = map[string]string{"result": "ok"}
-	label_err = map[string]string{"result": "err"}
+	label_ok          = map[string]string{"result": "ok"}
+	label_err         = map[string]string{"result": "err"}
 	label_err_ignored = map[string]string{"result": "ierr"}
 )
 
@@ -112,9 +112,9 @@ func (r *RateLimitedStream) GetNames() *Names {
 
 type RetryStreamOpts struct {
 	StreamOpts
-	MetricTryNum Metric
-	Clock        clock.Clock
-	BackOffFactory      BackOffFactory
+	MetricTryNum   Metric
+	Clock          Clock
+	BackOffFactory BackOffFactory
 }
 
 func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *RetryStreamOpts {
@@ -126,9 +126,9 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 				MIXIN_STREAM_RETRY, "name", name),
 			MetricGet: noopMetric,
 		},
-		MetricTryNum: noopMetric,
-		Clock:        clock.New(),
-		BackOffFactory:      backOffFactory,
+		MetricTryNum:   noopMetric,
+		Clock:          clock.New(),
+		BackOffFactory: backOffFactory,
 	}
 }
 
@@ -136,19 +136,19 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 // and then retries.
 type RetryStream struct {
 	streamFields
-	obTryNum Metric
-	clock    clock.Clock
-	backOffFactory      BackOffFactory
-	stream   Stream
+	obTryNum       Metric
+	clock          Clock
+	backOffFactory BackOffFactory
+	stream         Stream
 }
 
 func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
 	return &RetryStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
-		obTryNum:     opts.MetricTryNum,
-		clock:        opts.Clock,
-		backOffFactory:      opts.BackOffFactory,
-		stream:       upstream,
+		streamFields:   *newStreamFields(&opts.StreamOpts),
+		obTryNum:       opts.MetricTryNum,
+		clock:          opts.Clock,
+		backOffFactory: opts.BackOffFactory,
+		stream:         upstream,
 	}
 }
 
@@ -194,10 +194,10 @@ func (r *RetryStream) Get() (Message, error) {
 		}
 		// timespan in our convention is used to track the overall
 		// time of current function. Here we record time
-		// passed as "elapse".
+		// passed as "elapsed".
 		count++
 		r.log.Error("[Stream] Get() err, backing off ...",
-			"err", err, "elapse", timespan, "count", count,
+			"err", err, "elapsed", timespan, "count", count,
 			"wait", to_wait)
 		r.clock.Sleep(to_wait)
 	}

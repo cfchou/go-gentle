@@ -111,6 +111,7 @@ func TestRateLimitedStream_Get(t *testing.T) {
 }
 
 func TestRetryStream_Get(t *testing.T) {
+	// Test against mocked BackOff
 	mfactory := &mockBackOffFactory{}
 	mback := &mockBackOff{}
 	// mock clock so that we don't need to wait for the real timer to move
@@ -120,7 +121,6 @@ func TestRetryStream_Get(t *testing.T) {
 	opts.Clock = mclock
 	mstream := &mockStream{}
 	stream := NewRetryStream(*opts, mstream)
-
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -132,9 +132,9 @@ func TestRetryStream_Get(t *testing.T) {
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
 	call.Return(nil, fakeErr)
+	// create a backoff that fires 1 second for $count times
 	count := 3
 	timespan_minimum := time.Duration(count) * time.Second
-
 	mfactory.On("NewBackOff").Return(mback)
 	mback_next := mback.On("Next")
 	mback_next.Run(func(args mock.Arguments) {
@@ -145,6 +145,50 @@ func TestRetryStream_Get(t *testing.T) {
 			mback_next.Return(1 * time.Second)
 		}
 	})
+	timespan := make(chan time.Duration, 1)
+	go func() {
+		begin := mclock.Now()
+		_, err = stream.Get()
+		// backoffs exhausted
+		assert.EqualError(t, err, fakeErr.Error())
+		timespan <- mclock.Now().Sub(begin)
+	}()
+
+	for {
+		select {
+		case dura := <-timespan:
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
+			assert.True(t, dura >= timespan_minimum)
+			return
+		default:
+			// advance an arbitrary time to pass all backoffs
+			mclock.Add(1 * time.Second)
+		}
+	}
+}
+
+func TestRetryStream_Get2(t *testing.T) {
+	// Test against ConstantBackOff
+	mclock := clock.NewMock()
+	timespan_minimum := 16 * time.Second
+	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
+	backOffOpts.Clock = mclock
+	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	opts := NewRetryStreamOpts("", "test", backOffFactory)
+	opts.Clock = mclock
+	mstream := &mockStream{}
+	stream := NewRetryStream(*opts, mstream)
+
+	// 1st: ok
+	mm := &fakeMsg{id: "123"}
+	call := mstream.On("Get")
+	call.Return(mm, nil)
+	_, err := stream.Get()
+	assert.NoError(t, err)
+
+	// 2ed: err, trigger retry with backoffs
+	fakeErr := errors.New("A fake error")
+	call.Return(nil, fakeErr)
 
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -160,6 +204,173 @@ func TestRetryStream_Get(t *testing.T) {
 		case dura := <-timespan:
 			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
 			assert.True(t, dura >= timespan_minimum)
+			return
+		default:
+			// advance an arbitrary time to pass all backoffs
+			mclock.Add(1 * time.Second)
+		}
+	}
+}
+
+func TestRetryStream_Get3(t *testing.T) {
+	// Test against ExponentialBackOff
+	mclock := clock.NewMock()
+	timespan_minimum := 1024 * time.Second
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
+	// No randomization to make the growth of backoff time approximately exponential.
+	backOffOpts.RandomizationFactor = 0
+	backOffOpts.Clock = mclock
+	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	opts := NewRetryStreamOpts("", "test", backOffFactory)
+	opts.Clock = mclock
+	mstream := &mockStream{}
+	stream := NewRetryStream(*opts, mstream)
+
+	// 1st: ok
+	mm := &fakeMsg{id: "123"}
+	call := mstream.On("Get")
+	call.Return(mm, nil)
+	_, err := stream.Get()
+	assert.NoError(t, err)
+
+	// 2ed: err, trigger retry with backoffs
+	fakeErr := errors.New("A fake error")
+	call.Return(nil, fakeErr)
+
+	timespan := make(chan time.Duration, 1)
+	go func() {
+		begin := mclock.Now()
+		_, err = stream.Get()
+		// backoffs exhausted
+		assert.EqualError(t, err, fakeErr.Error())
+		timespan <- mclock.Now().Sub(begin)
+	}()
+
+	for {
+		select {
+		case dura := <-timespan:
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
+			assert.True(t, dura >= timespan_minimum)
+			return
+		default:
+			// advance an arbitrary time to pass all backoffs
+			mclock.Add(1 * time.Second)
+		}
+	}
+}
+
+func TestRetryStream_Get4(t *testing.T) {
+	// Test against concurrent RetryStream.Get() and ConstantBackOff
+	mclock := clock.NewMock()
+	timespan_minimum := 16 * time.Second
+	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
+	backOffOpts.Clock = mclock
+	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	opts := NewRetryStreamOpts("", "test", backOffFactory)
+	opts.Clock = mclock
+	mstream := &mockStream{}
+	stream := NewRetryStream(*opts, mstream)
+
+	// 1st: ok
+	mm := &fakeMsg{id: "123"}
+	call := mstream.On("Get")
+	call.Return(mm, nil)
+	_, err := stream.Get()
+	assert.NoError(t, err)
+
+	// 2ed: err, trigger retry with backoffs
+	fakeErr := errors.New("A fake error")
+	call.Return(nil, fakeErr)
+
+	count := 2
+	wg := sync.WaitGroup{}
+	wg.Add(count)
+	done := make(chan struct{}, 1)
+
+	for i := 0; i < count; i++ {
+		go func() {
+			begin := mclock.Now()
+			_, err = stream.Get()
+			// backoffs exhausted
+			assert.EqualError(t, err, fakeErr.Error())
+			dura := mclock.Now().Sub(begin)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
+			assert.True(t, dura >= timespan_minimum)
+			wg.Done()
+		}()
+
+	}
+	go func() {
+		wg.Wait()
+		done <- struct{}{}
+	}()
+
+	begin := mclock.Now()
+	for {
+		select {
+		case <-done:
+			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
+			return
+		default:
+			// advance an arbitrary time to pass all backoffs
+			mclock.Add(1 * time.Second)
+		}
+	}
+}
+
+func TestRetryStream_Get5(t *testing.T) {
+	// Test against concurrent RetryStream.Get() and ExponentialBackOff
+	mclock := clock.NewMock()
+	timespan_minimum := 1024 * time.Second
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
+	// No randomization to make the growth of backoff time approximately exponential.
+	backOffOpts.RandomizationFactor = 0
+	backOffOpts.Clock = mclock
+	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	opts := NewRetryStreamOpts("", "test", backOffFactory)
+	opts.Clock = mclock
+	mstream := &mockStream{}
+	stream := NewRetryStream(*opts, mstream)
+
+	// 1st: ok
+	mm := &fakeMsg{id: "123"}
+	call := mstream.On("Get")
+	call.Return(mm, nil)
+	_, err := stream.Get()
+	assert.NoError(t, err)
+
+	// 2ed: err, trigger retry with backoffs
+	fakeErr := errors.New("A fake error")
+	call.Return(nil, fakeErr)
+
+	count := 2
+	wg := sync.WaitGroup{}
+	wg.Add(count)
+	done := make(chan struct{}, 1)
+
+	for i := 0; i < count; i++ {
+		go func() {
+			begin := mclock.Now()
+			_, err = stream.Get()
+			// backoffs exhausted
+			assert.EqualError(t, err, fakeErr.Error())
+			dura := mclock.Now().Sub(begin)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
+			assert.True(t, dura >= timespan_minimum)
+			wg.Done()
+		}()
+
+	}
+	go func() {
+		wg.Wait()
+		done <- struct{}{}
+	}()
+
+	begin := mclock.Now()
+	for {
+		select {
+		case <-done:
+			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs

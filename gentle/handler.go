@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
+	"sync"
 	"time"
 )
 
@@ -103,12 +104,12 @@ func (r *RateLimitedHandler) GetNames() *Names {
 
 type RetryHandlerOpts struct {
 	HandlerOpts
-	MetricTryNum Metric
-	Clock        clock.Clock
-	BackOff      BackOff
+	MetricTryNum   Metric
+	Clock          Clock
+	BackOffFactory BackOffFactory
 }
 
-func NewRetryHandlerOpts(namespace, name string, backoff BackOff) *RetryHandlerOpts {
+func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) *RetryHandlerOpts {
 	return &RetryHandlerOpts{
 		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
@@ -117,9 +118,9 @@ func NewRetryHandlerOpts(namespace, name string, backoff BackOff) *RetryHandlerO
 				MIXIN_HANDLER_RETRY, "name", name),
 			MetricHandle: noopMetric,
 		},
-		MetricTryNum: noopMetric,
-		Clock:        clock.New(),
-		BackOff:      backoff,
+		MetricTryNum:   noopMetric,
+		Clock:          clock.New(),
+		BackOffFactory: backOffFactory,
 	}
 }
 
@@ -127,19 +128,19 @@ func NewRetryHandlerOpts(namespace, name string, backoff BackOff) *RetryHandlerO
 // RetryHandler back off for some time and then retries.
 type RetryHandler struct {
 	handlerFields
-	mxTryNum Metric
-	clock    clock.Clock
-	backOff  BackOff
-	handler  Handler
+	mxTryNum       Metric
+	clock          Clock
+	backOffFactory BackOffFactory
+	handler        Handler
 }
 
 func NewRetryHandler(opts RetryHandlerOpts, handler Handler) *RetryHandler {
 	return &RetryHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
-		mxTryNum:      opts.MetricTryNum,
-		clock:         opts.Clock,
-		backOff:       opts.BackOff,
-		handler:       handler,
+		handlerFields:  *newHandlerFields(&opts.HandlerOpts),
+		mxTryNum:       opts.MetricTryNum,
+		clock:          opts.Clock,
+		backOffFactory: opts.BackOffFactory,
+		handler:        handler,
 	}
 }
 
@@ -147,6 +148,8 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	begin := r.clock.Now()
 	count := 1
 	r.log.Debug("[Handler] Handle() ...", "count", count)
+	var once sync.Once
+	var backOff BackOff
 	for {
 		msg_out, err := r.handler.Handle(msg)
 		if err == nil {
@@ -166,7 +169,10 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 			r.mxTryNum.Observe(float64(count), label_err)
 			return nil, err
 		}
-		to_wait := r.backOff.Next()
+		once.Do(func() {
+			backOff = r.backOffFactory.NewBackOff()
+		})
+		to_wait := backOff.Next()
 		// Next() should immediately return but we can't guarantee so
 		// timespan is calculated after Next().
 		timespan := r.clock.Now().Sub(begin).Seconds()
@@ -180,10 +186,10 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 		}
 		// timespan in our convention is used to track the overall
 		// time of current function. Here we record time
-		// passed as "elapse".
+		// passed as "elapsed".
 		count++
 		r.log.Error("[Handler] Handle() err, backing off ...",
-			"err", err, "msg_in", msg.Id(), "elapse", timespan,
+			"err", err, "msg_in", msg.Id(), "elapsed", timespan,
 			"count", count, "wait", to_wait)
 		r.clock.Sleep(to_wait)
 	}
