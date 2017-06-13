@@ -16,7 +16,7 @@ const (
 	MIXIN_STREAM_CIRCUITBREAKER = "sCircuit"
 	MIXIN_STREAM_CHANNEL        = "sChan"
 	MIXIN_STREAM_HANDLED        = "sHan"
-	MIXIN_STREAM_FB             = "sFb"
+	MIXIN_STREAM_FALLBACK       = "sFb"
 )
 
 var (
@@ -443,7 +443,7 @@ func NewFallbackStreamOpts(namespace, name string,
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_STREAM_FB, "name", name),
+				"mixin", MIXIN_STREAM_FALLBACK, "name", name),
 			MetricGet: noopMetric,
 		},
 		FallbackFunc: fallbackFunc,
@@ -496,7 +496,7 @@ func (r *FallbackStream) Get() (Message, error) {
 func (r *FallbackStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin:     MIXIN_STREAM_FB,
+		Mixin:     MIXIN_STREAM_FALLBACK,
 		Name:      r.name,
 	}
 }

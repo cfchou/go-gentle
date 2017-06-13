@@ -14,7 +14,7 @@ const (
 	MIXIN_HANDLER_RETRY          = "hRetry"
 	MIXIN_HANDLER_BULKHEAD       = "hBulk"
 	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
-	MIXIN_HANDLER_FB             = "hFb"
+	MIXIN_HANDLER_FALLBACK       = "hFb"
 )
 
 // Common options for XXXHandlerOpts
@@ -423,7 +423,7 @@ func NewFallbackHandlerOpts(namespace, name string,
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_FB, "name", name),
+				"mixin", MIXIN_HANDLER_FALLBACK, "name", name),
 			MetricHandle: noopMetric,
 		},
 		FallbackFunc: fallbackFunc,
@@ -477,7 +477,7 @@ func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 func (r *FallbackHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_FB,
+		Mixin:     MIXIN_HANDLER_FALLBACK,
 		Name:      r.name,
 	}
 }
