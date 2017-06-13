@@ -6,7 +6,6 @@ import (
 	"github.com/benbjohnson/clock"
 	"sync"
 	"time"
-	"gopkg.in/cfchou/go-gentle.v1/gentle"
 )
 
 const (
@@ -316,11 +315,11 @@ func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *Semaph
 // to Bulkhead, but it blocks when MaxConcurrency is reached.
 type SemaphoreHandler struct {
 	handlerFields
-	handler   gentle.Handler
+	handler   Handler
 	semaphore chan struct{}
 }
 
-func NewSemaphoreHandler(opts SemaphoreHandlerOpts, handler gentle.Handler) *SemaphoreHandler {
+func NewSemaphoreHandler(opts SemaphoreHandlerOpts, handler Handler) *SemaphoreHandler {
 	return &SemaphoreHandler{
 		handlerFields: *newHandlerFields(&opts.HandlerOpts),
 		handler:       handler,
@@ -328,7 +327,7 @@ func NewSemaphoreHandler(opts SemaphoreHandlerOpts, handler gentle.Handler) *Sem
 	}
 }
 
-func (r *SemaphoreHandler) Handle(msg gentle.Message) (gentle.Message, error) {
+func (r *SemaphoreHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.semaphore <- struct{}{}
