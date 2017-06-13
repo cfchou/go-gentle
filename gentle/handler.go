@@ -538,8 +538,7 @@ func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 		r.mxHandle.Observe(timespan, label_ok)
 		return msg_out, nil
 	}
-	r.log.Error("[Handler] Handle() err, fallbackFunc() ...",
-		"msg_in", msg.Id(), "err", err)
+	r.log.Error("[Handler] Handle() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err and the msg that caused it.
 	msg_out, err = r.fallbackFunc(msg, err)
 	timespan := time.Now().Sub(begin).Seconds()

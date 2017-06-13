@@ -597,3 +597,67 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 		}
 	}
 }
+
+func TestFallbackStream_Get(t *testing.T) {
+	// fallBackFunc is not called when no error
+	mm := &fakeMsg{id: "123"}
+	fallBackFunc := func(err error) (Message, error) {
+		assert.Fail(t, "Shouldn't trigger fallback")
+		return nil, err
+	}
+	mstream := &mockStream{}
+	fstream := NewFallbackStream(
+		*NewFallbackStreamOpts("", "test", fallBackFunc),
+		mstream)
+
+	call := mstream.On("Get")
+	call.Return(mm, nil)
+
+	msg, err := fstream.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), mm.Id())
+}
+
+func TestFallbackStream_Get2(t *testing.T) {
+	// fallBackFunc is called when error
+	fakeErr := errors.New("A fake error")
+	fallbackCalled := false
+	fallbackFunc := func(err error) (Message, error) {
+		assert.EqualError(t, err, fakeErr.Error())
+		fallbackCalled = true
+		return nil, err
+	}
+	mstream := &mockStream{}
+	fstream := NewFallbackStream(
+		*NewFallbackStreamOpts("", "test", fallbackFunc),
+		mstream)
+
+	call := mstream.On("Get")
+	call.Return(nil, fakeErr)
+
+	msg, err := fstream.Get()
+	assert.Nil(t, msg)
+	assert.EqualError(t, err, fakeErr.Error())
+	assert.True(t, fallbackCalled)
+}
+
+func TestFallbackStream_Get3(t *testing.T) {
+	// fallBackFunc is called when error, it can replace the error with a msg.
+	mm := &fakeMsg{id: "123"}
+	fakeErr := errors.New("A fake error")
+	fallbackFunc := func(err error) (Message, error) {
+		assert.EqualError(t, err, fakeErr.Error())
+		return mm, nil
+	}
+	mstream := &mockStream{}
+	fstream := NewFallbackStream(
+		*NewFallbackStreamOpts("", "test", fallbackFunc),
+		mstream)
+
+	call := mstream.On("Get")
+	call.Return(nil, fakeErr)
+
+	msg, err := fstream.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), mm.Id())
+}

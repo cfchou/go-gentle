@@ -551,8 +551,7 @@ func (r *FallbackStream) Get() (Message, error) {
 		r.mxGet.Observe(timespan, label_ok)
 		return msg, nil
 	}
-	r.log.Error("[Stream] Get() err, fallbackFunc() ...",
-		"msg", msg.Id(), "err", err)
+	r.log.Error("[Stream] Get() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err
 	msg, err = r.fallbackFunc(err)
 	timespan := time.Now().Sub(begin).Seconds()
