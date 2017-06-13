@@ -565,53 +565,52 @@ func (r *ChannelStream) GetNames() *Names {
 	}
 }
 
-type HandlerStreamOpts StreamOpts
+type HandlerMappedStreamOpts struct {
+	StreamOpts
+}
 
-func NewHandlerStreamOpts(namespace, name string) *HandlerStreamOpts {
-	return &HandlerStreamOpts{
-		Namespace: namespace,
-		Name:      name,
-		Log: Log.New("namespace", namespace, "mixin",
-			MIXIN_STREAM_HANDLED, "name", name),
-		MetricGet: noopMetric,
+func NewHandlerMappedStreamOpts(namespace, name string) *HandlerMappedStreamOpts {
+	return &HandlerMappedStreamOpts{
+		StreamOpts: StreamOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace, "mixin",
+				MIXIN_STREAM_HANDLED, "name", name),
+			MetricGet: noopMetric,
+		},
 	}
 }
 
-// A HandlerStream whose Get() emits a Message transformed by a Handler from
+// A HandlerMappedStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
-type HandlerStream struct {
+type HandlerMappedStream struct {
 	streamFields
-	stream  Stream
-	handler Handler
+	upstream Stream
+	handler  Handler
 }
 
-func NewHandlerStream(opts HandlerStreamOpts, upstream Stream, handler Handler) *HandlerStream {
-	return &HandlerStream{
-		streamFields: streamFields{
-			namespace: opts.Namespace,
-			name:      opts.Name,
-			log:       opts.Log,
-			mxGet:     opts.MetricGet,
-		},
-		stream:  upstream,
+func NewHandlerMappedStream(opts HandlerMappedStreamOpts, upstream Stream, handler Handler) *HandlerMappedStream {
+	return &HandlerMappedStream{
+		streamFields: *newStreamFields(&opts.StreamOpts),
+		upstream:     upstream,
 		handler: handler,
 	}
 }
 
-func (r *HandlerStream) Get() (Message, error) {
+func (r *HandlerMappedStream) Get() (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Stream] Get() ...")
-	msg, err := r.stream.Get()
+	r.log.Debug("[Stream] upstream.Get() ...")
+	msg, err := r.upstream.Get()
 	if err != nil {
-		r.log.Error("[Stream] Get() err", "err", err)
+		r.log.Error("[Stream] upstream.Get() err", "err", err)
 		r.mxGet.Observe(time.Now().Sub(begin).Seconds(), label_err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get() ok, Handle() ...", "msg", msg.Id())
+	r.log.Debug("[Stream] upstream.Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
 	timespan := time.Now().Sub(begin).Seconds()
 	if herr != nil {
-		r.log.Error("[Stream] Handle() err", "err", herr,
+		r.log.Error("[Stream] Handle() err", "msg", msg.Id(), "err", herr,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_err)
 		return nil, herr
@@ -622,7 +621,7 @@ func (r *HandlerStream) Get() (Message, error) {
 	return hmsg, nil
 }
 
-func (r *HandlerStream) GetNames() *Names {
+func (r *HandlerMappedStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_HANDLED,

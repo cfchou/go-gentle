@@ -14,6 +14,7 @@ const (
 	MIXIN_HANDLER_RETRY          = "hRetry"
 	MIXIN_HANDLER_BULKHEAD       = "hBulk"
 	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
+	MIXIN_HANDLER_HANDLED        = "hHan"
 	MIXIN_HANDLER_FALLBACK       = "hFb"
 )
 
@@ -482,6 +483,65 @@ func (r *FallbackHandler) GetNames() *Names {
 	}
 }
 
+type HandlerMappedHandlerOpts struct {
+	HandlerOpts
+}
+
+func NewHandlerMappedHandlerOpts(namespace, name string) *HandlerMappedHandlerOpts {
+	return &HandlerMappedHandlerOpts{
+		HandlerOpts: HandlerOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace, "mixin",
+				MIXIN_HANDLER_HANDLED, "name", name),
+			MetricHandle: noopMetric,
+		},
+	}
+}
+
+type HandlerMappedHandler struct {
+	handlerFields
+	prevHandler Handler
+	handler     Handler
+}
+
+func NewHandlerMappedHandler(opts HandlerMappedHandlerOpts, prevHandler Handler,
+	handler Handler) *HandlerMappedHandler {
+	return &HandlerMappedHandler{
+		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		prevHandler:   prevHandler,
+		handler:       handler,
+	}
+}
+
+func (r *HandlerMappedHandler) Handle(msg Message) (Message, error) {
+	begin := time.Now()
+	r.log.Debug("[Handler] prev.Handle() ...")
+	msg_mid, err := r.prevHandler.Handle(msg)
+	if err != nil {
+		timespan := time.Now().Sub(begin).Seconds()
+		r.log.Error("[Handler] prev.Handle() err", "msg_in", msg.Id(),
+			"err", err, "timespan", timespan)
+		r.mxHandle.Observe(timespan, label_err)
+		return nil, err
+	}
+	r.log.Debug("[Handler] prev.Handle() ok", "msg_in", msg.Id(),
+		"msg_mid", msg_mid.Id())
+	msg_out, herr := r.handler.Handle(msg)
+	timespan := time.Now().Sub(begin).Seconds()
+	if herr != nil {
+		r.log.Error("[Handler] Handle() err", "msg_mid", msg_mid.Id(),
+			"err", herr, "timespan", timespan)
+		r.mxHandle.Observe(timespan, label_err)
+		return nil, herr
+	}
+	r.log.Debug("[Handler] Handle() ok", "msg_mid", msg_mid.Id(),
+		"msg_out", msg_out.Id())
+	r.mxHandle.Observe(timespan, label_ok)
+	return msg_out, nil
+
+}
+
 type simpleHandler struct {
 	handleFunc func(Message) (Message, error)
 }
@@ -497,4 +557,3 @@ func NewSimpleHandler(handleFunc func(Message) (Message, error)) Handler {
 		handleFunc: handleFunc,
 	}
 }
-

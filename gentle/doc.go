@@ -8,12 +8,12 @@ Stream and Handler are our fundamental abstractions to achieve back-pressure.
 They are collectively called as mixins. Stream has one method Get() that emits
 Message. Handler has another method Handle() that transforms a given Message. A
 Stream may chain with other Streams and a Handler may chain with with other
-Handlers. The helper NewHandlerStream() creates a HandlerStream whose Get()
+Handlers. The helper NewHandlerMappedStream() creates a HandlerMappedStream whose Get()
 emits a Message transformed by a Handler from a given Stream.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
-  NewHandlerStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewHandlerStream)
+  NewHandlerMappedStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewHandlerMappedStream)
 
 Resiliency
 
@@ -58,7 +58,7 @@ with each other to form an ad-hoc, combined resiliency. For example:
   		func() []time.Duration {
   			return []time.Duration{time.Second, time.Second}
   		})
-  	return NewHandlerStream(name, upstream,
+  	return NewHandlerMappedStream(name, upstream,
   		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
   }
 

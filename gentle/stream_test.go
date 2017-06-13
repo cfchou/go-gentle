@@ -415,12 +415,12 @@ func TestBulkheadStream_Get(t *testing.T) {
 	}
 }
 
-func TestHandlerStream_Get(t *testing.T) {
+func TestHandlerMappedStream_Get(t *testing.T) {
 	mstream := &mockStream{}
 	mhandler := &mockHandler{}
 
-	stream := NewHandlerStream(
-		*NewHandlerStreamOpts("", "test"),
+	stream := NewHandlerMappedStream(
+		*NewHandlerMappedStreamOpts("", "test"),
 		mstream, mhandler)
 	mm := &fakeMsg{id: "123"}
 
