@@ -212,7 +212,7 @@ type BulkheadHandlerOpts struct {
 
 func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *BulkheadHandlerOpts {
 	if maxConcurrency <= 0 {
-		panic(errors.New("maxCconcurrent must be greater than 0"))
+		panic(errors.New("maxConcurrent must be greater than 0"))
 	}
 	return &BulkheadHandlerOpts{
 		HandlerOpts: HandlerOpts{
@@ -297,7 +297,7 @@ type SemaphoreHandlerOpts struct {
 
 func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *SemaphoreHandlerOpts {
 	if maxConcurrency <= 0 {
-		panic(errors.New("maxCconcurrent must be greater than 0"))
+		panic(errors.New("maxConcurrent must be greater than 0"))
 	}
 	return &SemaphoreHandlerOpts{
 		HandlerOpts: HandlerOpts{
