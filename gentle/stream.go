@@ -23,7 +23,7 @@ const (
 var (
 	label_ok          = map[string]string{"result": "ok"}
 	label_err         = map[string]string{"result": "err"}
-	label_err_ignored = map[string]string{"result": "ierr"}
+	label_err_ignored = map[string]string{"result": "gerr"}
 )
 
 // Common options for XXXStreamOpts
@@ -169,7 +169,7 @@ func (r *RetryStream) Get() (Message, error) {
 			r.obTryNum.Observe(float64(count), label_ok)
 			return msg, nil
 		}
-		if ToIgnore(err) {
+		if NoRetry(err) {
 			timespan := r.clock.Now().Sub(begin).Seconds()
 			r.log.Debug("[Streamer] Get() err ignored",
 				"err", err, "timespan", timespan,
@@ -428,7 +428,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		msg, err := r.stream.Get()
 		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
-			if !ToIgnore(err) {
+			if !PassCircuitBreaker(err) {
 				r.log.Error("[Stream] Get() in CB err",
 					"err", err, "timespan", timespan)
 				return err

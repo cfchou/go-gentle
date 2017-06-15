@@ -32,18 +32,29 @@ type Message interface {
 	Id() string
 }
 
-// errors that implements IgnorableError would be examined and ignored if
-// necessary by RetryXXX and CircuitBreakerXXX.
-type IgnorableError interface {
+// errors that implements GentleError would be examined by RetryXXX and
+// CircuitBreakerXXX.
+type GentleError interface {
 	error
-	Ignored() bool
+	// Instruct RetryXXX not to retry
+	NoRetry() bool
+	// Instruct CircuitBreakerXXX not to count this err
+	PassCircuitBreaker() bool
 }
 
-func ToIgnore(err error) bool {
-	if ig, ok := err.(IgnorableError); !ok {
+func NoRetry(err error) bool {
+	if ge, ok := err.(GentleError); !ok {
 		return false
 	} else {
-		return ig.Ignored()
+		return ge.NoRetry()
+	}
+}
+
+func PassCircuitBreaker(err error) bool {
+	if ge, ok := err.(GentleError); !ok {
+		return false
+	} else {
+		return ge.PassCircuitBreaker()
 	}
 }
 

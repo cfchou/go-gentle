@@ -162,7 +162,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 			r.mxTryNum.Observe(float64(count), label_ok)
 			return msg_out, nil
 		}
-		if ToIgnore(err) {
+		if NoRetry(err) {
 			timespan := r.clock.Now().Sub(begin).Seconds()
 			r.log.Error("[Handler] Handle() err ignored",
 				"msg_in", msg.Id(), "err", err,
@@ -411,7 +411,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		msg_out, err := r.handler.Handle(msg)
 		timespan := time.Now().Sub(begin).Seconds()
 		if err != nil {
-			if !ToIgnore(err) {
+			if !PassCircuitBreaker(err) {
 				r.log.Error("[Handler] Handle() in CB err",
 					"msg_in", msg.Id(),
 					"err", err, "timespan", timespan)
