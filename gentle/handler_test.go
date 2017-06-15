@@ -503,3 +503,70 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 		}
 	}
 }
+
+func TestFallbackHandler_Get(t *testing.T) {
+	// fallBackFunc is not called when no error
+	mm := &fakeMsg{id: "123"}
+	fallBackFunc := func(msg Message, err error) (Message, error) {
+		assert.Fail(t, "Shouldn't trigger fallback")
+		return nil, err
+	}
+	mhandler := &mockHandler{}
+	fhandler := NewFallbackHandler(
+		*NewFallbackHandlerOpts("", "test", fallBackFunc),
+		mhandler)
+
+	call := mhandler.On("Handle", mm)
+	call.Return(mm, nil)
+
+	msg, err := fhandler.Handle(mm)
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), mm.Id())
+}
+
+func TestFallbackHandler_Get2(t *testing.T) {
+	// fallBackFunc is called when error
+	mm := &fakeMsg{id: "123"}
+	fakeErr := errors.New("A fake error")
+	fallbackCalled := false
+	fallbackFunc := func(msg Message, err error) (Message, error) {
+		// msg is the one caused err
+		assert.Equal(t, msg.Id(), mm.Id())
+		assert.EqualError(t, err, fakeErr.Error())
+		fallbackCalled = true
+		return nil, err
+	}
+	mhandler := &mockHandler{}
+	fhandler := NewFallbackHandler(
+		*NewFallbackHandlerOpts("", "test", fallbackFunc),
+		mhandler)
+
+	call := mhandler.On("Handle", mm)
+	call.Return(nil, fakeErr)
+
+	msg, err := fhandler.Handle(mm)
+	assert.Nil(t, msg)
+	assert.EqualError(t, err, fakeErr.Error())
+	assert.True(t, fallbackCalled)
+}
+
+func TestFallbackHandler_Get3(t *testing.T) {
+	// fallBackFunc is called when error, it can replace the error with a msg.
+	mm := &fakeMsg{id: "123"}
+	fakeErr := errors.New("A fake error")
+	fallbackFunc := func(msg Message, err error) (Message, error) {
+		assert.EqualError(t, err, fakeErr.Error())
+		return mm, nil
+	}
+	mhandler := &mockHandler{}
+	fhandler := NewFallbackHandler(
+		*NewFallbackHandlerOpts("", "test", fallbackFunc),
+		mhandler)
+
+	call := mhandler.On("Handle", mm)
+	call.Return(nil, fakeErr)
+
+	msg, err := fhandler.Handle(mm)
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Id(), mm.Id())
+}

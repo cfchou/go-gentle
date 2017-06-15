@@ -119,22 +119,6 @@ func IntToMillis(millis int) time.Duration {
 	return time.Duration(millis) * time.Millisecond
 }
 
-// GetHystrixDefaultConfig() returns a new hystrix.CommandConfig filled with defaults(https://godoc.org/github.com/afex/hystrix-go/hystrix#pkg-variables):
-func GetHystrixDefaultConfig() *hystrix.CommandConfig {
-	return &hystrix.CommandConfig{
-		// DefaultTimeout = 1000, is how long to wait for command to complete, in milliseconds
-		Timeout: hystrix.DefaultTimeout,
-		// DefaultMaxConcurrent = 10 is how many commands of the same type can run at the same time
-		MaxConcurrentRequests: hystrix.DefaultMaxConcurrent,
-		// DefaultVolumeThreshold = 20 is the minimum number of requests needed before a circuit can be tripped due to health
-		RequestVolumeThreshold: hystrix.DefaultVolumeThreshold,
-		// DefaultSleepWindow = 5000 is how long, in milliseconds, to wait after a circuit opens before testing for recovery
-		SleepWindow: hystrix.DefaultSleepWindow,
-		// DefaultErrorPercentThreshold = 50 causes circuits to open once the rolling measure of errors exceeds this percent of requests
-		ErrorPercentThreshold: hystrix.DefaultErrorPercentThreshold,
-	}
-}
-
 type CircuitBreakerConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
