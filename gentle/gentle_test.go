@@ -2,10 +2,8 @@ package gentle
 
 import (
 	"flag"
-	"github.com/stretchr/testify/mock"
-	log15 "gopkg.in/inconshreveable/log15.v2"
+	"gopkg.in/inconshreveable/log15.v2"
 	"testing"
-	"time"
 )
 
 // Parent logger for tests
@@ -17,52 +15,6 @@ type fakeMsg struct {
 
 func (m *fakeMsg) Id() string {
 	return m.id
-}
-
-type mockStream struct {
-	mock.Mock
-}
-
-func (m *mockStream) Get() (Message, error) {
-	args := m.Called()
-	msg := args.Get(0)
-	err := args.Get(1)
-	if err != nil {
-		return nil, err.(error)
-	}
-	return msg.(Message), nil
-}
-
-type mockHandler struct {
-	mock.Mock
-}
-
-func (m *mockHandler) Handle(msg_in Message) (Message, error) {
-	args := m.Called(msg_in)
-	msg := args.Get(0)
-	err := args.Get(1)
-	if err != nil {
-		return nil, err.(error)
-	}
-	return msg.(Message), nil
-}
-
-type mockBackOffFactory struct {
-	mock.Mock
-}
-
-func (m *mockBackOffFactory) NewBackOff() BackOff {
-	args := m.Called()
-	return args.Get(0).(BackOff)
-}
-
-type mockBackOff struct {
-	mock.Mock
-}
-
-func (m *mockBackOff) Next() time.Duration {
-	args := m.Called()
-	return args.Get(0).(time.Duration)
 }
 
 func TestMain(m *testing.M) {

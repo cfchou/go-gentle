@@ -5,7 +5,6 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,7 +14,7 @@ import (
 func TestRateLimitedHandler_Handle(t *testing.T) {
 	// 1 msg/sec, no burst
 	requests_interval := 100 * time.Millisecond
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRateLimitedHandler(
 		*NewRateLimitedHandlerOpts("", "test",
 			NewTokenBucketRateLimit(requests_interval, 1)),
@@ -43,14 +42,14 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 
 func TestRetryHandler_Handle(t *testing.T) {
 	// Test against mocked BackOff
-	mfactory := &mockBackOffFactory{}
-	mback := &mockBackOff{}
+	mfactory := &MockBackOffFactory{}
+	mback := &MockBackOff{}
 	// mock clock so that we don't need to wait for the real timer to move
 	// forward
 	mclock := clock.NewMock()
 	opts := NewRetryHandlerOpts("", "test", mfactory)
 	opts.Clock = mclock
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRetryHandler(*opts, mhandler)
 
 	// 1st: ok
@@ -62,18 +61,17 @@ func TestRetryHandler_Handle(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 	// create a backoff that fires 1 second for $count times
 	count := 3
 	timespan_minimum := time.Duration(count) * time.Second
 	mfactory.On("NewBackOff").Return(mback)
-	mback_next := mback.On("Next")
-	mback_next.Run(func(args mock.Arguments) {
+	mback.On("Next").Return(func() time.Duration {
 		if count == 0 {
-			mback_next.Return(BackOffStop)
+			return BackOffStop
 		} else {
 			count--
-			mback_next.Return(1 * time.Second)
+			return 1 * time.Second
 		}
 	})
 	timespan := make(chan time.Duration, 1)
@@ -107,7 +105,7 @@ func TestRetryHandler_Get2(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRetryHandler(*opts, mhandler)
 
 	// 1st: ok
@@ -119,7 +117,7 @@ func TestRetryHandler_Get2(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -154,7 +152,7 @@ func TestRetryHandler_Get3(t *testing.T) {
 	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRetryHandler(*opts, mhandler)
 
 	// 1st: ok
@@ -166,7 +164,7 @@ func TestRetryHandler_Get3(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -199,7 +197,7 @@ func TestRetryHandler_Get4(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRetryHandler(*opts, mhandler)
 
 	// 1st: ok
@@ -211,7 +209,7 @@ func TestRetryHandler_Get4(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	count := 2
 	wg := sync.WaitGroup{}
@@ -260,7 +258,7 @@ func TestRetryHandler_Get5(t *testing.T) {
 	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	handler := NewRetryHandler(*opts, mhandler)
 
 	// 1st: ok
@@ -272,7 +270,7 @@ func TestRetryHandler_Get5(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	count := 2
 	wg := sync.WaitGroup{}
@@ -312,7 +310,7 @@ func TestRetryHandler_Get5(t *testing.T) {
 
 func TestBulkheadHandler_Handle(t *testing.T) {
 	max_concurrency := 4
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 
 	handler := NewBulkheadHandler(
 		*NewBulkheadHandlerOpts("", "test", max_concurrency),
@@ -322,13 +320,13 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(max_concurrency)
 	block := make(chan struct{}, 0)
-	call := mhandler.On("Handle", mm)
-	call.Run(func(args mock.Arguments) {
-		wg.Done()
-		// every Handle() would be blocked here
-		block <- struct{}{}
-	})
-	call.Return(mm, nil)
+	mhandler.On("Handle", mm).Return(
+		func(Message) Message {
+			wg.Done()
+			// every Handle() would be blocked here
+			block <- struct{}{}
+			return mm
+		}, nil)
 
 	for i := 0; i < max_concurrency; i++ {
 		go handler.Handle(mm)
@@ -349,7 +347,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	max_concurrency := 4
 	circuit := xid.New().String()
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 
 	// requests exceeding MaxConcurrentRequests would get
 	// ErrCbMaxConcurrency provided that Timeout is large enough for this
@@ -367,15 +365,15 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(max_concurrency)
 	cond := sync.NewCond(&sync.Mutex{})
-	call := mhandler.On("Handle", mm)
-	call.Run(func(args mock.Arguments) {
-		// wg.Done() here instead of in the loop guarantees Get() is
-		// running by the circuit
-		wg.Done()
-		cond.L.Lock()
-		cond.Wait()
-	})
-	call.Return(mm, nil)
+	mhandler.On("Handle", mm).Return(
+		func(Message) Message {
+			// wg.Done() here instead of in the loop guarantees Get() is
+			// running by the circuit
+			wg.Done()
+			cond.L.Lock()
+			cond.Wait()
+			return mm
+		}, nil)
 
 	for i := 0; i < max_concurrency; i++ {
 		go func() {
@@ -393,7 +391,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	// Test ErrCbTimeout and subsequent ErrCbOpen
 	circuit := xid.New().String()
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -414,17 +412,20 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	// Suspend longer than Timeout
 	var to_suspend int64
 	suspend := conf.Timeout + time.Millisecond
-	call := mhandler.On("Handle", mm)
-	call.Run(func(args mock.Arguments) {
-		if atomic.LoadInt64(&to_suspend) == 0 {
-			time.Sleep(suspend)
+	mhandler.On("Handle", mm).Return(
+		func(Message) Message {
+			if atomic.LoadInt64(&to_suspend) == 0 {
+				time.Sleep(suspend)
+			}
+			return mm
+		}, nil)
+	// Try until getting ErrCbTimeout
+	for {
+		_, err := handler.Handle(mm)
+		if err == ErrCbTimeout {
+			break
 		}
-	})
-	call.Return(mm, nil)
-
-	// 1st call gets ErrCbTimeout
-	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, ErrCbTimeout.Error())
+	}
 
 	// Subsequent requests eventually see ErrCbOpen.
 	// "Eventually" because hystrix updates metrics asynchronously.
@@ -455,7 +456,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	// Test fakeErr and subsequent ErrCbOpen
 	circuit := xid.New().String()
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -473,7 +474,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	fakeErr := errors.New("A fake error")
 
 	call := mhandler.On("Handle", mm)
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	// 1st call gets fakeErr
 	_, err := handler.Handle(mm)
@@ -511,13 +512,11 @@ func TestFallbackHandler_Get(t *testing.T) {
 		assert.Fail(t, "Shouldn't trigger fallback")
 		return nil, err
 	}
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
 		*NewFallbackHandlerOpts("", "test", fallBackFunc),
 		mhandler)
-
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
+	mhandler.On("Handle", mm).Return(mm, nil)
 
 	msg, err := fhandler.Handle(mm)
 	assert.NoError(t, err)
@@ -536,13 +535,11 @@ func TestFallbackHandler_Get2(t *testing.T) {
 		fallbackCalled = true
 		return nil, err
 	}
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
 		*NewFallbackHandlerOpts("", "test", fallbackFunc),
 		mhandler)
-
-	call := mhandler.On("Handle", mm)
-	call.Return(nil, fakeErr)
+	mhandler.On("Handle", mm).Return((*fakeMsg)(nil), fakeErr)
 
 	msg, err := fhandler.Handle(mm)
 	assert.Nil(t, msg)
@@ -558,13 +555,12 @@ func TestFallbackHandler_Get3(t *testing.T) {
 		assert.EqualError(t, err, fakeErr.Error())
 		return mm, nil
 	}
-	mhandler := &mockHandler{}
+	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
 		*NewFallbackHandlerOpts("", "test", fallbackFunc),
 		mhandler)
 
-	call := mhandler.On("Handle", mm)
-	call.Return(nil, fakeErr)
+	mhandler.On("Handle", mm).Return((*fakeMsg)(nil), fakeErr)
 
 	msg, err := fhandler.Handle(mm)
 	assert.NoError(t, err)

@@ -1,15 +1,10 @@
 package gentle
 
 import (
-	//"errors"
-	//"github.com/afex/hystrix-go/hystrix"
-	//"github.com/rs/xid"
-	"github.com/stretchr/testify/assert"
-	//"github.com/stretchr/testify/mock"
 	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/assert"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -112,14 +107,14 @@ func TestRateLimitedStream_Get(t *testing.T) {
 
 func TestRetryStream_Get(t *testing.T) {
 	// Test against mocked BackOff
-	mfactory := &mockBackOffFactory{}
-	mback := &mockBackOff{}
+	mfactory := &MockBackOffFactory{}
+	mback := &MockBackOff{}
 	// mock clock so that we don't need to wait for the real timer to move
 	// forward
 	mclock := clock.NewMock()
 	opts := NewRetryStreamOpts("", "test", mfactory)
 	opts.Clock = mclock
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
@@ -131,18 +126,17 @@ func TestRetryStream_Get(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 	// create a backoff that fires 1 second for $count times
 	count := 3
 	timespan_minimum := time.Duration(count) * time.Second
 	mfactory.On("NewBackOff").Return(mback)
-	mback_next := mback.On("Next")
-	mback_next.Run(func(args mock.Arguments) {
+	mback.On("Next").Return(func() time.Duration {
 		if count == 0 {
-			mback_next.Return(BackOffStop)
+			return BackOffStop
 		} else {
 			count--
-			mback_next.Return(1 * time.Second)
+			return 1 * time.Second
 		}
 	})
 	timespan := make(chan time.Duration, 1)
@@ -176,7 +170,7 @@ func TestRetryStream_Get2(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
@@ -188,7 +182,7 @@ func TestRetryStream_Get2(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -216,14 +210,16 @@ func TestRetryStream_Get3(t *testing.T) {
 	// Test against ExponentialBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
-	// No randomization to make the growth of backoff time approximately exponential.
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0,
+		256*time.Second, timespan_minimum)
+	// No randomization to make the growth of backoff time approximately
+	// exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
 	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
@@ -235,7 +231,7 @@ func TestRetryStream_Get3(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -268,7 +264,7 @@ func TestRetryStream_Get4(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
@@ -280,7 +276,7 @@ func TestRetryStream_Get4(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	count := 2
 	wg := sync.WaitGroup{}
@@ -322,14 +318,16 @@ func TestRetryStream_Get5(t *testing.T) {
 	// Test against concurrent RetryStream.Get() and ExponentialBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
-	// No randomization to make the growth of backoff time approximately exponential.
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0,
+		256*time.Second, timespan_minimum)
+	// No randomization to make the growth of backoff time approximately
+	// exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
 	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	stream := NewRetryStream(*opts, mstream)
 
 	// 1st: ok
@@ -341,7 +339,7 @@ func TestRetryStream_Get5(t *testing.T) {
 
 	// 2ed: err, trigger retry with backoffs
 	fakeErr := errors.New("A fake error")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	count := 2
 	wg := sync.WaitGroup{}
@@ -381,8 +379,7 @@ func TestRetryStream_Get5(t *testing.T) {
 
 func TestBulkheadStream_Get(t *testing.T) {
 	max_concurrency := 4
-	mstream := &mockStream{}
-
+	mstream := &MockStream{}
 	stream := NewBulkheadStream(
 		*NewBulkheadStreamOpts("", "test", max_concurrency),
 		mstream)
@@ -391,13 +388,13 @@ func TestBulkheadStream_Get(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(max_concurrency)
 	block := make(chan struct{}, 0)
-	call := mstream.On("Get")
-	call.Run(func(args mock.Arguments) {
-		wg.Done()
-		// every Get() would be blocked here
-		block <- struct{}{}
-	})
-	call.Return(mm, nil)
+	mstream.On("Get").Return(
+		func() Message {
+			wg.Done()
+			// every Get() would be blocked here
+			block <- struct{}{}
+			return mm
+		}, nil)
 
 	for i := 0; i < max_concurrency; i++ {
 		go stream.Get()
@@ -416,9 +413,8 @@ func TestBulkheadStream_Get(t *testing.T) {
 }
 
 func TestHandlerMappedStream_Get(t *testing.T) {
-	mstream := &mockStream{}
-	mhandler := &mockHandler{}
-
+	mstream := &MockStream{}
+	mhandler := &MockHandler{}
 	stream := NewHandlerMappedStream(
 		*NewHandlerMappedStreamOpts("", "test"),
 		mstream, mhandler)
@@ -427,23 +423,21 @@ func TestHandlerMappedStream_Get(t *testing.T) {
 	get := mstream.On("Get")
 	get.Return(mm, nil)
 
-	handle := mhandler.On("Handle", mm)
-	handle.Run(func(args mock.Arguments) {
-		log.Info("[Test] handle")
-		msg := args.Get(0).(*fakeMsg)
-		msg.id = "456"
-	})
-	handle.Return(mm, nil)
+	newMM := &fakeMsg{id: "456"}
+	mhandler.On("Handle", mm).Return(
+		func(msg Message) Message {
+			return newMM
+		}, nil)
 
 	msg, err := stream.Get()
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), "456")
+	assert.Equal(t, newMM.Id(), msg.Id())
 }
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
 	max_concurrency := 4
 	circuit := xid.New().String()
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 
 	// requests exceeding MaxConcurrentRequests would get
 	// ErrCbMaxConcurrency provided that Timeout is large enough for this
@@ -461,15 +455,14 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(max_concurrency)
 	cond := sync.NewCond(&sync.Mutex{})
-	call := mstream.On("Get")
-	call.Run(func(args mock.Arguments) {
+	mstream.On("Get").Return(func() Message {
 		// wg.Done() here instead of in the loop guarantees Get() is
 		// running by the circuit
 		wg.Done()
 		cond.L.Lock()
 		cond.Wait()
-	})
-	call.Return(mm, nil)
+		return mm
+	}, nil)
 
 	for i := 0; i < max_concurrency; i++ {
 		go func() {
@@ -487,7 +480,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 func TestCircuitBreakerStream_Get2(t *testing.T) {
 	// Test ErrCbTimeout and subsequent ErrCbOpen
 	circuit := xid.New().String()
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -508,23 +501,25 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	// Suspend longer than Timeout
 	var to_suspend int64
 	suspend := conf.Timeout + time.Millisecond
-	call := mstream.On("Get")
-	call.Run(func(args mock.Arguments) {
+	mstream.On("Get").Return(func() Message {
 		if atomic.LoadInt64(&to_suspend) == 0 {
 			time.Sleep(suspend)
 		}
-	})
-	call.Return(mm, nil)
-
-	// 1st call gets ErrCbTimeout
-	_, err := stream.Get()
-	assert.EqualError(t, err, ErrCbTimeout.Error())
+		return mm
+	}, nil)
+	// Try until getting ErrCbTimeout
+	for {
+		_, err := stream.Get()
+		if err == ErrCbTimeout {
+			break
+		}
+	}
 
 	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
 	// "Eventually" because hystrix updates metrics asynchronously.
 	for {
 		log.Debug("[Test] try again")
-		_, err = stream.Get()
+		_, err := stream.Get()
 		if err == ErrCbOpen {
 			break
 		} else {
@@ -536,7 +531,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	atomic.StoreInt64(&to_suspend, 1)
 	time.Sleep(conf.SleepWindow)
 	for {
-		_, err = stream.Get()
+		_, err := stream.Get()
 		if err == nil {
 			// In the end, circuit is closed because of no error.
 			break
@@ -549,7 +544,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 func TestCircuitBreakerStream_Get3(t *testing.T) {
 	// Test fakeErr and subsequent ErrCbOpen
 	circuit := xid.New().String()
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -567,7 +562,7 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 	fakeErr := errors.New("A fake error")
 
 	call := mstream.On("Get")
-	call.Return(nil, fakeErr)
+	call.Return((*fakeMsg)(nil), fakeErr)
 
 	// 1st call gets fakeErr
 	_, err := stream.Get()
@@ -605,13 +600,11 @@ func TestFallbackStream_Get(t *testing.T) {
 		assert.Fail(t, "Shouldn't trigger fallback")
 		return nil, err
 	}
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	fstream := NewFallbackStream(
 		*NewFallbackStreamOpts("", "test", fallBackFunc),
 		mstream)
-
-	call := mstream.On("Get")
-	call.Return(mm, nil)
+	mstream.On("Get").Return(mm, nil)
 
 	msg, err := fstream.Get()
 	assert.NoError(t, err)
@@ -627,13 +620,11 @@ func TestFallbackStream_Get2(t *testing.T) {
 		fallbackCalled = true
 		return nil, err
 	}
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	fstream := NewFallbackStream(
 		*NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)
-
-	call := mstream.On("Get")
-	call.Return(nil, fakeErr)
+	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
 
 	msg, err := fstream.Get()
 	assert.Nil(t, msg)
@@ -649,13 +640,11 @@ func TestFallbackStream_Get3(t *testing.T) {
 		assert.EqualError(t, err, fakeErr.Error())
 		return mm, nil
 	}
-	mstream := &mockStream{}
+	mstream := &MockStream{}
 	fstream := NewFallbackStream(
 		*NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)
-
-	call := mstream.On("Get")
-	call.Return(nil, fakeErr)
+	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
 
 	msg, err := fstream.Get()
 	assert.NoError(t, err)
