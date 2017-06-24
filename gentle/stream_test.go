@@ -378,15 +378,15 @@ func TestRetryStream_Get5(t *testing.T) {
 }
 
 func TestBulkheadStream_Get(t *testing.T) {
-	max_concurrency := 4
+	maxConcurrency := 4
 	mstream := &MockStream{}
 	stream := NewBulkheadStream(
-		*NewBulkheadStreamOpts("", "test", max_concurrency),
+		*NewBulkheadStreamOpts("", "test", maxConcurrency),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
 	wg := &sync.WaitGroup{}
-	wg.Add(max_concurrency)
+	wg.Add(maxConcurrency)
 	block := make(chan struct{}, 0)
 	mstream.On("Get").Return(
 		func() Message {
@@ -396,20 +396,56 @@ func TestBulkheadStream_Get(t *testing.T) {
 			return mm
 		}, nil)
 
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		go stream.Get()
 	}
 
-	// Wait() until $max_concurrency of Get() are blocked
+	// Wait() until $maxConcurrency of Get() are blocked
 	wg.Wait()
 	// one more Get() would cause ErrMaxConcurrency
 	msg, err := stream.Get()
 	assert.Equal(t, msg, nil)
 	assert.EqualError(t, err, ErrMaxConcurrency.Error())
 	// Release blocked
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		<-block
 	}
+}
+
+func TestSemaphoreStream_Get(t *testing.T) {
+	maxConcurrency := 4
+	mstream := &MockStream{}
+	stream := NewSemaphoreStream(
+		*NewSemaphoreStreamOpts("", "test", maxConcurrency),
+		mstream)
+	mm := &fakeMsg{id: "123"}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(maxConcurrency)
+	block := make(chan struct{}, 0)
+	mstream.On("Get").Return(
+		func() Message {
+			wg.Done()
+			// every Get() would be blocked here
+			block <- struct{}{}
+			return mm
+		}, nil)
+
+	for i := 0; i < maxConcurrency; i++ {
+		go stream.Get()
+	}
+	// Wait() until $maxConcurrency of Get() are blocked
+	wg.Wait()
+
+	go func() {
+		// blocked...
+		stream.Get()
+		assert.Fail(t, "Get() should be blocked")
+	}()
+	// TODO:
+	// Sleep to see if assert.Fail() is triggered. This isn't perfect but it's
+	// not easy to prove the previous stream.Get() is blocked forever.
+	time.Sleep(2 * time.Second)
 }
 
 func TestHandlerMappedStream_Get(t *testing.T) {
@@ -435,7 +471,7 @@ func TestHandlerMappedStream_Get(t *testing.T) {
 }
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
-	max_concurrency := 4
+	maxConcurrency := 4
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -443,7 +479,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	// ErrCbMaxConcurrency provided that Timeout is large enough for this
 	// test case
 	conf := NewDefaultCircuitBreakerConf()
-	conf.MaxConcurrent = max_concurrency
+	conf.MaxConcurrent = maxConcurrency
 	conf.Timeout = 10 * time.Second
 	conf.RegisterFor(circuit)
 
@@ -453,7 +489,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
-	wg.Add(max_concurrency)
+	wg.Add(maxConcurrency)
 	cond := sync.NewCond(&sync.Mutex{})
 	mstream.On("Get").Return(func() Message {
 		// wg.Done() here instead of in the loop guarantees Get() is
@@ -464,7 +500,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 		return mm
 	}, nil)
 
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		go func() {
 			stream.Get()
 		}()

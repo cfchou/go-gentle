@@ -309,16 +309,16 @@ func TestRetryHandler_Get5(t *testing.T) {
 }
 
 func TestBulkheadHandler_Handle(t *testing.T) {
-	max_concurrency := 4
+	maxConcurrency := 4
 	mhandler := &MockHandler{}
 
 	handler := NewBulkheadHandler(
-		*NewBulkheadHandlerOpts("", "test", max_concurrency),
+		*NewBulkheadHandlerOpts("", "test", maxConcurrency),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 
 	wg := &sync.WaitGroup{}
-	wg.Add(max_concurrency)
+	wg.Add(maxConcurrency)
 	block := make(chan struct{}, 0)
 	mhandler.On("Handle", mm).Return(
 		func(Message) Message {
@@ -328,24 +328,60 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 			return mm
 		}, nil)
 
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		go handler.Handle(mm)
 	}
 
-	// Wait() until $max_concurrency of Handle() are blocked
+	// Wait() until $maxConcurrency of Handle() are blocked
 	wg.Wait()
 	// one more Handle() would cause ErrMaxConcurrency
 	msg, err := handler.Handle(mm)
 	assert.Equal(t, msg, nil)
 	assert.EqualError(t, err, ErrMaxConcurrency.Error())
 	// Release blocked
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		<-block
 	}
 }
 
+func TestSemaphoreHandler_Handle(t *testing.T) {
+	maxConcurrency := 4
+	mhandler := &MockHandler{}
+	handler := NewSemaphoreHandler(
+		*NewSemaphoreHandlerOpts("", "test", maxConcurrency),
+		mhandler)
+	mm := &fakeMsg{id: "123"}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(maxConcurrency)
+	block := make(chan struct{}, 0)
+	mhandler.On("Handle", mm).Return(
+		func(Message) Message {
+			wg.Done()
+			// every Handle() would be blocked here
+			block <- struct{}{}
+			return mm
+		}, nil)
+
+	for i := 0; i < maxConcurrency; i++ {
+		go handler.Handle(mm)
+	}
+	// Wait() until $maxConcurrency of Handle() are blocked
+	wg.Wait()
+
+	go func() {
+		// blocked...
+		handler.Handle(mm)
+		assert.Fail(t, "Handle() should be blocked")
+	}()
+	// TODO:
+	// Sleep to see if assert.Fail() is triggered. This isn't perfect but it's
+	// not easy to prove the previous handler.Handle() is blocked forever.
+	time.Sleep(2 * time.Second)
+}
+
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
-	max_concurrency := 4
+	maxConcurrency := 4
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -353,7 +389,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	// ErrCbMaxConcurrency provided that Timeout is large enough for this
 	// test case
 	conf := NewDefaultCircuitBreakerConf()
-	conf.MaxConcurrent = max_concurrency
+	conf.MaxConcurrent = maxConcurrency
 	conf.Timeout = 10 * time.Second
 	conf.RegisterFor(circuit)
 
@@ -363,7 +399,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
-	wg.Add(max_concurrency)
+	wg.Add(maxConcurrency)
 	cond := sync.NewCond(&sync.Mutex{})
 	mhandler.On("Handle", mm).Return(
 		func(Message) Message {
@@ -375,7 +411,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 			return mm
 		}, nil)
 
-	for i := 0; i < max_concurrency; i++ {
+	for i := 0; i < maxConcurrency; i++ {
 		go func() {
 			handler.Handle(mm)
 		}()
