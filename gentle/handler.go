@@ -83,7 +83,7 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.limiter.Wait(1, 0)
 	msg_out, err := r.handler.Handle(msg)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
@@ -256,7 +256,7 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 			<-r.semaphore
 		}()
 		msg_out, err := r.handler.Handle(msg)
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		if err != nil {
 			r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
 				"err", err, "timespan", timespan)
@@ -333,7 +333,7 @@ func (r *SemaphoreHandler) Handle(msg Message) (Message, error) {
 	r.semaphore <- struct{}{}
 	defer func() { <-r.semaphore }()
 	msg_out, err := r.handler.Handle(msg)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
@@ -409,10 +409,10 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	result := make(chan interface{}, 1)
 	err := hystrix.Do(r.circuit, func() error {
 		msg_out, err := r.handler.Handle(msg)
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		if err != nil {
 			if !PassCircuitBreaker(err) {
-				r.log.Error("[Handler] Handle() in CB err",
+				r.log.Error("[Handler] Do()::Handle() err",
 					"msg_in", msg.Id(),
 					"err", err, "timespan", timespan)
 				return err
@@ -421,18 +421,19 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 			result <- err
 			return nil
 		}
-		r.log.Debug("[Handler] Handle() in CB ok",
+		r.log.Debug("[Handler] Do()::Handle() ok",
 			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
 			"timespan", timespan)
 		result <- msg_out
 		return nil
 	}, nil)
-	// hystrix errors can overwrite stream.Get()'s err.
-	// hystrix.ErrTimeout doesn't interrupt work anyway.
-	// It just contributes to circuit's metrics.
+	// NOTE:
+	// err can be from Do()::Handle() or hystrix errors if criteria are matched.
+	// Do()::Handle()'s err, being returned or not, contributes to hystrix
+	// metrics if !PassCircuitBreaker(err).
 	if err != nil {
 		defer func() {
-			timespan := time.Now().Sub(begin).Seconds()
+			timespan := time.Since(begin).Seconds()
 			r.log.Error("[Handler] Circuit err",
 				"msg_in", msg.Id(), "err", err,
 				"timespan", timespan)
@@ -462,7 +463,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	}
 	switch v := (<-result).(type) {
 	case error:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Handler] Handle() in CB err ignored",
 			"msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
@@ -471,7 +472,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		r.mxHandle.Observe(timespan, label_err_ignored)
 		return nil, v
 	case Message:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
 			"msg_out", v.Id(), "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_ok)
@@ -532,7 +533,7 @@ func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	msg_out, err := r.handler.Handle(msg)
 	if err == nil {
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Handler] Handle() ok, skip fallbackFunc",
 			"msg_in", msg.Id(), "msg_out", msg_out.Id(), timespan)
 		r.mxHandle.Observe(timespan, label_ok)
@@ -541,7 +542,7 @@ func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 	r.log.Error("[Handler] Handle() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err and the msg that caused it.
 	msg_out, err = r.fallbackFunc(msg, err)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Handler] fallbackFunc() err",
 			"msg_in", msg.Id(), "err", err, "timespan", timespan)
@@ -599,7 +600,7 @@ func (r *HandlerMappedHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] prev.Handle() ...")
 	msg_mid, err := r.prevHandler.Handle(msg)
 	if err != nil {
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Error("[Handler] prev.Handle() err", "msg_in", msg.Id(),
 			"err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
@@ -608,7 +609,7 @@ func (r *HandlerMappedHandler) Handle(msg Message) (Message, error) {
 	r.log.Debug("[Handler] prev.Handle() ok", "msg_in", msg.Id(),
 		"msg_mid", msg_mid.Id())
 	msg_out, herr := r.handler.Handle(msg)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if herr != nil {
 		r.log.Error("[Handler] Handle() err", "msg_mid", msg_mid.Id(),
 			"err", herr, "timespan", timespan)

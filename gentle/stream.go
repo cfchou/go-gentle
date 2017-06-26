@@ -90,7 +90,7 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	r.log.Debug("[Stream] Get() ...")
 	r.limiter.Wait(1, 0)
 	msg, err := r.stream.Get()
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
@@ -264,7 +264,7 @@ func (r *BulkheadStream) Get() (Message, error) {
 			<-r.semaphore
 		}()
 		msg, err := r.stream.Get()
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		if err != nil {
 			r.log.Error("[Stream] Get() err", "err", err,
 				"timespan", timespan)
@@ -342,7 +342,7 @@ func (r *SemaphoreStream) Get() (Message, error) {
 	r.semaphore <- struct{}{}
 	defer func() { <-r.semaphore }()
 	msg, err := r.stream.Get()
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
@@ -426,28 +426,31 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	result := make(chan interface{}, 1)
 	err := hystrix.Do(r.circuit, func() error {
 		msg, err := r.stream.Get()
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		if err != nil {
 			if !PassCircuitBreaker(err) {
-				r.log.Error("[Stream] Get() in CB err",
+				r.log.Error("[Stream] Do()::Get() err",
 					"err", err, "timespan", timespan)
 				return err
 			}
+			r.log.Debug("[Stream] Do()::Get() err but PassCircuitBreaker",
+				"err", err, "timespan", timespan)
 			// faking a success to bypass hystrix's error metrics
 			result <- err
 			return nil
 		}
-		r.log.Debug("[Stream] Get() in CB ok",
+		r.log.Debug("[Stream] Do()::Get() ok",
 			"msg_out", msg.Id(), "timespan", timespan)
 		result <- msg
 		return nil
 	}, nil)
-	// hystrix errors can overwrite stream.Get()'s err
-	// hystrix.ErrTimeout doesn't interrupt work anyway.
-	// It just contributes to circuit's metrics.
+	// NOTE:
+	// err can be from Do()::Get() or hystrix errors if criteria are matched.
+	// Do()::Get()'s err, being returned or not, contributes to hystrix metrics
+	// if !PassCircuitBreaker(err).
 	if err != nil {
 		defer func() {
-			timespan := time.Now().Sub(begin).Seconds()
+			timespan := time.Since(begin).Seconds()
 			r.log.Error("[Stream] Circuit err", "err", err,
 				"timespan", timespan)
 			r.mxGet.Observe(timespan, label_err)
@@ -476,7 +479,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	}
 	switch v := (<-result).(type) {
 	case error:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() in CB err ignored",
 			"err", v, "timespan", timespan)
 		r.mxCbErr.Observe(1,
@@ -484,7 +487,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		r.mxGet.Observe(timespan, label_err_ignored)
 		return nil, v
 	case Message:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
@@ -545,7 +548,7 @@ func (r *FallbackStream) Get() (Message, error) {
 	r.log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
 	if err == nil {
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() ok, skip fallbackFunc",
 			"msg", msg.Id(), "timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
@@ -554,7 +557,7 @@ func (r *FallbackStream) Get() (Message, error) {
 	r.log.Error("[Stream] Get() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err
 	msg, err = r.fallbackFunc(err)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Stream] fallbackFunc() err",
 			"err", err, "timespan", timespan)
@@ -612,19 +615,19 @@ func (r *ChannelStream) Get() (Message, error) {
 	r.log.Debug("[Stream] Get() ...")
 	switch v := (<-r.channel).(type) {
 	case Message:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
 		return v, nil
 	case error:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() err", "err", v,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_err)
 		return nil, v
 	default:
-		timespan := time.Now().Sub(begin).Seconds()
+		timespan := time.Since(begin).Seconds()
 		r.log.Error("[Stream] Get() err, invalid type",
 			"value", v, "timespan", timespan)
 		return nil, ErrInvalidType
@@ -677,12 +680,12 @@ func (r *HandlerMappedStream) Get() (Message, error) {
 	msg, err := r.upstream.Get()
 	if err != nil {
 		r.log.Error("[Stream] upstream.Get() err", "err", err)
-		r.mxGet.Observe(time.Now().Sub(begin).Seconds(), label_err)
+		r.mxGet.Observe(time.Since(begin).Seconds(), label_err)
 		return nil, err
 	}
 	r.log.Debug("[Stream] upstream.Get() ok, Handle() ...", "msg", msg.Id())
 	hmsg, herr := r.handler.Handle(msg)
-	timespan := time.Now().Sub(begin).Seconds()
+	timespan := time.Since(begin).Seconds()
 	if herr != nil {
 		r.log.Error("[Stream] Handle() err", "msg", msg.Id(), "err", herr,
 			"timespan", timespan)

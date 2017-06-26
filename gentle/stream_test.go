@@ -2,6 +2,7 @@ package gentle
 
 import (
 	"errors"
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -471,6 +472,7 @@ func TestHandlerMappedStream_Get(t *testing.T) {
 }
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
+	defer hystrix.Flush()
 	maxConcurrency := 4
 	circuit := xid.New().String()
 	mstream := &MockStream{}
@@ -515,6 +517,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 
 func TestCircuitBreakerStream_Get2(t *testing.T) {
 	// Test ErrCbTimeout and subsequent ErrCbOpen
+	defer hystrix.Flush()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -532,53 +535,53 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	stream := NewCircuitBreakerStream(
 		*NewCircuitBreakerStreamOpts("", "test", circuit),
 		mstream)
-	mm := &fakeMsg{id: "123"}
+	var nth int64
+	newMsg := func() Message {
+		tmp := atomic.AddInt64(&nth, 1)
+		return &fakeMsg{id: strconv.FormatInt(tmp, 10)}
+	}
 
 	// Suspend longer than Timeout
 	var to_suspend int64
 	suspend := conf.Timeout + time.Millisecond
-	mstream.On("Get").Return(func() Message {
-		if atomic.LoadInt64(&to_suspend) == 0 {
-			time.Sleep(suspend)
-		}
-		return mm
-	}, nil)
-	// Try until getting ErrCbTimeout
-	for {
-		_, err := stream.Get()
-		if err == ErrCbTimeout {
-			break
-		}
-	}
+	mstream.On("Get").Return(
+		func() Message {
+			if atomic.LoadInt64(&to_suspend) == 0 {
+				time.Sleep(suspend)
+			}
+			return newMsg()
+		}, nil)
 
-	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
-	// "Eventually" because hystrix updates metrics asynchronously.
+	// ErrCbTimeout then the subsequent requests within SleepWindow eventually
+	// see ErrCbOpen "Eventually" because hystrix updates metrics asynchronously.
 	for {
-		log.Debug("[Test] try again")
+		log.Debug("[Test] try again for ErrCbOpen")
 		_, err := stream.Get()
 		if err == ErrCbOpen {
 			break
-		} else {
-			assert.EqualError(t, err, ErrCbTimeout.Error())
 		}
+		// err could be nil if $suspend is short and scheduler is slow.
+		// if that's the case, we'll try until threshold is reached.
 	}
 
 	// Disable to_suspend
 	atomic.StoreInt64(&to_suspend, 1)
-	time.Sleep(conf.SleepWindow)
 	for {
+		time.Sleep(conf.SleepWindow)
+		log.Debug("[Test] try again for no err")
 		_, err := stream.Get()
 		if err == nil {
 			// In the end, circuit is closed because of no error.
 			break
-		} else {
-			assert.EqualError(t, err, ErrCbOpen.Error())
 		}
+		// err could be ErrCbOpen or even ErrCbTimeout if scheduling
+		// is slow. If that's the case, we'll try until circuit is closed.
 	}
 }
 
 func TestCircuitBreakerStream_Get3(t *testing.T) {
 	// Test fakeErr and subsequent ErrCbOpen
+	defer hystrix.Flush()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -616,9 +619,10 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 		}
 	}
 
-	time.Sleep(conf.SleepWindow)
 	call.Return(mm, nil)
 	for {
+		time.Sleep(conf.SleepWindow)
+		log.Debug("[Test] try again for no err")
 		_, err := stream.Get()
 		if err == nil {
 			// In the end, circuit is closed because of no error.
