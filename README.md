@@ -1,6 +1,9 @@
 # Document is a work-in-progress
 
 ## Go-gentle
+[![Build
+Status](https://travis-ci.org/cfchou/go-gentle.png?branch=master)](https://travis-ci.org/cfchou/go-gentle)
+
 Talk to external services like a gentleman.
 
 ## Intro
