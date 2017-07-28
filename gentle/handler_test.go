@@ -105,7 +105,7 @@ func TestRetryHandler_Get2(t *testing.T) {
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
 	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
@@ -152,7 +152,7 @@ func TestRetryHandler_Get3(t *testing.T) {
 	// No randomization to make the growth of backoff time approximately exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
@@ -197,7 +197,7 @@ func TestRetryHandler_Get4(t *testing.T) {
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
 	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
@@ -258,7 +258,7 @@ func TestRetryHandler_Get5(t *testing.T) {
 	// No randomization to make the growth of backoff time approximately exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}

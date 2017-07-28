@@ -162,15 +162,6 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 			r.mxTryNum.Observe(float64(count), label_ok)
 			return msg_out, nil
 		}
-		if NoRetry(err) {
-			timespan := r.clock.Now().Sub(begin).Seconds()
-			r.log.Error("[Handler] Handle() err ignored",
-				"msg_in", msg.Id(), "err", err,
-				"timespan", timespan)
-			r.mxHandle.Observe(timespan, label_err_ignored)
-			r.mxTryNum.Observe(float64(count), label_err)
-			return nil, err
-		}
 		once.Do(func() {
 			backOff = r.backOffFactory.NewBackOff()
 		})
@@ -411,15 +402,9 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 		msg_out, err := r.handler.Handle(msg)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			if !PassCircuitBreaker(err) {
-				r.log.Error("[Handler] Do()::Handle() err",
-					"msg_in", msg.Id(),
-					"err", err, "timespan", timespan)
-				return err
-			}
-			// faking a success to bypass hystrix's error metrics
-			result <- err
-			return nil
+			r.log.Error("[Handler] Do()::Handle() err", "msg_in", msg.Id(),
+				"err", err, "timespan", timespan)
+			return err
 		}
 		r.log.Debug("[Handler] Do()::Handle() ok",
 			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
@@ -461,25 +446,12 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 			return nil, err
 		}
 	}
-	switch v := (<-result).(type) {
-	case error:
-		timespan := time.Since(begin).Seconds()
-		r.log.Debug("[Handler] Handle() in CB err ignored",
-			"msg_in", msg.Id(),
-			"err", err, "timespan", timespan)
-		r.mxCbErr.Observe(1,
-			map[string]string{"err": "NonCbErr"})
-		r.mxHandle.Observe(timespan, label_err_ignored)
-		return nil, v
-	case Message:
-		timespan := time.Since(begin).Seconds()
-		r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-			"msg_out", v.Id(), "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_ok)
-		return msg, nil
-	default:
-		panic("Never be here")
-	}
+	msg_out := (<-result).(Message)
+	timespan := time.Since(begin).Seconds()
+	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
+		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.mxHandle.Observe(timespan, label_ok)
+	return msg, nil
 }
 
 func (r *CircuitBreakerHandler) GetNames() *Names {

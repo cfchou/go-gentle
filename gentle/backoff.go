@@ -31,7 +31,7 @@ type ConstantBackOffFactory struct {
 	clock          Clock
 }
 
-func NewConstantBackOffFactory(opts ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
+func NewConstantBackOffFactory(opts *ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
 	return &ConstantBackOffFactory{
 		interval:       opts.Interval,
 		maxElapsedTime: opts.MaxElapsedTime,
@@ -108,7 +108,7 @@ type ExponentialBackOffFactory struct {
 	clock               Clock
 }
 
-func NewExponentialBackOffFactory(opts ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {
+func NewExponentialBackOffFactory(opts *ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {
 	return &ExponentialBackOffFactory{
 		initialInterval:     opts.InitialInterval,
 		randomizationFactor: opts.RandomizationFactor,

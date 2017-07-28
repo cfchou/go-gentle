@@ -168,7 +168,7 @@ func TestRetryStream_Get2(t *testing.T) {
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
 	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
@@ -217,7 +217,7 @@ func TestRetryStream_Get3(t *testing.T) {
 	// exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
@@ -262,7 +262,7 @@ func TestRetryStream_Get4(t *testing.T) {
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
 	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(*backOffOpts)
+	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
@@ -325,7 +325,7 @@ func TestRetryStream_Get5(t *testing.T) {
 	// exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(*backOffOpts)
+	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}

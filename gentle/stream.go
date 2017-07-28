@@ -21,9 +21,8 @@ const (
 )
 
 var (
-	label_ok          = map[string]string{"result": "ok"}
-	label_err         = map[string]string{"result": "err"}
-	label_err_ignored = map[string]string{"result": "gerr"}
+	label_ok  = map[string]string{"result": "ok"}
+	label_err = map[string]string{"result": "err"}
 )
 
 // Common options for XXXStreamOpts
@@ -168,15 +167,6 @@ func (r *RetryStream) Get() (Message, error) {
 			r.mxGet.Observe(timespan, label_ok)
 			r.obTryNum.Observe(float64(count), label_ok)
 			return msg, nil
-		}
-		if NoRetry(err) {
-			timespan := r.clock.Now().Sub(begin).Seconds()
-			r.log.Debug("[Streamer] Get() err ignored",
-				"err", err, "timespan", timespan,
-				"count", count)
-			r.mxGet.Observe(timespan, label_err_ignored)
-			r.obTryNum.Observe(float64(count), label_ok)
-			return nil, err
 		}
 		once.Do(func() {
 			backOff = r.backOffFactory.NewBackOff()
@@ -428,16 +418,9 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 		msg, err := r.stream.Get()
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			if !PassCircuitBreaker(err) {
-				r.log.Error("[Stream] Do()::Get() err",
-					"err", err, "timespan", timespan)
-				return err
-			}
-			r.log.Debug("[Stream] Do()::Get() err but PassCircuitBreaker",
+			r.log.Error("[Stream] Do()::Get() err",
 				"err", err, "timespan", timespan)
-			// faking a success to bypass hystrix's error metrics
-			result <- err
-			return nil
+			return err
 		}
 		r.log.Debug("[Stream] Do()::Get() ok",
 			"msg_out", msg.Id(), "timespan", timespan)
@@ -447,7 +430,6 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	// NOTE:
 	// err can be from Do()::Get() or hystrix errors if criteria are matched.
 	// Do()::Get()'s err, being returned or not, contributes to hystrix metrics
-	// if !PassCircuitBreaker(err).
 	if err != nil {
 		defer func() {
 			timespan := time.Since(begin).Seconds()
@@ -477,24 +459,12 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 			return nil, err
 		}
 	}
-	switch v := (<-result).(type) {
-	case error:
-		timespan := time.Since(begin).Seconds()
-		r.log.Debug("[Stream] Get() in CB err ignored",
-			"err", v, "timespan", timespan)
-		r.mxCbErr.Observe(1,
-			map[string]string{"err": "NonCbErr"})
-		r.mxGet.Observe(timespan, label_err_ignored)
-		return nil, v
-	case Message:
-		timespan := time.Since(begin).Seconds()
-		r.log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
-			"timespan", timespan)
-		r.mxGet.Observe(timespan, label_ok)
-		return v, nil
-	default:
-		panic("Never be here")
-	}
+	msg_out := (<-result).(Message)
+	timespan := time.Since(begin).Seconds()
+	r.log.Debug("[Stream] Get() ok", "msg_out", msg_out.Id(),
+		"timespan", timespan)
+	r.mxGet.Observe(timespan, label_ok)
+	return msg_out, nil
 }
 
 func (r *CircuitBreakerStream) GetNames() *Names {

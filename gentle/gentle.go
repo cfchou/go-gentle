@@ -32,32 +32,6 @@ type Message interface {
 	Id() string
 }
 
-// errors that implements GentleError would be examined by RetryXXX and
-// CircuitBreakerXXX.
-type GentleError interface {
-	error
-	// Instruct RetryXXX not to retry
-	NoRetry() bool
-	// Instruct CircuitBreakerXXX not to count this err
-	PassCircuitBreaker() bool
-}
-
-func NoRetry(err error) bool {
-	if ge, ok := err.(GentleError); !ok {
-		return false
-	} else {
-		return ge.NoRetry()
-	}
-}
-
-func PassCircuitBreaker(err error) bool {
-	if ge, ok := err.(GentleError); !ok {
-		return false
-	} else {
-		return ge.PassCircuitBreaker()
-	}
-}
-
 // Stream emits Message. Messages of a stream goes one way. Though two streams
 // can simulate two-way communication but it would require out-of-band logic.
 type Stream interface {
