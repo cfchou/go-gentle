@@ -96,7 +96,7 @@ func (r *rateLimitedStream) Get() (Message, error) {
 		r.mxGet.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+	r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
 	return msg, nil
@@ -162,7 +162,7 @@ func (r *retryStream) Get() (Message, error) {
 		msg, err := r.stream.Get()
 		if err == nil {
 			timespan := r.clock.Now().Sub(begin).Seconds()
-			r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+			r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 				"timespan", timespan, "count", count)
 			r.mxGet.Observe(timespan, label_ok)
 			r.obTryNum.Observe(float64(count), label_ok)
@@ -261,7 +261,7 @@ func (r *bulkheadStream) Get() (Message, error) {
 			r.mxGet.Observe(timespan, label_err)
 			return nil, err
 		}
-		r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+		r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
 		return msg, nil
@@ -339,7 +339,7 @@ func (r *semaphoreStream) Get() (Message, error) {
 		r.mxGet.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get() ok", "msg_out", msg.Id(),
+	r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
 	return msg, nil
@@ -423,7 +423,7 @@ func (r *circuitBreakerStream) Get() (Message, error) {
 			return err
 		}
 		r.log.Debug("[Stream] Do()::Get() ok",
-			"msg_out", msg.Id(), "timespan", timespan)
+			"msgOut", msg.ID(), "timespan", timespan)
 		result <- msg
 		return nil
 	}, nil)
@@ -459,12 +459,12 @@ func (r *circuitBreakerStream) Get() (Message, error) {
 			return nil, err
 		}
 	}
-	msg_out := (<-result).(Message)
+	msgOut := (<-result).(Message)
 	timespan := time.Since(begin).Seconds()
-	r.log.Debug("[Stream] Get() ok", "msg_out", msg_out.Id(),
+	r.log.Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msgOut, nil
 }
 
 func (r *circuitBreakerStream) GetNames() *Names {
@@ -520,7 +520,7 @@ func (r *fallbackStream) Get() (Message, error) {
 	if err == nil {
 		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Stream] Get() ok, skip fallbackFunc",
-			"msg", msg.Id(), "timespan", timespan)
+			"msg", msg.ID(), "timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
 		return msg, nil
 	}
@@ -535,7 +535,7 @@ func (r *fallbackStream) Get() (Message, error) {
 		return nil, err
 	}
 	r.log.Debug("[Stream] fallbackFunc() ok",
-		"msg", msg.Id(), "timespan", timespan)
+		"msg", msg.ID(), "timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
 	return msg, nil
 }
@@ -586,7 +586,7 @@ func (r *channelStream) Get() (Message, error) {
 	switch v := (<-r.channel).(type) {
 	case Message:
 		timespan := time.Since(begin).Seconds()
-		r.log.Debug("[Stream] Get() ok", "msg_out", v.Id(),
+		r.log.Debug("[Stream] Get() ok", "msgOut", v.ID(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_ok)
 		return v, nil
@@ -653,17 +653,17 @@ func (r *handlerMappedStream) Get() (Message, error) {
 		r.mxGet.Observe(time.Since(begin).Seconds(), label_err)
 		return nil, err
 	}
-	r.log.Debug("[Stream] upstream.Get() ok, Handle() ...", "msg", msg.Id())
+	r.log.Debug("[Stream] upstream.Get() ok, Handle() ...", "msg", msg.ID())
 	hmsg, herr := r.handler.Handle(msg)
 	timespan := time.Since(begin).Seconds()
 	if herr != nil {
-		r.log.Error("[Stream] Handle() err", "msg", msg.Id(), "err", herr,
+		r.log.Error("[Stream] Handle() err", "msg", msg.ID(), "err", herr,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, label_err)
 		return nil, herr
 	}
-	r.log.Debug("[Stream] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", hmsg.Id(), "timespan", timespan)
+	r.log.Debug("[Stream] Handle() ok", "msgIn", msg.ID(),
+		"msgOut", hmsg.ID(), "timespan", timespan)
 	r.mxGet.Observe(timespan, label_ok)
 	return hmsg, nil
 }

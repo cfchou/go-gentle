@@ -59,9 +59,9 @@ func TestChannelStream_Get(t *testing.T) {
 	src <- mm
 	stream := NewChannelStream(
 		NewChannelStreamOpts("", "test", src))
-	msg_out, err := stream.Get()
+	msgOut, err := stream.Get()
 	assert.NoError(t, err)
-	assert.Equal(t, msg_out.Id(), mm.Id())
+	assert.Equal(t, msgOut.ID(), mm.ID())
 }
 
 func TestChannelStream_Get_2(t *testing.T) {
@@ -69,9 +69,9 @@ func TestChannelStream_Get_2(t *testing.T) {
 	stream, msgs := genChannelStreamWithMessages(count)
 
 	for i := 0; i < count; i++ {
-		msg_out, err := stream.Get()
+		msgOut, err := stream.Get()
 		assert.NoError(t, err)
-		assert.Equal(t, msg_out.Id(), msgs[i].Id())
+		assert.Equal(t, msgOut.ID(), msgs[i].ID())
 	}
 }
 
@@ -468,7 +468,7 @@ func TestHandlerMappedStream_Get(t *testing.T) {
 
 	msg, err := stream.Get()
 	assert.NoError(t, err)
-	assert.Equal(t, newMM.Id(), msg.Id())
+	assert.Equal(t, newMM.ID(), msg.ID())
 }
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
@@ -648,7 +648,7 @@ func TestFallbackStream_Get(t *testing.T) {
 
 	msg, err := fstream.Get()
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), mm.Id())
+	assert.Equal(t, msg.ID(), mm.ID())
 }
 
 func TestFallbackStream_Get2(t *testing.T) {
@@ -688,5 +688,5 @@ func TestFallbackStream_Get3(t *testing.T) {
 
 	msg, err := fstream.Get()
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), mm.Id())
+	assert.Equal(t, msg.ID(), mm.ID())
 }

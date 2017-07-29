@@ -28,8 +28,8 @@ func init() {
 }
 
 type Message interface {
-	// A Message is obliged to implement Id() for better tracing.
-	Id() string
+	// A Message is obliged to implement ID() for better tracing.
+	ID() string
 }
 
 // Stream emits Message. Messages of a stream goes one way. Though two streams

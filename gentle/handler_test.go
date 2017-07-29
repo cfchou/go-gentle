@@ -561,7 +561,7 @@ func TestFallbackHandler_Get(t *testing.T) {
 
 	msg, err := fhandler.Handle(mm)
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), mm.Id())
+	assert.Equal(t, msg.ID(), mm.ID())
 }
 
 func TestFallbackHandler_Get2(t *testing.T) {
@@ -571,7 +571,7 @@ func TestFallbackHandler_Get2(t *testing.T) {
 	fallbackCalled := false
 	fallbackFunc := func(msg Message, err error) (Message, error) {
 		// msg is the one caused err
-		assert.Equal(t, msg.Id(), mm.Id())
+		assert.Equal(t, msg.ID(), mm.ID())
 		assert.EqualError(t, err, fakeErr.Error())
 		fallbackCalled = true
 		return nil, err
@@ -605,5 +605,5 @@ func TestFallbackHandler_Get3(t *testing.T) {
 
 	msg, err := fhandler.Handle(mm)
 	assert.NoError(t, err)
-	assert.Equal(t, msg.Id(), mm.Id())
+	assert.Equal(t, msg.ID(), mm.ID())
 }

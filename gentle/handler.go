@@ -80,20 +80,20 @@ func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) Handle
 // Handle() is blocked when the limit is exceeded.
 func (r *rateLimitedHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
 	r.limiter.Wait(1, 0)
-	msg_out, err := r.handler.Handle(msg)
+	msgOut, err := r.handler.Handle(msg)
 	timespan := time.Since(begin).Seconds()
 	if err != nil {
-		r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+		r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+		"msgOut", msgOut.ID(), "timespan", timespan)
 	r.mxHandle.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msgOut, nil
 }
 
 func (r *rateLimitedHandler) GetNames() *Names {
@@ -153,14 +153,14 @@ func (r *retryHandler) Handle(msg Message) (Message, error) {
 	var once sync.Once
 	var backOff BackOff
 	for {
-		msg_out, err := r.handler.Handle(msg)
+		msgOut, err := r.handler.Handle(msg)
 		if err == nil {
 			timespan := r.clock.Now().Sub(begin).Seconds()
-			r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-				"msg_out", msg_out.Id(), "timespan", timespan)
+			r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+				"msgOut", msgOut.ID(), "timespan", timespan)
 			r.mxHandle.Observe(timespan, label_ok)
 			r.mxTryNum.Observe(float64(count), label_ok)
-			return msg_out, nil
+			return msgOut, nil
 		}
 		once.Do(func() {
 			backOff = r.backOffFactory.NewBackOff()
@@ -171,7 +171,7 @@ func (r *retryHandler) Handle(msg Message) (Message, error) {
 		timespan := r.clock.Now().Sub(begin).Seconds()
 		if to_wait == BackOffStop {
 			r.log.Error("[Handler] Handle() err and no more backing off",
-				"msg_in", msg.Id(), "err", err,
+				"msgIn", msg.ID(), "err", err,
 				"timespan", timespan)
 			r.mxHandle.Observe(timespan, label_err)
 			r.mxTryNum.Observe(float64(count), label_err)
@@ -182,7 +182,7 @@ func (r *retryHandler) Handle(msg Message) (Message, error) {
 		// passed as "elapsed".
 		count++
 		r.log.Error("[Handler] Handle() err, backing off ...",
-			"err", err, "msg_in", msg.Id(), "elapsed", timespan,
+			"err", err, "msgIn", msg.ID(), "elapsed", timespan,
 			"count", count, "wait", to_wait)
 		r.clock.Sleep(to_wait)
 	}
@@ -240,26 +240,26 @@ func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 // Handle() is blocked when the limit is exceeded.
 func (r *bulkheadHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
 	select {
 	case r.semaphore <- struct{}{}:
 		defer func() {
 			<-r.semaphore
 		}()
-		msg_out, err := r.handler.Handle(msg)
+		msgOut, err := r.handler.Handle(msg)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+			r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 				"err", err, "timespan", timespan)
 			r.mxHandle.Observe(timespan, label_err)
 			return nil, err
 		}
-		r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-			"msg_out", msg_out.Id(), "timespan", timespan)
+		r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+			"msgOut", msgOut.ID(), "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_ok)
-		return msg_out, nil
+		return msgOut, nil
 	default:
-		r.log.Error("[Hander] Handle() err", "msg_in", msg.Id(),
+		r.log.Error("[Hander] Handle() err", "msgIn", msg.ID(),
 			"err", ErrMaxConcurrency)
 		return nil, ErrMaxConcurrency
 	}
@@ -320,21 +320,21 @@ func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) Handler {
 
 func (r *semaphoreHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
 	r.semaphore <- struct{}{}
 	defer func() { <-r.semaphore }()
-	msg_out, err := r.handler.Handle(msg)
+	msgOut, err := r.handler.Handle(msg)
 	timespan := time.Since(begin).Seconds()
 	if err != nil {
-		r.log.Error("[Handler] Handle() err", "msg_in", msg.Id(),
+		r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+		"msgOut", msgOut.ID(), "timespan", timespan)
 	r.mxHandle.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msgOut, nil
 }
 
 func (r *semaphoreHandler) GetMaxConcurrency() int {
@@ -396,20 +396,20 @@ func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) 
 
 func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
+	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
 	result := make(chan interface{}, 1)
 	err := hystrix.Do(r.circuit, func() error {
-		msg_out, err := r.handler.Handle(msg)
+		msgOut, err := r.handler.Handle(msg)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			r.log.Error("[Handler] Do()::Handle() err", "msg_in", msg.Id(),
+			r.log.Error("[Handler] Do()::Handle() err", "msgIn", msg.ID(),
 				"err", err, "timespan", timespan)
 			return err
 		}
 		r.log.Debug("[Handler] Do()::Handle() ok",
-			"msg_in", msg.Id(), "msg_out", msg_out.Id(),
+			"msgIn", msg.ID(), "msgOut", msgOut.ID(),
 			"timespan", timespan)
-		result <- msg_out
+		result <- msgOut
 		return nil
 	}, nil)
 	// NOTE:
@@ -420,7 +420,7 @@ func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 		defer func() {
 			timespan := time.Since(begin).Seconds()
 			r.log.Error("[Handler] Circuit err",
-				"msg_in", msg.Id(), "err", err,
+				"msgIn", msg.ID(), "err", err,
 				"timespan", timespan)
 			r.mxHandle.Observe(timespan, label_err)
 		}()
@@ -446,10 +446,10 @@ func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 			return nil, err
 		}
 	}
-	msg_out := (<-result).(Message)
+	msgOut := (<-result).(Message)
 	timespan := time.Since(begin).Seconds()
-	r.log.Debug("[Handler] Handle() ok", "msg_in", msg.Id(),
-		"msg_out", msg_out.Id(), "timespan", timespan)
+	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+		"msgOut", msgOut.ID(), "timespan", timespan)
 	r.mxHandle.Observe(timespan, label_ok)
 	return msg, nil
 }
@@ -502,30 +502,30 @@ func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) Handler {
 
 func (r *fallbackHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
-	msg_out, err := r.handler.Handle(msg)
+	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
+	msgOut, err := r.handler.Handle(msg)
 	if err == nil {
 		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Handler] Handle() ok, skip fallbackFunc",
-			"msg_in", msg.Id(), "msg_out", msg_out.Id(), timespan)
+			"msgIn", msg.ID(), "msgOut", msgOut.ID(), timespan)
 		r.mxHandle.Observe(timespan, label_ok)
-		return msg_out, nil
+		return msgOut, nil
 	}
 	r.log.Error("[Handler] Handle() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err and the msg that caused it.
-	msg_out, err = r.fallbackFunc(msg, err)
+	msgOut, err = r.fallbackFunc(msg, err)
 	timespan := time.Since(begin).Seconds()
 	if err != nil {
 		r.log.Error("[Handler] fallbackFunc() err",
-			"msg_in", msg.Id(), "err", err, "timespan", timespan)
+			"msgIn", msg.ID(), "err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
 		return nil, err
 	}
 	r.log.Debug("[Handler] fallbackFunc() ok",
-		"msg_in", msg.Id(), "msg_out", msg_out.Id(),
+		"msgIn", msg.ID(), "msgOut", msgOut.ID(),
 		"timespan", timespan)
 	r.mxHandle.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msgOut, nil
 }
 
 func (r *fallbackHandler) GetNames() *Names {
@@ -573,25 +573,25 @@ func (r *handlerMappedHandler) Handle(msg Message) (Message, error) {
 	msg_mid, err := r.prevHandler.Handle(msg)
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
-		r.log.Error("[Handler] prev.Handle() err", "msg_in", msg.Id(),
+		r.log.Error("[Handler] prev.Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
 		return nil, err
 	}
-	r.log.Debug("[Handler] prev.Handle() ok", "msg_in", msg.Id(),
-		"msg_mid", msg_mid.Id())
-	msg_out, herr := r.handler.Handle(msg)
+	r.log.Debug("[Handler] prev.Handle() ok", "msgIn", msg.ID(),
+		"msg_mid", msg_mid.ID())
+	msgOut, herr := r.handler.Handle(msg)
 	timespan := time.Since(begin).Seconds()
 	if herr != nil {
-		r.log.Error("[Handler] Handle() err", "msg_mid", msg_mid.Id(),
+		r.log.Error("[Handler] Handle() err", "msg_mid", msg_mid.ID(),
 			"err", herr, "timespan", timespan)
 		r.mxHandle.Observe(timespan, label_err)
 		return nil, herr
 	}
-	r.log.Debug("[Handler] Handle() ok", "msg_mid", msg_mid.Id(),
-		"msg_out", msg_out.Id())
+	r.log.Debug("[Handler] Handle() ok", "msg_mid", msg_mid.ID(),
+		"msgOut", msgOut.ID())
 	r.mxHandle.Observe(timespan, label_ok)
-	return msg_out, nil
+	return msgOut, nil
 
 }
 
