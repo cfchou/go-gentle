@@ -6,6 +6,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -108,14 +109,14 @@ func TestRateLimitedStream_Get(t *testing.T) {
 
 func TestRetryStream_Get(t *testing.T) {
 	// Test against mocked BackOff
-	mfactory := &MockBackOffFactory{}
-	mback := &MockBackOff{}
+	mfactory := NewMockBackOffFactory(&mock.Mock{})
+	mback := NewMockBackOff(&mock.Mock{})
 	// mock clock so that we don't need to wait for the real timer to move
 	// forward
 	mclock := clock.NewMock()
 	opts := NewRetryStreamOpts("", "test", mfactory)
 	opts.Clock = mclock
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
@@ -171,7 +172,7 @@ func TestRetryStream_Get2(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
@@ -220,7 +221,7 @@ func TestRetryStream_Get3(t *testing.T) {
 	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
@@ -265,7 +266,7 @@ func TestRetryStream_Get4(t *testing.T) {
 	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
@@ -328,7 +329,7 @@ func TestRetryStream_Get5(t *testing.T) {
 	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
@@ -380,7 +381,7 @@ func TestRetryStream_Get5(t *testing.T) {
 
 func TestBulkheadStream_Get(t *testing.T) {
 	maxConcurrency := 4
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewBulkheadStream(
 		NewBulkheadStreamOpts("", "test", maxConcurrency),
 		mstream)
@@ -415,7 +416,7 @@ func TestBulkheadStream_Get(t *testing.T) {
 
 func TestSemaphoreStream_Get(t *testing.T) {
 	maxConcurrency := 4
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	stream := NewSemaphoreStream(
 		NewSemaphoreStreamOpts("", "test", maxConcurrency),
 		mstream)
@@ -450,8 +451,8 @@ func TestSemaphoreStream_Get(t *testing.T) {
 }
 
 func TestHandlerMappedStream_Get(t *testing.T) {
-	mstream := &MockStream{}
-	mhandler := &MockHandler{}
+	mstream := NewMockStream(&mock.Mock{})
+	mhandler := NewMockHandler(&mock.Mock{})
 	stream := NewHandlerMappedStream(
 		NewHandlerMappedStreamOpts("", "test"),
 		mstream, mhandler)
@@ -475,7 +476,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	defer hystrix.Flush()
 	maxConcurrency := 4
 	circuit := xid.New().String()
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 
 	// requests exceeding MaxConcurrentRequests would get
 	// ErrCbMaxConcurrency provided that Timeout is large enough for this
@@ -519,7 +520,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	// Test ErrCbTimeout and subsequent ErrCbOpen
 	defer hystrix.Flush()
 	circuit := xid.New().String()
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -583,7 +584,7 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 	// Test fakeErr and subsequent ErrCbOpen
 	defer hystrix.Flush()
 	circuit := xid.New().String()
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 
 	conf := NewDefaultCircuitBreakerConf()
 	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
@@ -640,7 +641,7 @@ func TestFallbackStream_Get(t *testing.T) {
 		assert.Fail(t, "Shouldn't trigger fallback")
 		return nil, err
 	}
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	fstream := NewFallbackStream(
 		NewFallbackStreamOpts("", "test", fallBackFunc),
 		mstream)
@@ -660,7 +661,7 @@ func TestFallbackStream_Get2(t *testing.T) {
 		fallbackCalled = true
 		return nil, err
 	}
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	fstream := NewFallbackStream(
 		NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)
@@ -680,7 +681,7 @@ func TestFallbackStream_Get3(t *testing.T) {
 		assert.EqualError(t, err, fakeErr.Error())
 		return mm, nil
 	}
-	mstream := &MockStream{}
+	mstream := NewMockStream(&mock.Mock{})
 	fstream := NewFallbackStream(
 		NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)

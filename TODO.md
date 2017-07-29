@@ -9,8 +9,6 @@
 
 * go lint
 
-* NewMockHandler/Stream(*mock.Mock)
-* mokc.go
 * provide mocks in package extra
 
 
@@ -18,6 +16,7 @@
 * RateLimit interface
     add https://godoc.org/golang.org/x/time/rate implementation
     may consider integrate with context
+    add mock
 
 * Add context support. Bulkhead can be thread-isolation.
 
@@ -32,3 +31,5 @@
 ## DONE
 * Opts passed by addr
 * Make XXXStream/Handler xXXStgream/Handler
+* NewMockHandler/Stream(*mock.Mock)
+
