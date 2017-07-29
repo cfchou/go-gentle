@@ -16,17 +16,17 @@ import (
 
 func TestRateLimitedHandler_Handle(t *testing.T) {
 	// 1 msg/sec, no burst
-	requests_interval := 100 * time.Millisecond
+	requestsInterval := 100 * time.Millisecond
 	mhandler := &MockHandler{}
 	handler := NewRateLimitedHandler(
 		NewRateLimitedHandlerOpts("", "test",
-			NewTokenBucketRateLimit(requests_interval, 1)),
+			NewTokenBucketRateLimit(requestsInterval, 1)),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 	mhandler.On("Handle", mm).Return(mm, nil)
 
 	count := 3
-	minimum := time.Duration(count-1) * requests_interval
+	minimum := time.Duration(count-1) * requestsInterval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
@@ -67,15 +67,14 @@ func TestRetryHandler_Handle(t *testing.T) {
 	call.Return((*fakeMsg)(nil), fakeErr)
 	// create a backoff that fires 1 second for $count times
 	count := 3
-	timespan_minimum := time.Duration(count) * time.Second
+	timespanMinimum := time.Duration(count) * time.Second
 	mfactory.On("NewBackOff").Return(mback)
 	mback.On("Next").Return(func() time.Duration {
 		if count == 0 {
 			return BackOffStop
-		} else {
-			count--
-			return 1 * time.Second
 		}
+		count--
+		return 1 * time.Second
 	})
 	timespan := make(chan time.Duration, 1)
 	go func() {
@@ -89,8 +88,8 @@ func TestRetryHandler_Handle(t *testing.T) {
 	for {
 		select {
 		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
-			assert.True(t, dura >= timespan_minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+			assert.True(t, dura >= timespanMinimum)
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs
@@ -102,8 +101,8 @@ func TestRetryHandler_Handle(t *testing.T) {
 func TestRetryHandler_Get2(t *testing.T) {
 	// Test against ConstantBackOff
 	mclock := clock.NewMock()
-	timespan_minimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
+	timespanMinimum := 16 * time.Second
+	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
 	backOffOpts.Clock = mclock
 	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
@@ -134,8 +133,8 @@ func TestRetryHandler_Get2(t *testing.T) {
 	for {
 		select {
 		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
-			assert.True(t, dura >= timespan_minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+			assert.True(t, dura >= timespanMinimum)
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs
@@ -147,8 +146,8 @@ func TestRetryHandler_Get2(t *testing.T) {
 func TestRetryHandler_Get3(t *testing.T) {
 	// Test against ExponentialBackOff
 	mclock := clock.NewMock()
-	timespan_minimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
+	timespanMinimum := 1024 * time.Second
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespanMinimum)
 	// No randomization to make the growth of backoff time approximately exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
@@ -181,8 +180,8 @@ func TestRetryHandler_Get3(t *testing.T) {
 	for {
 		select {
 		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
-			assert.True(t, dura >= timespan_minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+			assert.True(t, dura >= timespanMinimum)
 			return
 		default:
 			// advance an arbitrary time to pass all backoffs
@@ -194,8 +193,8 @@ func TestRetryHandler_Get3(t *testing.T) {
 func TestRetryHandler_Get4(t *testing.T) {
 	// Test against concurrent retryHandler.Handle() and ConstantBackOff
 	mclock := clock.NewMock()
-	timespan_minimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
+	timespanMinimum := 16 * time.Second
+	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
 	backOffOpts.Clock = mclock
 	backOffFactory := NewConstantBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
@@ -226,8 +225,8 @@ func TestRetryHandler_Get4(t *testing.T) {
 			// backoffs exhausted
 			assert.EqualError(t, err, fakeErr.Error())
 			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
-			assert.True(t, dura >= timespan_minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+			assert.True(t, dura >= timespanMinimum)
 			wg.Done()
 		}()
 
@@ -253,8 +252,8 @@ func TestRetryHandler_Get4(t *testing.T) {
 func TestRetryHandler_Get5(t *testing.T) {
 	// Test against concurrent retryHandler.Handle() and ExponentialBackOff
 	mclock := clock.NewMock()
-	timespan_minimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)
+	timespanMinimum := 1024 * time.Second
+	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespanMinimum)
 	// No randomization to make the growth of backoff time approximately exponential.
 	backOffOpts.RandomizationFactor = 0
 	backOffOpts.Clock = mclock
@@ -287,8 +286,8 @@ func TestRetryHandler_Get5(t *testing.T) {
 			// backoffs exhausted
 			assert.EqualError(t, err, fakeErr.Error())
 			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespan_minimum", timespan_minimum)
-			assert.True(t, dura >= timespan_minimum)
+			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+			assert.True(t, dura >= timespanMinimum)
 			wg.Done()
 		}()
 
@@ -455,11 +454,11 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	}
 
 	// Suspend longer than Timeout
-	var to_suspend int64
+	var toSuspend int64
 	suspend := conf.Timeout + time.Millisecond
 	mhandler.On("Handle", mock.AnythingOfType("*gentle.fakeMsg")).Return(
 		func(mm Message) Message {
-			if atomic.LoadInt64(&to_suspend) == 0 {
+			if atomic.LoadInt64(&toSuspend) == 0 {
 				time.Sleep(suspend)
 			}
 			return mm
@@ -477,8 +476,8 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 		// if that's the case, we'll try until threshold is reached.
 	}
 
-	// Disable to_suspend
-	atomic.StoreInt64(&to_suspend, 1)
+	// Disable toSuspend
+	atomic.StoreInt64(&toSuspend, 1)
 	time.Sleep(conf.SleepWindow)
 	for {
 		log.Debug("[Test] try again for no err")

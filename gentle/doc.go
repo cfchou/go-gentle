@@ -5,7 +5,7 @@ Stream and Handler.
 Stream and Handler and back-pressure
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
-They are collectively called as mixins. Stream has one method Get() that emits
+Stream has one method Get() that emits
 Message. Handler has another method Handle() that transforms a given Message. A
 Stream may chain with other Streams and a Handler may chain with with other
 Handlers. The helper NewHandlerMappedStream() creates a handlerMappedStream whose Get()
@@ -20,7 +20,7 @@ Resiliency
 Besides back-pressure, resiliency patterns are indispensable in distributed
 systems as external services are not reliable at all time. Some of the patterns
 come to useful include rate-limiting, retry(also known as back-off),
-circuit-breaker and bulkhead. Each of our implementations of mixins features one
+circuit-breaker and bulkhead. Each of our implementations of resilience features one
 pattern:
 
   rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#rateLimitedStream)
@@ -33,9 +33,9 @@ pattern:
   bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#bulkheadHandler)
   circuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#circuitBreakerHandler)
 
-Mixin creation and options
+Creation and options
 
-To create a mixin, either a Stream or a Handler, you must firstly create a
+To create either a Stream or a Handler, you must firstly create a
 corresponding XXXOpts struct which can be done by using a helper. For instance,
 NewRateLimitedStreamOpts() creates and initialises RateLimitedStreamOpts for
 NewRateLimitedStream().

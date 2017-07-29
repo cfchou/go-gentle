@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	// Handler types(mixins), are most often used as part of RegistryKey.
-	MIXIN_HANDLER_RATELIMITED    = "hRate"
-	MIXIN_HANDLER_RETRY          = "hRetry"
-	MIXIN_HANDLER_BULKHEAD       = "hBulk"
-	MIXIN_HANDLER_SEMAPHORE      = "hSem"
-	MIXIN_HANDLER_CIRCUITBREAKER = "hCircuit"
-	MIXIN_HANDLER_HANDLED        = "hHan"
-	MIXIN_HANDLER_FALLBACK       = "hFb"
+	// Types of resilience, are most often used as part of RegistryKey.
+	HandlerRateLimited    = "hRate"
+	HandlerRetry          = "hRetry"
+	HandlerBulkhead       = "hBulk"
+	HandlerSemaphore      = "hSem"
+	HandlerCircuitBreaker = "hCircuit"
+	HandlerHandled        = "hHan"
+	HandlerFallback       = "hFb"
 )
 
 // Common options for XXXHandlerOpts
@@ -55,7 +55,7 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_RATELIMITED, "name", name),
+				"gentle", HandlerRateLimited, "name", name),
 			MetricHandle: noopMetric,
 		},
 		Limiter: limiter,
@@ -87,20 +87,20 @@ func (r *rateLimitedHandler) Handle(msg Message) (Message, error) {
 	if err != nil {
 		r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_err)
+		r.mxHandle.Observe(timespan, labelErr)
 		return nil, err
 	}
 	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, label_ok)
+	r.mxHandle.Observe(timespan, labelOk)
 	return msgOut, nil
 }
 
 func (r *rateLimitedHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_RATELIMITED,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerRateLimited,
+		Name:       r.name,
 	}
 }
 
@@ -116,8 +116,8 @@ func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) 
 		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
-			Log: Log.New("namespace", namespace, "mixin",
-				MIXIN_HANDLER_RETRY, "name", name),
+			Log: Log.New("namespace", namespace, "gentle",
+				HandlerRetry, "name", name),
 			MetricHandle: noopMetric,
 		},
 		MetricTryNum:   noopMetric,
@@ -158,23 +158,23 @@ func (r *retryHandler) Handle(msg Message) (Message, error) {
 			timespan := r.clock.Now().Sub(begin).Seconds()
 			r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 				"msgOut", msgOut.ID(), "timespan", timespan)
-			r.mxHandle.Observe(timespan, label_ok)
-			r.mxTryNum.Observe(float64(count), label_ok)
+			r.mxHandle.Observe(timespan, labelOk)
+			r.mxTryNum.Observe(float64(count), labelOk)
 			return msgOut, nil
 		}
 		once.Do(func() {
 			backOff = r.backOffFactory.NewBackOff()
 		})
-		to_wait := backOff.Next()
+		toWait := backOff.Next()
 		// Next() should immediately return but we can't guarantee so
 		// timespan is calculated after Next().
 		timespan := r.clock.Now().Sub(begin).Seconds()
-		if to_wait == BackOffStop {
+		if toWait == BackOffStop {
 			r.log.Error("[Handler] Handle() err and no more backing off",
 				"msgIn", msg.ID(), "err", err,
 				"timespan", timespan)
-			r.mxHandle.Observe(timespan, label_err)
-			r.mxTryNum.Observe(float64(count), label_err)
+			r.mxHandle.Observe(timespan, labelErr)
+			r.mxTryNum.Observe(float64(count), labelErr)
 			return nil, err
 		}
 		// timespan in our convention is used to track the overall
@@ -183,16 +183,16 @@ func (r *retryHandler) Handle(msg Message) (Message, error) {
 		count++
 		r.log.Error("[Handler] Handle() err, backing off ...",
 			"err", err, "msgIn", msg.ID(), "elapsed", timespan,
-			"count", count, "wait", to_wait)
-		r.clock.Sleep(to_wait)
+			"count", count, "wait", toWait)
+		r.clock.Sleep(toWait)
 	}
 }
 
 func (r *retryHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_RETRY,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerRetry,
+		Name:       r.name,
 	}
 }
 
@@ -210,7 +210,7 @@ func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *Bulkhea
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_BULKHEAD, "name", name),
+				"gentle", HandlerBulkhead, "name", name),
 			MetricHandle: noopMetric,
 		},
 		MaxConcurrency: maxConcurrency,
@@ -251,12 +251,12 @@ func (r *bulkheadHandler) Handle(msg Message) (Message, error) {
 		if err != nil {
 			r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 				"err", err, "timespan", timespan)
-			r.mxHandle.Observe(timespan, label_err)
+			r.mxHandle.Observe(timespan, labelErr)
 			return nil, err
 		}
 		r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 			"msgOut", msgOut.ID(), "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_ok)
+		r.mxHandle.Observe(timespan, labelOk)
 		return msgOut, nil
 	default:
 		r.log.Error("[Hander] Handle() err", "msgIn", msg.ID(),
@@ -275,9 +275,9 @@ func (r *bulkheadHandler) GetCurrentConcurrency() int {
 
 func (r *bulkheadHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_BULKHEAD,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerBulkhead,
+		Name:       r.name,
 	}
 }
 
@@ -295,7 +295,7 @@ func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *Semaph
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_SEMAPHORE, "name", name),
+				"gentle", HandlerSemaphore, "name", name),
 			MetricHandle: noopMetric,
 		},
 		MaxConcurrency: maxConcurrency,
@@ -328,12 +328,12 @@ func (r *semaphoreHandler) Handle(msg Message) (Message, error) {
 	if err != nil {
 		r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_err)
+		r.mxHandle.Observe(timespan, labelErr)
 		return nil, err
 	}
 	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, label_ok)
+	r.mxHandle.Observe(timespan, labelOk)
 	return msgOut, nil
 }
 
@@ -347,9 +347,9 @@ func (r *semaphoreHandler) GetCurrentConcurrency() int {
 
 func (r *semaphoreHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_SEMAPHORE,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerSemaphore,
+		Name:       r.name,
 	}
 }
 
@@ -365,7 +365,7 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreak
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_CIRCUITBREAKER,
+				"gentle", HandlerCircuitBreaker,
 				"name", name, "circuit", circuit),
 			MetricHandle: noopMetric,
 		},
@@ -422,7 +422,7 @@ func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 			r.log.Error("[Handler] Circuit err",
 				"msgIn", msg.ID(), "err", err,
 				"timespan", timespan)
-			r.mxHandle.Observe(timespan, label_err)
+			r.mxHandle.Observe(timespan, labelErr)
 		}()
 		// To prevent misinterpreting when wrapping one
 		// circuitBreakerStream over another. Hystrix errors are
@@ -450,15 +450,15 @@ func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 	timespan := time.Since(begin).Seconds()
 	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, label_ok)
+	r.mxHandle.Observe(timespan, labelOk)
 	return msg, nil
 }
 
 func (r *circuitBreakerHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_CIRCUITBREAKER,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerCircuitBreaker,
+		Name:       r.name,
 	}
 }
 
@@ -478,7 +478,7 @@ func NewFallbackHandlerOpts(namespace, name string,
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"mixin", MIXIN_HANDLER_FALLBACK, "name", name),
+				"gentle", HandlerFallback, "name", name),
 			MetricHandle: noopMetric,
 		},
 		FallbackFunc: fallbackFunc,
@@ -508,7 +508,7 @@ func (r *fallbackHandler) Handle(msg Message) (Message, error) {
 		timespan := time.Since(begin).Seconds()
 		r.log.Debug("[Handler] Handle() ok, skip fallbackFunc",
 			"msgIn", msg.ID(), "msgOut", msgOut.ID(), timespan)
-		r.mxHandle.Observe(timespan, label_ok)
+		r.mxHandle.Observe(timespan, labelOk)
 		return msgOut, nil
 	}
 	r.log.Error("[Handler] Handle() err, fallbackFunc() ...", "err", err)
@@ -518,21 +518,21 @@ func (r *fallbackHandler) Handle(msg Message) (Message, error) {
 	if err != nil {
 		r.log.Error("[Handler] fallbackFunc() err",
 			"msgIn", msg.ID(), "err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_err)
+		r.mxHandle.Observe(timespan, labelErr)
 		return nil, err
 	}
 	r.log.Debug("[Handler] fallbackFunc() ok",
 		"msgIn", msg.ID(), "msgOut", msgOut.ID(),
 		"timespan", timespan)
-	r.mxHandle.Observe(timespan, label_ok)
+	r.mxHandle.Observe(timespan, labelOk)
 	return msgOut, nil
 }
 
 func (r *fallbackHandler) GetNames() *Names {
 	return &Names{
-		Namespace: r.namespace,
-		Mixin:     MIXIN_HANDLER_FALLBACK,
-		Name:      r.name,
+		Namespace:  r.namespace,
+		Resilience: HandlerFallback,
+		Name:       r.name,
 	}
 }
 
@@ -545,8 +545,8 @@ func NewHandlerMappedHandlerOpts(namespace, name string) *HandlerMappedHandlerOp
 		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
-			Log: Log.New("namespace", namespace, "mixin",
-				MIXIN_HANDLER_HANDLED, "name", name),
+			Log: Log.New("namespace", namespace, "gentle",
+				HandlerHandled, "name", name),
 			MetricHandle: noopMetric,
 		},
 	}
@@ -570,27 +570,27 @@ func NewHandlerMappedHandler(opts *HandlerMappedHandlerOpts, prevHandler Handler
 func (r *handlerMappedHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] prev.Handle() ...")
-	msg_mid, err := r.prevHandler.Handle(msg)
+	msgMid, err := r.prevHandler.Handle(msg)
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
 		r.log.Error("[Handler] prev.Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_err)
+		r.mxHandle.Observe(timespan, labelErr)
 		return nil, err
 	}
 	r.log.Debug("[Handler] prev.Handle() ok", "msgIn", msg.ID(),
-		"msg_mid", msg_mid.ID())
+		"msgMid", msgMid.ID())
 	msgOut, herr := r.handler.Handle(msg)
 	timespan := time.Since(begin).Seconds()
 	if herr != nil {
-		r.log.Error("[Handler] Handle() err", "msg_mid", msg_mid.ID(),
+		r.log.Error("[Handler] Handle() err", "msgMid", msgMid.ID(),
 			"err", herr, "timespan", timespan)
-		r.mxHandle.Observe(timespan, label_err)
+		r.mxHandle.Observe(timespan, labelErr)
 		return nil, herr
 	}
-	r.log.Debug("[Handler] Handle() ok", "msg_mid", msg_mid.ID(),
+	r.log.Debug("[Handler] Handle() ok", "msgMid", msgMid.ID(),
 		"msgOut", msgOut.ID())
-	r.mxHandle.Observe(timespan, label_ok)
+	r.mxHandle.Observe(timespan, labelOk)
 	return msgOut, nil
 
 }

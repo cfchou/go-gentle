@@ -7,7 +7,7 @@
 * Remove Semaphore because it blocks so it's not resilient.
     or move it to package extra
 
-* go lint
+* golint
 
 * provide mocks in package extra
 
@@ -28,8 +28,13 @@
 * improve Observe(value, labels, optional data)
     remove Unused MX_XXXX
 
+
 ## DONE
 * Opts passed by addr
 * Make XXXStream/Handler xXXStgream/Handler
 * NewMockHandler/Stream(*mock.Mock)
 
+## Ref
+ https://github.com/golang/go/wiki/CodeReviewComments#pass-values
+ https://github.com/golang/go/wiki/CodeReviewComments#interfaces
+ https://github.com/golang/lint/issues/210

@@ -8,32 +8,32 @@ import (
 const (
 	// Observation supported by all Stream.Get(), it observes the time spent
 	// with the label "result" of possible values "ok" or "err"
-	MX_STREAM_GET = "get"
+	MxStreamGet = "get"
 
 	// Observation supported by all Handler.Handle(), it observes the time
 	// spent with the label "result" of possible values "ok" or "err"
-	MX_HANDLER_HANDLE = "handle"
+	MxHandlerHandle = "handle"
 
 	// Observation supported by RetryStreams.Get(), it observes the total
 	// number tries with the label "result" of possible values "ok" or "err"
-	MX_STREAM_RETRY_TRY = "try"
+	MxStreamRetryTry = "try"
 
 	// Observation supported by retryHandler.Handle(), it observes the total
 	// number of tries with the label "result" of possible values "ok" or
 	// "err"
-	MX_HANDLER_RETRY_TRY = "try"
+	MxHandlerRetryTry = "try"
 
 	// Observation supported by circuitBreakerStream.Get(), when an error is
 	// met, it observes 1 with the label "err" of possible values of
 	// "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
 	// "NonCbErr"
-	MX_STREAM_CIRCUITBREAKER_HXERR = "hxerr"
+	MxStreamCircuitBreakerHxerr = "hxerr"
 
 	// Observation supported by circuitBreakerHandler.Handle(), when an
 	// error is met, it observes 1 with the label "err" of possible values
 	// of "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
 	// "NonCbErr"
-	MX_HANDLER_CIRCUITBREAKER_HXERR = "hxerr"
+	MxHandlerCircuitBreakerHxerr = "hxerr"
 )
 
 var (
@@ -58,7 +58,7 @@ type Observation interface {
 }
 
 type RegistryKey struct {
-	Namespace, Mixin, Name, Mx string
+	Namespace, Resilience, Name, Mx string
 }
 
 // Registration helpers. Not thread-safe so synchronization has be done by

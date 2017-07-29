@@ -48,9 +48,9 @@ type Handler interface {
 }
 
 type Names struct {
-	Namespace string
-	Mixin     string
-	Name      string
+	Namespace  string
+	Resilience string
+	Name       string
 }
 
 type Identity interface {
