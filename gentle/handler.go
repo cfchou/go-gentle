@@ -20,7 +20,7 @@ const (
 )
 
 // Common options for XXXHandlerOpts
-type HandlerOpts struct {
+type handlerOpts struct {
 	Namespace    string
 	Name         string
 	Log          Logger
@@ -35,7 +35,7 @@ type handlerFields struct {
 	mxHandle  Metric
 }
 
-func newHandlerFields(opts *HandlerOpts) *handlerFields {
+func newHandlerFields(opts *handlerOpts) *handlerFields {
 	return &handlerFields{
 		namespace: opts.Namespace,
 		name:      opts.Name,
@@ -45,13 +45,13 @@ func newHandlerFields(opts *HandlerOpts) *handlerFields {
 }
 
 type RateLimitedHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	Limiter RateLimit
 }
 
 func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateLimitedHandlerOpts {
 	return &RateLimitedHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -69,9 +69,9 @@ type RateLimitedHandler struct {
 	handler Handler
 }
 
-func NewRateLimitedHandler(opts RateLimitedHandlerOpts, handler Handler) *RateLimitedHandler {
+func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) *RateLimitedHandler {
 	return &RateLimitedHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		limiter:       opts.Limiter,
 		handler:       handler,
 	}
@@ -105,7 +105,7 @@ func (r *RateLimitedHandler) GetNames() *Names {
 }
 
 type RetryHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	MetricTryNum   Metric
 	Clock          Clock
 	BackOffFactory BackOffFactory
@@ -113,7 +113,7 @@ type RetryHandlerOpts struct {
 
 func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) *RetryHandlerOpts {
 	return &RetryHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -136,9 +136,9 @@ type RetryHandler struct {
 	handler        Handler
 }
 
-func NewRetryHandler(opts RetryHandlerOpts, handler Handler) *RetryHandler {
+func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) *RetryHandler {
 	return &RetryHandler{
-		handlerFields:  *newHandlerFields(&opts.HandlerOpts),
+		handlerFields:  *newHandlerFields(&opts.handlerOpts),
 		mxTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -197,7 +197,7 @@ func (r *RetryHandler) GetNames() *Names {
 }
 
 type BulkheadHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	MaxConcurrency int
 }
 
@@ -206,7 +206,7 @@ func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *Bulkhea
 		panic(errors.New("maxConcurrent must be greater than 0"))
 	}
 	return &BulkheadHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -228,10 +228,10 @@ type BulkheadHandler struct {
 
 // Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
 // run concurrently.
-func NewBulkheadHandler(opts BulkheadHandlerOpts, handler Handler) *BulkheadHandler {
+func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) *BulkheadHandler {
 
 	return &BulkheadHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -282,7 +282,7 @@ func (r *BulkheadHandler) GetNames() *Names {
 }
 
 type SemaphoreHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	MaxConcurrency int
 }
 
@@ -291,7 +291,7 @@ func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *Semaph
 		panic(errors.New("maxConcurrent must be greater than 0"))
 	}
 	return &SemaphoreHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -310,9 +310,9 @@ type SemaphoreHandler struct {
 	semaphore chan struct{}
 }
 
-func NewSemaphoreHandler(opts SemaphoreHandlerOpts, handler Handler) *SemaphoreHandler {
+func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) *SemaphoreHandler {
 	return &SemaphoreHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -354,14 +354,14 @@ func (r *SemaphoreHandler) GetNames() *Names {
 }
 
 type CircuitBreakerHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	MetricCbErr Metric
 	Circuit     string
 }
 
 func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreakerHandlerOpts {
 	return &CircuitBreakerHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -385,9 +385,9 @@ type CircuitBreakerHandler struct {
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a CircuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerHandler(opts CircuitBreakerHandlerOpts, handler Handler) *CircuitBreakerHandler {
+func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) *CircuitBreakerHandler {
 	return &CircuitBreakerHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		mxCbErr:       opts.MetricCbErr,
 		circuit:       opts.Circuit,
 		handler:       handler,
@@ -467,14 +467,14 @@ func (r *CircuitBreakerHandler) GetCircuitName() string {
 }
 
 type FallbackHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 	FallbackFunc func(Message, error) (Message, error)
 }
 
 func NewFallbackHandlerOpts(namespace, name string,
 	fallbackFunc func(Message, error) (Message, error)) *FallbackHandlerOpts {
 	return &FallbackHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -492,9 +492,9 @@ type FallbackHandler struct {
 	handler      Handler
 }
 
-func NewFallbackHandler(opts FallbackHandlerOpts, handler Handler) *FallbackHandler {
+func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) *FallbackHandler {
 	return &FallbackHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		fallbackFunc:  opts.FallbackFunc,
 		handler:       handler,
 	}
@@ -537,12 +537,12 @@ func (r *FallbackHandler) GetNames() *Names {
 }
 
 type HandlerMappedHandlerOpts struct {
-	HandlerOpts
+	handlerOpts
 }
 
 func NewHandlerMappedHandlerOpts(namespace, name string) *HandlerMappedHandlerOpts {
 	return &HandlerMappedHandlerOpts{
-		HandlerOpts: HandlerOpts{
+		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -558,10 +558,10 @@ type HandlerMappedHandler struct {
 	handler     Handler
 }
 
-func NewHandlerMappedHandler(opts HandlerMappedHandlerOpts, prevHandler Handler,
+func NewHandlerMappedHandler(opts *HandlerMappedHandlerOpts, prevHandler Handler,
 	handler Handler) *HandlerMappedHandler {
 	return &HandlerMappedHandler{
-		handlerFields: *newHandlerFields(&opts.HandlerOpts),
+		handlerFields: *newHandlerFields(&opts.handlerOpts),
 		prevHandler:   prevHandler,
 		handler:       handler,
 	}

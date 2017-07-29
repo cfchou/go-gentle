@@ -26,7 +26,7 @@ var (
 )
 
 // Common options for XXXStreamOpts
-type StreamOpts struct {
+type streamOpts struct {
 	Namespace string
 	Name      string
 	Log       Logger
@@ -41,7 +41,7 @@ type streamFields struct {
 	mxGet     Metric
 }
 
-func newStreamFields(opts *StreamOpts) *streamFields {
+func newStreamFields(opts *streamOpts) *streamFields {
 	return &streamFields{
 		namespace: opts.Namespace,
 		name:      opts.Name,
@@ -51,13 +51,13 @@ func newStreamFields(opts *StreamOpts) *streamFields {
 }
 
 type RateLimitedStreamOpts struct {
-	StreamOpts
+	streamOpts
 	Limiter RateLimit
 }
 
 func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLimitedStreamOpts {
 	return &RateLimitedStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -75,9 +75,9 @@ type RateLimitedStream struct {
 	stream  Stream
 }
 
-func NewRateLimitedStream(opts RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
+func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
 	return &RateLimitedStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		limiter:      opts.Limiter,
 		stream:       upstream,
 	}
@@ -111,7 +111,7 @@ func (r *RateLimitedStream) GetNames() *Names {
 }
 
 type RetryStreamOpts struct {
-	StreamOpts
+	streamOpts
 	MetricTryNum   Metric
 	Clock          Clock
 	BackOffFactory BackOffFactory
@@ -119,7 +119,7 @@ type RetryStreamOpts struct {
 
 func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *RetryStreamOpts {
 	return &RetryStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -142,9 +142,9 @@ type RetryStream struct {
 	stream         Stream
 }
 
-func NewRetryStream(opts RetryStreamOpts, upstream Stream) *RetryStream {
+func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *RetryStream {
 	return &RetryStream{
-		streamFields:   *newStreamFields(&opts.StreamOpts),
+		streamFields:   *newStreamFields(&opts.streamOpts),
 		obTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -203,7 +203,7 @@ func (r *RetryStream) GetNames() *Names {
 }
 
 type BulkheadStreamOpts struct {
-	StreamOpts
+	streamOpts
 	MaxConcurrency int
 }
 
@@ -213,7 +213,7 @@ func NewBulkheadStreamOpts(namespace, name string, max_concurrency int) *Bulkhea
 	}
 
 	return &BulkheadStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -235,10 +235,10 @@ type BulkheadStream struct {
 
 // Create a BulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
-func NewBulkheadStream(opts BulkheadStreamOpts, upstream Stream) *BulkheadStream {
+func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) *BulkheadStream {
 
 	return &BulkheadStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -288,7 +288,7 @@ func (r *BulkheadStream) GetCurrentConcurrency() int {
 }
 
 type SemaphoreStreamOpts struct {
-	StreamOpts
+	streamOpts
 	MaxConcurrency int
 }
 
@@ -298,7 +298,7 @@ func NewSemaphoreStreamOpts(namespace, name string, max_concurrency int) *Semaph
 	}
 
 	return &SemaphoreStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -317,10 +317,10 @@ type SemaphoreStream struct {
 	semaphore chan struct{}
 }
 
-func NewSemaphoreStream(opts SemaphoreStreamOpts, upstream Stream) *SemaphoreStream {
+func NewSemaphoreStream(opts *SemaphoreStreamOpts, upstream Stream) *SemaphoreStream {
 
 	return &SemaphoreStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -362,14 +362,14 @@ func (r *SemaphoreStream) GetCurrentConcurrency() int {
 }
 
 type CircuitBreakerStreamOpts struct {
-	StreamOpts
+	streamOpts
 	MetricCbErr Metric
 	Circuit     string
 }
 
 func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreakerStreamOpts {
 	return &CircuitBreakerStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -393,7 +393,7 @@ type CircuitBreakerStream struct {
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a CircuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *CircuitBreakerStream {
+func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) *CircuitBreakerStream {
 
 	// Note that if it might overwrite or be overwritten by concurrently
 	// registering the same circuit.
@@ -403,7 +403,7 @@ func NewCircuitBreakerStream(opts CircuitBreakerStreamOpts, stream Stream) *Circ
 	}
 
 	return &CircuitBreakerStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		mxCbErr:      opts.MetricCbErr,
 		circuit:      opts.Circuit,
 		stream:       stream,
@@ -480,14 +480,14 @@ func (r *CircuitBreakerStream) GetCircuitName() string {
 }
 
 type FallbackStreamOpts struct {
-	StreamOpts
+	streamOpts
 	FallbackFunc func(error) (Message, error)
 }
 
 func NewFallbackStreamOpts(namespace, name string,
 	fallbackFunc func(error) (Message, error)) *FallbackStreamOpts {
 	return &FallbackStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -505,9 +505,9 @@ type FallbackStream struct {
 	stream       Stream
 }
 
-func NewFallbackStream(opts FallbackStreamOpts, upstream Stream) *FallbackStream {
+func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) *FallbackStream {
 	return &FallbackStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		fallbackFunc: opts.FallbackFunc,
 		stream:       upstream,
 	}
@@ -549,13 +549,13 @@ func (r *FallbackStream) GetNames() *Names {
 }
 
 type ChannelStreamOpts struct {
-	StreamOpts
+	streamOpts
 	Channel <-chan interface{}
 }
 
 func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *ChannelStreamOpts {
 	return &ChannelStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -573,9 +573,9 @@ type ChannelStream struct {
 }
 
 // Create a ChannelStream that gets Messages from $channel.
-func NewChannelStream(opts ChannelStreamOpts) *ChannelStream {
+func NewChannelStream(opts *ChannelStreamOpts) *ChannelStream {
 	return &ChannelStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		channel:      opts.Channel,
 	}
 }
@@ -613,12 +613,12 @@ func (r *ChannelStream) GetNames() *Names {
 }
 
 type HandlerMappedStreamOpts struct {
-	StreamOpts
+	streamOpts
 }
 
 func NewHandlerMappedStreamOpts(namespace, name string) *HandlerMappedStreamOpts {
 	return &HandlerMappedStreamOpts{
-		StreamOpts: StreamOpts{
+		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "mixin",
@@ -636,9 +636,9 @@ type HandlerMappedStream struct {
 	handler  Handler
 }
 
-func NewHandlerMappedStream(opts HandlerMappedStreamOpts, upstream Stream, handler Handler) *HandlerMappedStream {
+func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) *HandlerMappedStream {
 	return &HandlerMappedStream{
-		streamFields: *newStreamFields(&opts.StreamOpts),
+		streamFields: *newStreamFields(&opts.streamOpts),
 		upstream:     upstream,
 		handler:      handler,
 	}

@@ -19,7 +19,7 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	requests_interval := 100 * time.Millisecond
 	mhandler := &MockHandler{}
 	handler := NewRateLimitedHandler(
-		*NewRateLimitedHandlerOpts("", "test",
+		NewRateLimitedHandlerOpts("", "test",
 			NewTokenBucketRateLimit(requests_interval, 1)),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
@@ -53,7 +53,7 @@ func TestRetryHandler_Handle(t *testing.T) {
 	opts := NewRetryHandlerOpts("", "test", mfactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
-	handler := NewRetryHandler(*opts, mhandler)
+	handler := NewRetryHandler(opts, mhandler)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -109,7 +109,7 @@ func TestRetryHandler_Get2(t *testing.T) {
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
-	handler := NewRetryHandler(*opts, mhandler)
+	handler := NewRetryHandler(opts, mhandler)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -156,7 +156,7 @@ func TestRetryHandler_Get3(t *testing.T) {
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
-	handler := NewRetryHandler(*opts, mhandler)
+	handler := NewRetryHandler(opts, mhandler)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -201,7 +201,7 @@ func TestRetryHandler_Get4(t *testing.T) {
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
-	handler := NewRetryHandler(*opts, mhandler)
+	handler := NewRetryHandler(opts, mhandler)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -262,7 +262,7 @@ func TestRetryHandler_Get5(t *testing.T) {
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mhandler := &MockHandler{}
-	handler := NewRetryHandler(*opts, mhandler)
+	handler := NewRetryHandler(opts, mhandler)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -316,7 +316,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	mhandler := &MockHandler{}
 
 	handler := NewBulkheadHandler(
-		*NewBulkheadHandlerOpts("", "test", maxConcurrency),
+		NewBulkheadHandlerOpts("", "test", maxConcurrency),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 
@@ -351,7 +351,7 @@ func TestSemaphoreHandler_Handle(t *testing.T) {
 	maxConcurrency := 4
 	mhandler := &MockHandler{}
 	handler := NewSemaphoreHandler(
-		*NewSemaphoreHandlerOpts("", "test", maxConcurrency),
+		NewSemaphoreHandlerOpts("", "test", maxConcurrency),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 
@@ -398,7 +398,7 @@ func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
-		*NewCircuitBreakerHandlerOpts("", "test", circuit),
+		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 
@@ -446,7 +446,7 @@ func TestCircuitBreakerHandler_Handle2(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
-		*NewCircuitBreakerHandlerOpts("", "test", circuit),
+		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
 	var nth int64
 	newMsg := func() Message {
@@ -508,7 +508,7 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
-		*NewCircuitBreakerHandlerOpts("", "test", circuit),
+		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 	fakeErr := errors.New("A fake error")
@@ -555,7 +555,7 @@ func TestFallbackHandler_Get(t *testing.T) {
 	}
 	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
-		*NewFallbackHandlerOpts("", "test", fallBackFunc),
+		NewFallbackHandlerOpts("", "test", fallBackFunc),
 		mhandler)
 	mhandler.On("Handle", mm).Return(mm, nil)
 
@@ -578,7 +578,7 @@ func TestFallbackHandler_Get2(t *testing.T) {
 	}
 	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
-		*NewFallbackHandlerOpts("", "test", fallbackFunc),
+		NewFallbackHandlerOpts("", "test", fallbackFunc),
 		mhandler)
 	mhandler.On("Handle", mm).Return((*fakeMsg)(nil), fakeErr)
 
@@ -598,7 +598,7 @@ func TestFallbackHandler_Get3(t *testing.T) {
 	}
 	mhandler := &MockHandler{}
 	fhandler := NewFallbackHandler(
-		*NewFallbackHandlerOpts("", "test", fallbackFunc),
+		NewFallbackHandlerOpts("", "test", fallbackFunc),
 		mhandler)
 
 	mhandler.On("Handle", mm).Return((*fakeMsg)(nil), fakeErr)

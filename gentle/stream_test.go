@@ -50,7 +50,7 @@ func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
 		}
 	}()
 	return NewChannelStream(
-		*NewChannelStreamOpts("", "test", src)), msgs
+		NewChannelStreamOpts("", "test", src)), msgs
 }
 
 func TestChannelStream_Get(t *testing.T) {
@@ -58,7 +58,7 @@ func TestChannelStream_Get(t *testing.T) {
 	src := make(chan interface{}, 1)
 	src <- mm
 	stream := NewChannelStream(
-		*NewChannelStreamOpts("", "test", src))
+		NewChannelStreamOpts("", "test", src))
 	msg_out, err := stream.Get()
 	assert.NoError(t, err)
 	assert.Equal(t, msg_out.Id(), mm.Id())
@@ -81,10 +81,10 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	requests_interval := 100 * time.Millisecond
 
 	chanStream := NewChannelStream(
-		*NewChannelStreamOpts("", "test", src))
+		NewChannelStreamOpts("", "test", src))
 
 	stream := NewRateLimitedStream(
-		*NewRateLimitedStreamOpts("", "test",
+		NewRateLimitedStreamOpts("", "test",
 			NewTokenBucketRateLimit(requests_interval, 1)),
 		chanStream)
 	count := 4
@@ -116,7 +116,7 @@ func TestRetryStream_Get(t *testing.T) {
 	opts := NewRetryStreamOpts("", "test", mfactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
-	stream := NewRetryStream(*opts, mstream)
+	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -172,7 +172,7 @@ func TestRetryStream_Get2(t *testing.T) {
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
-	stream := NewRetryStream(*opts, mstream)
+	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -221,7 +221,7 @@ func TestRetryStream_Get3(t *testing.T) {
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
-	stream := NewRetryStream(*opts, mstream)
+	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -266,7 +266,7 @@ func TestRetryStream_Get4(t *testing.T) {
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
-	stream := NewRetryStream(*opts, mstream)
+	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -329,7 +329,7 @@ func TestRetryStream_Get5(t *testing.T) {
 	opts := NewRetryStreamOpts("", "test", backOffFactory)
 	opts.Clock = mclock
 	mstream := &MockStream{}
-	stream := NewRetryStream(*opts, mstream)
+	stream := NewRetryStream(opts, mstream)
 
 	// 1st: ok
 	mm := &fakeMsg{id: "123"}
@@ -382,7 +382,7 @@ func TestBulkheadStream_Get(t *testing.T) {
 	maxConcurrency := 4
 	mstream := &MockStream{}
 	stream := NewBulkheadStream(
-		*NewBulkheadStreamOpts("", "test", maxConcurrency),
+		NewBulkheadStreamOpts("", "test", maxConcurrency),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
@@ -417,7 +417,7 @@ func TestSemaphoreStream_Get(t *testing.T) {
 	maxConcurrency := 4
 	mstream := &MockStream{}
 	stream := NewSemaphoreStream(
-		*NewSemaphoreStreamOpts("", "test", maxConcurrency),
+		NewSemaphoreStreamOpts("", "test", maxConcurrency),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
@@ -453,7 +453,7 @@ func TestHandlerMappedStream_Get(t *testing.T) {
 	mstream := &MockStream{}
 	mhandler := &MockHandler{}
 	stream := NewHandlerMappedStream(
-		*NewHandlerMappedStreamOpts("", "test"),
+		NewHandlerMappedStreamOpts("", "test"),
 		mstream, mhandler)
 	mm := &fakeMsg{id: "123"}
 
@@ -486,7 +486,7 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerStream(
-		*NewCircuitBreakerStreamOpts("", "test", circuit),
+		NewCircuitBreakerStreamOpts("", "test", circuit),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
@@ -533,7 +533,7 @@ func TestCircuitBreakerStream_Get2(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerStream(
-		*NewCircuitBreakerStreamOpts("", "test", circuit),
+		NewCircuitBreakerStreamOpts("", "test", circuit),
 		mstream)
 	var nth int64
 	newMsg := func() Message {
@@ -595,7 +595,7 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerStream(
-		*NewCircuitBreakerStreamOpts("", "test", circuit),
+		NewCircuitBreakerStreamOpts("", "test", circuit),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 	fakeErr := errors.New("A fake error")
@@ -642,7 +642,7 @@ func TestFallbackStream_Get(t *testing.T) {
 	}
 	mstream := &MockStream{}
 	fstream := NewFallbackStream(
-		*NewFallbackStreamOpts("", "test", fallBackFunc),
+		NewFallbackStreamOpts("", "test", fallBackFunc),
 		mstream)
 	mstream.On("Get").Return(mm, nil)
 
@@ -662,7 +662,7 @@ func TestFallbackStream_Get2(t *testing.T) {
 	}
 	mstream := &MockStream{}
 	fstream := NewFallbackStream(
-		*NewFallbackStreamOpts("", "test", fallbackFunc),
+		NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)
 	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
 
@@ -682,7 +682,7 @@ func TestFallbackStream_Get3(t *testing.T) {
 	}
 	mstream := &MockStream{}
 	fstream := NewFallbackStream(
-		*NewFallbackStreamOpts("", "test", fallbackFunc),
+		NewFallbackStreamOpts("", "test", fallbackFunc),
 		mstream)
 	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
 
