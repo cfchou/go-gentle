@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const BackOffStop time.Duration = -1
-
 type ConstantBackOffFactoryOpts struct {
 	Interval time.Duration
 	// After MaxElapsedTime the BackOff stops.

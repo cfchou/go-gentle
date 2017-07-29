@@ -75,7 +75,7 @@ type rateLimitedStream struct {
 	stream  Stream
 }
 
-func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) *rateLimitedStream {
+func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
 	return &rateLimitedStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		limiter:      opts.Limiter,
@@ -142,7 +142,7 @@ type retryStream struct {
 	stream         Stream
 }
 
-func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *retryStream {
+func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
 	return &retryStream{
 		streamFields:   newStreamFields(&opts.streamOpts),
 		obTryNum:       opts.MetricTryNum,
@@ -235,7 +235,7 @@ type bulkheadStream struct {
 
 // Create a bulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
-func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) *bulkheadStream {
+func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
 
 	return &bulkheadStream{
 		streamFields: newStreamFields(&opts.streamOpts),
@@ -317,7 +317,7 @@ type semaphoreStream struct {
 	semaphore chan struct{}
 }
 
-func NewSemaphoreStream(opts *SemaphoreStreamOpts, upstream Stream) *semaphoreStream {
+func NewSemaphoreStream(opts *SemaphoreStreamOpts, upstream Stream) Stream {
 
 	return &semaphoreStream{
 		streamFields: newStreamFields(&opts.streamOpts),
@@ -393,7 +393,7 @@ type circuitBreakerStream struct {
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a circuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) *circuitBreakerStream {
+func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) Stream {
 
 	// Note that if it might overwrite or be overwritten by concurrently
 	// registering the same circuit.
@@ -505,7 +505,7 @@ type fallbackStream struct {
 	stream       Stream
 }
 
-func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) *fallbackStream {
+func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) Stream {
 	return &fallbackStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		fallbackFunc: opts.FallbackFunc,
@@ -573,7 +573,7 @@ type channelStream struct {
 }
 
 // Create a channelStream that gets Messages from $channel.
-func NewChannelStream(opts *ChannelStreamOpts) *channelStream {
+func NewChannelStream(opts *ChannelStreamOpts) Stream {
 	return &channelStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		channel:      opts.Channel,
@@ -636,7 +636,7 @@ type handlerMappedStream struct {
 	handler  Handler
 }
 
-func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) *handlerMappedStream {
+func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) Stream {
 	return &handlerMappedStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		upstream:     upstream,
@@ -686,7 +686,7 @@ func (r *simpleStream) Get() (Message, error) {
 
 // A helper to create a simplest Stream without facilities like logger and
 // metrics.
-func NewSimpleStream(getFunc func() (Message, error)) *simpleStream {
+func NewSimpleStream(getFunc func() (Message, error)) Stream {
 	return &simpleStream{
 		getFunc: getFunc,
 	}

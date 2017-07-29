@@ -89,6 +89,10 @@ type BackOffFactory interface {
 	NewBackOff() BackOff
 }
 
+// BackOffStop is a sentinel that BackOff.Next() should return to stop backing
+// off.
+const BackOffStop time.Duration = -1
+
 type BackOff interface {
 	// Next() should immediately return
 	Next() time.Duration

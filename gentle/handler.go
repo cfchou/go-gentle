@@ -69,7 +69,7 @@ type rateLimitedHandler struct {
 	handler Handler
 }
 
-func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) *rateLimitedHandler {
+func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) Handler {
 	return &rateLimitedHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		limiter:       opts.Limiter,
@@ -136,7 +136,7 @@ type retryHandler struct {
 	handler        Handler
 }
 
-func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) *retryHandler {
+func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) Handler {
 	return &retryHandler{
 		handlerFields:  newHandlerFields(&opts.handlerOpts),
 		mxTryNum:       opts.MetricTryNum,
@@ -228,7 +228,7 @@ type bulkheadHandler struct {
 
 // Create a bulkheadHandler that allows at maximum $max_concurrency Handle() to
 // run concurrently.
-func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) *bulkheadHandler {
+func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 
 	return &bulkheadHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
@@ -310,7 +310,7 @@ type semaphoreHandler struct {
 	semaphore chan struct{}
 }
 
-func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) *semaphoreHandler {
+func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) Handler {
 	return &semaphoreHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		handler:       handler,
@@ -385,7 +385,7 @@ type circuitBreakerHandler struct {
 // In hystrix-go, a circuit-breaker must be given a unique name.
 // NewCircuitBreakerStream() creates a circuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) *circuitBreakerHandler {
+func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) Handler {
 	return &circuitBreakerHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		mxCbErr:       opts.MetricCbErr,
@@ -492,7 +492,7 @@ type fallbackHandler struct {
 	handler      Handler
 }
 
-func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) *fallbackHandler {
+func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) Handler {
 	return &fallbackHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		fallbackFunc:  opts.FallbackFunc,
@@ -559,7 +559,7 @@ type handlerMappedHandler struct {
 }
 
 func NewHandlerMappedHandler(opts *HandlerMappedHandlerOpts, prevHandler Handler,
-	handler Handler) *handlerMappedHandler {
+	handler Handler) Handler {
 	return &handlerMappedHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		prevHandler:   prevHandler,
@@ -605,7 +605,7 @@ func (r *simpleHandler) Handle(msg Message) (Message, error) {
 
 // A helper to create a simplest Handler without facilities like logger and
 // metrics.
-func NewSimpleHandler(handleFunc func(Message) (Message, error)) *simpleHandler {
+func NewSimpleHandler(handleFunc func(Message) (Message, error)) Handler {
 	return &simpleHandler{
 		handleFunc: handleFunc,
 	}
