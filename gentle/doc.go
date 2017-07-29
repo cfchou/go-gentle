@@ -8,7 +8,7 @@ Stream and Handler are our fundamental abstractions to achieve back-pressure.
 They are collectively called as mixins. Stream has one method Get() that emits
 Message. Handler has another method Handle() that transforms a given Message. A
 Stream may chain with other Streams and a Handler may chain with with other
-Handlers. The helper NewHandlerMappedStream() creates a HandlerMappedStream whose Get()
+Handlers. The helper NewHandlerMappedStream() creates a handlerMappedStream whose Get()
 emits a Message transformed by a Handler from a given Stream.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
@@ -23,15 +23,15 @@ come to useful include rate-limiting, retry(also known as back-off),
 circuit-breaker and bulkhead. Each of our implementations of mixins features one
 pattern:
 
-  RateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedStream)
-  RetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryStream)
-  BulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadStream)
-  CircuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerStream)
+  rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#rateLimitedStream)
+  retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#retryStream)
+  bulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#bulkheadStream)
+  circuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#circuitBreakerStream)
 
-  RateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedHandler)
-  RetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryHandler)
-  BulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadHandler)
-  CircuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitBreakerHandler)
+  rateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#rateLimitedHandler)
+  retryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#retryHandler)
+  bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#bulkheadHandler)
+  circuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#circuitBreakerHandler)
 
 Mixin creation and options
 

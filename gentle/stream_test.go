@@ -35,9 +35,9 @@ func genMessageChannelInfinite() (<-chan interface{}, chan *struct{}) {
 	return src, done
 }
 
-// Returns a ChannelStream which contains $count number of mock Messages that
+// Returns a channelStream which contains $count number of mock Messages that
 // are also returned.
-func genChannelStreamWithMessages(count int) (*ChannelStream, []Message) {
+func genChannelStreamWithMessages(count int) (*channelStream, []Message) {
 	msgs := make([]Message, count)
 	for i := 0; i < count; i++ {
 		mm := &fakeMsg{id: strconv.Itoa(i)}
@@ -257,7 +257,7 @@ func TestRetryStream_Get3(t *testing.T) {
 }
 
 func TestRetryStream_Get4(t *testing.T) {
-	// Test against concurrent RetryStream.Get() and ConstantBackOff
+	// Test against concurrent retryStream.Get() and ConstantBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
@@ -316,7 +316,7 @@ func TestRetryStream_Get4(t *testing.T) {
 }
 
 func TestRetryStream_Get5(t *testing.T) {
-	// Test against concurrent RetryStream.Get() and ExponentialBackOff
+	// Test against concurrent retryStream.Get() and ExponentialBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 1024 * time.Second
 	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0,

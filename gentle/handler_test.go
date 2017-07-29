@@ -192,7 +192,7 @@ func TestRetryHandler_Get3(t *testing.T) {
 }
 
 func TestRetryHandler_Get4(t *testing.T) {
-	// Test against concurrent RetryHandler.Handle() and ConstantBackOff
+	// Test against concurrent retryHandler.Handle() and ConstantBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 16 * time.Second
 	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespan_minimum)
@@ -251,7 +251,7 @@ func TestRetryHandler_Get4(t *testing.T) {
 }
 
 func TestRetryHandler_Get5(t *testing.T) {
-	// Test against concurrent RetryHandler.Handle() and ExponentialBackOff
+	// Test against concurrent retryHandler.Handle() and ExponentialBackOff
 	mclock := clock.NewMock()
 	timespan_minimum := 1024 * time.Second
 	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespan_minimum)

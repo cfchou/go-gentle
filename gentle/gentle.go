@@ -12,8 +12,8 @@ var (
 	// to provide finer control over logging.
 	Log = log15.New()
 
-	// Errors that CircuitBreakerStream.Get() and
-	// CircuitBreakerHandler.Handle() might return. They are replacement of
+	// Errors that circuitBreakerStream.Get() and
+	// circuitBreakerHandler.Handle() might return. They are replacement of
 	// hystrix errors.
 	ErrCbOpen           = errors.New(hystrix.ErrCircuitOpen.Error())
 	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())

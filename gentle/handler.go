@@ -63,22 +63,22 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 }
 
 // Rate limiting pattern is used to limit the speed of a series of Handle().
-type RateLimitedHandler struct {
-	handlerFields
+type rateLimitedHandler struct {
+	*handlerFields
 	limiter RateLimit
 	handler Handler
 }
 
-func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) *RateLimitedHandler {
-	return &RateLimitedHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) *rateLimitedHandler {
+	return &rateLimitedHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		limiter:       opts.Limiter,
 		handler:       handler,
 	}
 }
 
 // Handle() is blocked when the limit is exceeded.
-func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
+func (r *rateLimitedHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.limiter.Wait(1, 0)
@@ -96,7 +96,7 @@ func (r *RateLimitedHandler) Handle(msg Message) (Message, error) {
 	return msg_out, nil
 }
 
-func (r *RateLimitedHandler) GetNames() *Names {
+func (r *rateLimitedHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_RATELIMITED,
@@ -126,19 +126,19 @@ func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) 
 	}
 }
 
-// RetryHandler takes an Handler. When Handler.Handle() encounters an error,
-// RetryHandler back off for some time and then retries.
-type RetryHandler struct {
-	handlerFields
+// retryHandler takes an Handler. When Handler.Handle() encounters an error,
+// retryHandler back off for some time and then retries.
+type retryHandler struct {
+	*handlerFields
 	mxTryNum       Metric
 	clock          Clock
 	backOffFactory BackOffFactory
 	handler        Handler
 }
 
-func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) *RetryHandler {
-	return &RetryHandler{
-		handlerFields:  *newHandlerFields(&opts.handlerOpts),
+func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) *retryHandler {
+	return &retryHandler{
+		handlerFields:  newHandlerFields(&opts.handlerOpts),
 		mxTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -146,7 +146,7 @@ func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) *RetryHandler {
 	}
 }
 
-func (r *RetryHandler) Handle(msg Message) (Message, error) {
+func (r *retryHandler) Handle(msg Message) (Message, error) {
 	begin := r.clock.Now()
 	count := 1
 	r.log.Debug("[Handler] Handle() ...", "count", count)
@@ -188,7 +188,7 @@ func (r *RetryHandler) Handle(msg Message) (Message, error) {
 	}
 }
 
-func (r *RetryHandler) GetNames() *Names {
+func (r *retryHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_RETRY,
@@ -220,25 +220,25 @@ func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *Bulkhea
 // Bulkhead pattern is used to limit the number of concurrently hanging Handle().
 // It uses semaphore isolation, similar to the approach used in hystrix.
 // http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
-type BulkheadHandler struct {
-	handlerFields
+type bulkheadHandler struct {
+	*handlerFields
 	handler   Handler
 	semaphore chan struct{}
 }
 
-// Create a BulkheadHandler that allows at maximum $max_concurrency Handle() to
+// Create a bulkheadHandler that allows at maximum $max_concurrency Handle() to
 // run concurrently.
-func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) *BulkheadHandler {
+func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) *bulkheadHandler {
 
-	return &BulkheadHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+	return &bulkheadHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
 // Handle() is blocked when the limit is exceeded.
-func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
+func (r *bulkheadHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	select {
@@ -265,15 +265,15 @@ func (r *BulkheadHandler) Handle(msg Message) (Message, error) {
 	}
 }
 
-func (r *BulkheadHandler) GetMaxConcurrency() int {
+func (r *bulkheadHandler) GetMaxConcurrency() int {
 	return cap(r.semaphore)
 }
 
-func (r *BulkheadHandler) GetCurrentConcurrency() int {
+func (r *bulkheadHandler) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
-func (r *BulkheadHandler) GetNames() *Names {
+func (r *bulkheadHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_BULKHEAD,
@@ -304,21 +304,21 @@ func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *Semaph
 
 // It allows at maximum $max_concurrency Handle() to run concurrently. Similar
 // to Bulkhead, but it blocks when MaxConcurrency is reached.
-type SemaphoreHandler struct {
-	handlerFields
+type semaphoreHandler struct {
+	*handlerFields
 	handler   Handler
 	semaphore chan struct{}
 }
 
-func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) *SemaphoreHandler {
-	return &SemaphoreHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) *semaphoreHandler {
+	return &semaphoreHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
-func (r *SemaphoreHandler) Handle(msg Message) (Message, error) {
+func (r *semaphoreHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	r.semaphore <- struct{}{}
@@ -337,15 +337,15 @@ func (r *SemaphoreHandler) Handle(msg Message) (Message, error) {
 	return msg_out, nil
 }
 
-func (r *SemaphoreHandler) GetMaxConcurrency() int {
+func (r *semaphoreHandler) GetMaxConcurrency() int {
 	return cap(r.semaphore)
 }
 
-func (r *SemaphoreHandler) GetCurrentConcurrency() int {
+func (r *semaphoreHandler) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
-func (r *SemaphoreHandler) GetNames() *Names {
+func (r *semaphoreHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_SEMAPHORE,
@@ -374,27 +374,27 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreak
 	}
 }
 
-// CircuitBreakerHandler is a handler equipped with a circuit-breaker.
-type CircuitBreakerHandler struct {
-	handlerFields
+// circuitBreakerHandler is a handler equipped with a circuit-breaker.
+type circuitBreakerHandler struct {
+	*handlerFields
 	mxCbErr Metric
 	circuit string
 	handler Handler
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitBreakerStream() creates a CircuitBreakerStream with a
+// NewCircuitBreakerStream() creates a circuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) *CircuitBreakerHandler {
-	return &CircuitBreakerHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) *circuitBreakerHandler {
+	return &circuitBreakerHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		mxCbErr:       opts.MetricCbErr,
 		circuit:       opts.Circuit,
 		handler:       handler,
 	}
 }
 
-func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
+func (r *circuitBreakerHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	result := make(chan interface{}, 1)
@@ -425,7 +425,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 			r.mxHandle.Observe(timespan, label_err)
 		}()
 		// To prevent misinterpreting when wrapping one
-		// CircuitBreakerStream over another. Hystrix errors are
+		// circuitBreakerStream over another. Hystrix errors are
 		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
@@ -454,7 +454,7 @@ func (r *CircuitBreakerHandler) Handle(msg Message) (Message, error) {
 	return msg, nil
 }
 
-func (r *CircuitBreakerHandler) GetNames() *Names {
+func (r *circuitBreakerHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_CIRCUITBREAKER,
@@ -462,7 +462,7 @@ func (r *CircuitBreakerHandler) GetNames() *Names {
 	}
 }
 
-func (r *CircuitBreakerHandler) GetCircuitName() string {
+func (r *circuitBreakerHandler) GetCircuitName() string {
 	return r.circuit
 }
 
@@ -485,22 +485,22 @@ func NewFallbackHandlerOpts(namespace, name string,
 	}
 }
 
-// FallbackHandler transforms what Handler.Handle() returns.
-type FallbackHandler struct {
-	handlerFields
+// fallbackHandler transforms what Handler.Handle() returns.
+type fallbackHandler struct {
+	*handlerFields
 	fallbackFunc func(Message, error) (Message, error)
 	handler      Handler
 }
 
-func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) *FallbackHandler {
-	return &FallbackHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+func NewFallbackHandler(opts *FallbackHandlerOpts, handler Handler) *fallbackHandler {
+	return &fallbackHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		fallbackFunc:  opts.FallbackFunc,
 		handler:       handler,
 	}
 }
 
-func (r *FallbackHandler) Handle(msg Message) (Message, error) {
+func (r *fallbackHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] Handle() ...", "msg_in", msg.Id())
 	msg_out, err := r.handler.Handle(msg)
@@ -528,7 +528,7 @@ func (r *FallbackHandler) Handle(msg Message) (Message, error) {
 	return msg_out, nil
 }
 
-func (r *FallbackHandler) GetNames() *Names {
+func (r *fallbackHandler) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_HANDLER_FALLBACK,
@@ -552,22 +552,22 @@ func NewHandlerMappedHandlerOpts(namespace, name string) *HandlerMappedHandlerOp
 	}
 }
 
-type HandlerMappedHandler struct {
-	handlerFields
+type handlerMappedHandler struct {
+	*handlerFields
 	prevHandler Handler
 	handler     Handler
 }
 
 func NewHandlerMappedHandler(opts *HandlerMappedHandlerOpts, prevHandler Handler,
-	handler Handler) *HandlerMappedHandler {
-	return &HandlerMappedHandler{
-		handlerFields: *newHandlerFields(&opts.handlerOpts),
+	handler Handler) *handlerMappedHandler {
+	return &handlerMappedHandler{
+		handlerFields: newHandlerFields(&opts.handlerOpts),
 		prevHandler:   prevHandler,
 		handler:       handler,
 	}
 }
 
-func (r *HandlerMappedHandler) Handle(msg Message) (Message, error) {
+func (r *handlerMappedHandler) Handle(msg Message) (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Handler] prev.Handle() ...")
 	msg_mid, err := r.prevHandler.Handle(msg)
@@ -605,7 +605,7 @@ func (r *simpleHandler) Handle(msg Message) (Message, error) {
 
 // A helper to create a simplest Handler without facilities like logger and
 // metrics.
-func NewSimpleHandler(handleFunc func(Message) (Message, error)) Handler {
+func NewSimpleHandler(handleFunc func(Message) (Message, error)) *simpleHandler {
 	return &simpleHandler{
 		handleFunc: handleFunc,
 	}

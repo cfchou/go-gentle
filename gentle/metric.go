@@ -18,18 +18,18 @@ const (
 	// number tries with the label "result" of possible values "ok" or "err"
 	MX_STREAM_RETRY_TRY = "try"
 
-	// Observation supported by RetryHandler.Handle(), it observes the total
+	// Observation supported by retryHandler.Handle(), it observes the total
 	// number of tries with the label "result" of possible values "ok" or
 	// "err"
 	MX_HANDLER_RETRY_TRY = "try"
 
-	// Observation supported by CircuitBreakerStream.Get(), when an error is
+	// Observation supported by circuitBreakerStream.Get(), when an error is
 	// met, it observes 1 with the label "err" of possible values of
 	// "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
 	// "NonCbErr"
 	MX_STREAM_CIRCUITBREAKER_HXERR = "hxerr"
 
-	// Observation supported by CircuitBreakerHandler.Handle(), when an
+	// Observation supported by circuitBreakerHandler.Handle(), when an
 	// error is met, it observes 1 with the label "err" of possible values
 	// of "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
 	// "NonCbErr"

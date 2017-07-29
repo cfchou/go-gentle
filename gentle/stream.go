@@ -69,22 +69,22 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 }
 
 // Rate limiting pattern is used to limit the speed of a series of Get().
-type RateLimitedStream struct {
-	streamFields
+type rateLimitedStream struct {
+	*streamFields
 	limiter RateLimit
 	stream  Stream
 }
 
-func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
-	return &RateLimitedStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) *rateLimitedStream {
+	return &rateLimitedStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		limiter:      opts.Limiter,
 		stream:       upstream,
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
-func (r *RateLimitedStream) Get() (Message, error) {
+func (r *rateLimitedStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	r.limiter.Wait(1, 0)
@@ -102,7 +102,7 @@ func (r *RateLimitedStream) Get() (Message, error) {
 	return msg, nil
 }
 
-func (r *RateLimitedStream) GetNames() *Names {
+func (r *rateLimitedStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_RATELIMITED,
@@ -132,19 +132,19 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 	}
 }
 
-// RetryStream will, when Get() encounters error, back off for some time
+// retryStream will, when Get() encounters error, back off for some time
 // and then retries.
-type RetryStream struct {
-	streamFields
+type retryStream struct {
+	*streamFields
 	obTryNum       Metric
 	clock          Clock
 	backOffFactory BackOffFactory
 	stream         Stream
 }
 
-func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *RetryStream {
-	return &RetryStream{
-		streamFields:   *newStreamFields(&opts.streamOpts),
+func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *retryStream {
+	return &retryStream{
+		streamFields:   newStreamFields(&opts.streamOpts),
 		obTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -152,7 +152,7 @@ func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *RetryStream {
 	}
 }
 
-func (r *RetryStream) Get() (Message, error) {
+func (r *retryStream) Get() (Message, error) {
 	begin := r.clock.Now()
 	count := 1
 	r.log.Debug("[Stream] Get() ...", "count", count)
@@ -194,7 +194,7 @@ func (r *RetryStream) Get() (Message, error) {
 	}
 }
 
-func (r *RetryStream) GetNames() *Names {
+func (r *retryStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_RETRY,
@@ -227,25 +227,25 @@ func NewBulkheadStreamOpts(namespace, name string, max_concurrency int) *Bulkhea
 // Bulkhead pattern is used to limit the number of concurrently hanging Get().
 // It uses semaphore isolation, similar to the approach used in hystrix.
 // http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
-type BulkheadStream struct {
-	streamFields
+type bulkheadStream struct {
+	*streamFields
 	stream    Stream
 	semaphore chan struct{}
 }
 
-// Create a BulkheadStream that allows at maximum $max_concurrency Get() to
+// Create a bulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
-func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) *BulkheadStream {
+func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) *bulkheadStream {
 
-	return &BulkheadStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+	return &bulkheadStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
 // Get() is blocked when the limit is exceeded.
-func (r *BulkheadStream) Get() (Message, error) {
+func (r *bulkheadStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	select {
@@ -271,7 +271,7 @@ func (r *BulkheadStream) Get() (Message, error) {
 	}
 }
 
-func (r *BulkheadStream) GetNames() *Names {
+func (r *bulkheadStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_BULKHEAD,
@@ -279,11 +279,11 @@ func (r *BulkheadStream) GetNames() *Names {
 	}
 }
 
-func (r *BulkheadStream) GetMaxConcurrency() int {
+func (r *bulkheadStream) GetMaxConcurrency() int {
 	return cap(r.semaphore)
 }
 
-func (r *BulkheadStream) GetCurrentConcurrency() int {
+func (r *bulkheadStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
@@ -311,22 +311,22 @@ func NewSemaphoreStreamOpts(namespace, name string, max_concurrency int) *Semaph
 
 // It allows at maximum $max_concurrency Get() to run concurrently. Similar
 // to Bulkhead, but it blocks when MaxConcurrency is reached.
-type SemaphoreStream struct {
-	streamFields
+type semaphoreStream struct {
+	*streamFields
 	stream    Stream
 	semaphore chan struct{}
 }
 
-func NewSemaphoreStream(opts *SemaphoreStreamOpts, upstream Stream) *SemaphoreStream {
+func NewSemaphoreStream(opts *SemaphoreStreamOpts, upstream Stream) *semaphoreStream {
 
-	return &SemaphoreStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+	return &semaphoreStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
 }
 
-func (r *SemaphoreStream) Get() (Message, error) {
+func (r *semaphoreStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	r.semaphore <- struct{}{}
@@ -345,7 +345,7 @@ func (r *SemaphoreStream) Get() (Message, error) {
 	return msg, nil
 }
 
-func (r *SemaphoreStream) GetNames() *Names {
+func (r *semaphoreStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_SEMAPHORE,
@@ -353,11 +353,11 @@ func (r *SemaphoreStream) GetNames() *Names {
 	}
 }
 
-func (r *SemaphoreStream) GetMaxConcurrency() int {
+func (r *semaphoreStream) GetMaxConcurrency() int {
 	return cap(r.semaphore)
 }
 
-func (r *SemaphoreStream) GetCurrentConcurrency() int {
+func (r *semaphoreStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
@@ -382,18 +382,18 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 	}
 }
 
-// CircuitBreakerStream is a Stream equipped with a circuit-breaker.
-type CircuitBreakerStream struct {
-	streamFields
+// circuitBreakerStream is a Stream equipped with a circuit-breaker.
+type circuitBreakerStream struct {
+	*streamFields
 	mxCbErr Metric
 	circuit string
 	stream  Stream
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitBreakerStream() creates a CircuitBreakerStream with a
+// NewCircuitBreakerStream() creates a circuitBreakerStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) *CircuitBreakerStream {
+func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) *circuitBreakerStream {
 
 	// Note that if it might overwrite or be overwritten by concurrently
 	// registering the same circuit.
@@ -402,15 +402,15 @@ func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) *Cir
 		NewDefaultCircuitBreakerConf().RegisterFor(opts.Circuit)
 	}
 
-	return &CircuitBreakerStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+	return &circuitBreakerStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		mxCbErr:      opts.MetricCbErr,
 		circuit:      opts.Circuit,
 		stream:       stream,
 	}
 }
 
-func (r *CircuitBreakerStream) Get() (Message, error) {
+func (r *circuitBreakerStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	result := make(chan interface{}, 1)
@@ -438,7 +438,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 			r.mxGet.Observe(timespan, label_err)
 		}()
 		// To prevent misinterpreting when wrapping one
-		// CircuitBreakerStream over another. Hystrix errors are
+		// circuitBreakerStream over another. Hystrix errors are
 		// replaced so that Get() won't return any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
@@ -467,7 +467,7 @@ func (r *CircuitBreakerStream) Get() (Message, error) {
 	return msg_out, nil
 }
 
-func (r *CircuitBreakerStream) GetNames() *Names {
+func (r *circuitBreakerStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_CIRCUITBREAKER,
@@ -475,7 +475,7 @@ func (r *CircuitBreakerStream) GetNames() *Names {
 	}
 }
 
-func (r *CircuitBreakerStream) GetCircuitName() string {
+func (r *circuitBreakerStream) GetCircuitName() string {
 	return r.circuit
 }
 
@@ -498,22 +498,22 @@ func NewFallbackStreamOpts(namespace, name string,
 	}
 }
 
-// FallbackStream transforms what Stream.Get() returns.
-type FallbackStream struct {
-	streamFields
+// fallbackStream transforms what Stream.Get() returns.
+type fallbackStream struct {
+	*streamFields
 	fallbackFunc func(error) (Message, error)
 	stream       Stream
 }
 
-func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) *FallbackStream {
-	return &FallbackStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) *fallbackStream {
+	return &fallbackStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		fallbackFunc: opts.FallbackFunc,
 		stream:       upstream,
 	}
 }
 
-func (r *FallbackStream) Get() (Message, error) {
+func (r *fallbackStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
@@ -540,7 +540,7 @@ func (r *FallbackStream) Get() (Message, error) {
 	return msg, nil
 }
 
-func (r *FallbackStream) GetNames() *Names {
+func (r *fallbackStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_FALLBACK,
@@ -566,21 +566,21 @@ func NewChannelStreamOpts(namespace, name string, channel <-chan interface{}) *C
 	}
 }
 
-// ChannelStream forms a stream from a channel.
-type ChannelStream struct {
-	streamFields
+// channelStream forms a stream from a channel.
+type channelStream struct {
+	*streamFields
 	channel <-chan interface{}
 }
 
-// Create a ChannelStream that gets Messages from $channel.
-func NewChannelStream(opts *ChannelStreamOpts) *ChannelStream {
-	return &ChannelStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+// Create a channelStream that gets Messages from $channel.
+func NewChannelStream(opts *ChannelStreamOpts) *channelStream {
+	return &channelStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		channel:      opts.Channel,
 	}
 }
 
-func (r *ChannelStream) Get() (Message, error) {
+func (r *channelStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] Get() ...")
 	switch v := (<-r.channel).(type) {
@@ -604,7 +604,7 @@ func (r *ChannelStream) Get() (Message, error) {
 	}
 }
 
-func (r *ChannelStream) GetNames() *Names {
+func (r *channelStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_CHANNEL,
@@ -628,23 +628,23 @@ func NewHandlerMappedStreamOpts(namespace, name string) *HandlerMappedStreamOpts
 	}
 }
 
-// A HandlerMappedStream whose Get() emits a Message transformed by a Handler from
+// A handlerMappedStream whose Get() emits a Message transformed by a Handler from
 // a given Stream.
-type HandlerMappedStream struct {
-	streamFields
+type handlerMappedStream struct {
+	*streamFields
 	upstream Stream
 	handler  Handler
 }
 
-func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) *HandlerMappedStream {
-	return &HandlerMappedStream{
-		streamFields: *newStreamFields(&opts.streamOpts),
+func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) *handlerMappedStream {
+	return &handlerMappedStream{
+		streamFields: newStreamFields(&opts.streamOpts),
 		upstream:     upstream,
 		handler:      handler,
 	}
 }
 
-func (r *HandlerMappedStream) Get() (Message, error) {
+func (r *handlerMappedStream) Get() (Message, error) {
 	begin := time.Now()
 	r.log.Debug("[Stream] upstream.Get() ...")
 	msg, err := r.upstream.Get()
@@ -668,7 +668,7 @@ func (r *HandlerMappedStream) Get() (Message, error) {
 	return hmsg, nil
 }
 
-func (r *HandlerMappedStream) GetNames() *Names {
+func (r *handlerMappedStream) GetNames() *Names {
 	return &Names{
 		Namespace: r.namespace,
 		Mixin:     MIXIN_STREAM_HANDLED,
@@ -686,7 +686,7 @@ func (r *simpleStream) Get() (Message, error) {
 
 // A helper to create a simplest Stream without facilities like logger and
 // metrics.
-func NewSimpleStream(getFunc func() (Message, error)) Stream {
+func NewSimpleStream(getFunc func() (Message, error)) *simpleStream {
 	return &simpleStream{
 		getFunc: getFunc,
 	}
