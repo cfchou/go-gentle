@@ -16,8 +16,8 @@ const (
 	StreamSemaphore      = "sSem"
 	StreamCircuitBreaker = "sCircuit"
 	StreamChannel        = "sChan"
-	StreamHandled        = "sHan"
-	StreamFallback       = "sFb"
+	//StreamHandled        = "sHan"
+	//StreamFallback       = "sFb"
 )
 
 var (
@@ -479,6 +479,7 @@ func (r *circuitBreakerStream) GetCircuitName() string {
 	return r.circuit
 }
 
+/*
 type FallbackStreamOpts struct {
 	streamOpts
 	FallbackFunc func(error) (Message, error)
@@ -515,7 +516,6 @@ func NewFallbackStream(opts *FallbackStreamOpts, upstream Stream) Stream {
 
 func (r *fallbackStream) Get() (Message, error) {
 	begin := time.Now()
-	r.log.Debug("[Stream] Get() ...")
 	msg, err := r.stream.Get()
 	if err == nil {
 		timespan := time.Since(begin).Seconds()
@@ -524,7 +524,7 @@ func (r *fallbackStream) Get() (Message, error) {
 		r.mxGet.Observe(timespan, labelOk)
 		return msg, nil
 	}
-	r.log.Error("[Stream] Get() err, fallbackFunc() ...", "err", err)
+	r.log.Debug("[Stream] Get() err, fallbackFunc() ...", "err", err)
 	// fallback to deal with the err
 	msg, err = r.fallbackFunc(err)
 	timespan := time.Since(begin).Seconds()
@@ -547,6 +547,7 @@ func (r *fallbackStream) GetNames() *Names {
 		Name:       r.name,
 	}
 }
+*/
 
 type ChannelStreamOpts struct {
 	streamOpts
@@ -612,82 +613,3 @@ func (r *channelStream) GetNames() *Names {
 	}
 }
 
-type HandlerMappedStreamOpts struct {
-	streamOpts
-}
-
-func NewHandlerMappedStreamOpts(namespace, name string) *HandlerMappedStreamOpts {
-	return &HandlerMappedStreamOpts{
-		streamOpts: streamOpts{
-			Namespace: namespace,
-			Name:      name,
-			Log: Log.New("namespace", namespace, "gentle",
-				StreamHandled, "name", name),
-			MetricGet: noopMetric,
-		},
-	}
-}
-
-// A handlerMappedStream whose Get() emits a Message transformed by a Handler from
-// a given Stream.
-type handlerMappedStream struct {
-	*streamFields
-	upstream Stream
-	handler  Handler
-}
-
-func NewHandlerMappedStream(opts *HandlerMappedStreamOpts, upstream Stream, handler Handler) Stream {
-	return &handlerMappedStream{
-		streamFields: newStreamFields(&opts.streamOpts),
-		upstream:     upstream,
-		handler:      handler,
-	}
-}
-
-func (r *handlerMappedStream) Get() (Message, error) {
-	begin := time.Now()
-	r.log.Debug("[Stream] upstream.Get() ...")
-	msg, err := r.upstream.Get()
-	if err != nil {
-		r.log.Error("[Stream] upstream.Get() err", "err", err)
-		r.mxGet.Observe(time.Since(begin).Seconds(), labelErr)
-		return nil, err
-	}
-	r.log.Debug("[Stream] upstream.Get() ok, Handle() ...", "msg", msg.ID())
-	hmsg, herr := r.handler.Handle(msg)
-	timespan := time.Since(begin).Seconds()
-	if herr != nil {
-		r.log.Error("[Stream] Handle() err", "msg", msg.ID(), "err", herr,
-			"timespan", timespan)
-		r.mxGet.Observe(timespan, labelErr)
-		return nil, herr
-	}
-	r.log.Debug("[Stream] Handle() ok", "msgIn", msg.ID(),
-		"msgOut", hmsg.ID(), "timespan", timespan)
-	r.mxGet.Observe(timespan, labelOk)
-	return hmsg, nil
-}
-
-func (r *handlerMappedStream) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: StreamHandled,
-		Name:       r.name,
-	}
-}
-
-type simpleStream struct {
-	getFunc func() (Message, error)
-}
-
-func (r *simpleStream) Get() (Message, error) {
-	return r.getFunc()
-}
-
-// A helper to create a simplest Stream without facilities like logger and
-// metrics.
-func NewSimpleStream(getFunc func() (Message, error)) Stream {
-	return &simpleStream{
-		getFunc: getFunc,
-	}
-}

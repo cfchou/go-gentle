@@ -448,28 +448,6 @@ func TestSemaphoreStream_Get(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-func TestHandlerMappedStream_Get(t *testing.T) {
-	mstream := &MockStream{}
-	mhandler := &MockHandler{}
-	stream := NewHandlerMappedStream(
-		NewHandlerMappedStreamOpts("", "test"),
-		mstream, mhandler)
-	mm := &fakeMsg{id: "123"}
-
-	get := mstream.On("Get")
-	get.Return(mm, nil)
-
-	newMM := &fakeMsg{id: "456"}
-	mhandler.On("Handle", mm).Return(
-		func(msg Message) Message {
-			return newMM
-		}, nil)
-
-	msg, err := stream.Get()
-	assert.NoError(t, err)
-	assert.Equal(t, newMM.ID(), msg.ID())
-}
-
 func TestCircuitBreakerStream_Get(t *testing.T) {
 	defer hystrix.Flush()
 	maxConcurrency := 4
@@ -630,62 +608,4 @@ func TestCircuitBreakerStream_Get3(t *testing.T) {
 			assert.EqualError(t, err, ErrCbOpen.Error())
 		}
 	}
-}
-
-func TestFallbackStream_Get(t *testing.T) {
-	// fallBackFunc is not called when no error
-	mm := &fakeMsg{id: "123"}
-	fallBackFunc := func(err error) (Message, error) {
-		assert.Fail(t, "Shouldn't trigger fallback")
-		return nil, err
-	}
-	mstream := &MockStream{}
-	fstream := NewFallbackStream(
-		NewFallbackStreamOpts("", "test", fallBackFunc),
-		mstream)
-	mstream.On("Get").Return(mm, nil)
-
-	msg, err := fstream.Get()
-	assert.NoError(t, err)
-	assert.Equal(t, msg.ID(), mm.ID())
-}
-
-func TestFallbackStream_Get2(t *testing.T) {
-	// fallBackFunc is called when error
-	fakeErr := errors.New("A fake error")
-	fallbackCalled := false
-	fallbackFunc := func(err error) (Message, error) {
-		assert.EqualError(t, err, fakeErr.Error())
-		fallbackCalled = true
-		return nil, err
-	}
-	mstream := &MockStream{}
-	fstream := NewFallbackStream(
-		NewFallbackStreamOpts("", "test", fallbackFunc),
-		mstream)
-	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
-
-	msg, err := fstream.Get()
-	assert.Nil(t, msg)
-	assert.EqualError(t, err, fakeErr.Error())
-	assert.True(t, fallbackCalled)
-}
-
-func TestFallbackStream_Get3(t *testing.T) {
-	// fallBackFunc is called when error, it can replace the error with a msg.
-	mm := &fakeMsg{id: "123"}
-	fakeErr := errors.New("A fake error")
-	fallbackFunc := func(err error) (Message, error) {
-		assert.EqualError(t, err, fakeErr.Error())
-		return mm, nil
-	}
-	mstream := &MockStream{}
-	fstream := NewFallbackStream(
-		NewFallbackStreamOpts("", "test", fallbackFunc),
-		mstream)
-	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
-
-	msg, err := fstream.Get()
-	assert.NoError(t, err)
-	assert.Equal(t, msg.ID(), mm.ID())
 }
