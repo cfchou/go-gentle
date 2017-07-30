@@ -10,10 +10,10 @@ import (
 
 const (
 	// Types of resilience, are most often used as part of RegistryKey.
-	StreamRateLimited    = "sRate"
-	StreamRetry          = "sRetry"
-	StreamBulkhead       = "sBulk"
-	StreamSemaphore      = "sSem"
+	StreamRateLimited = "sRate"
+	StreamRetry       = "sRetry"
+	StreamBulkhead    = "sBulk"
+	//StreamSemaphore      = "sSem"
 	StreamCircuitBreaker = "sCircuit"
 	StreamChannel        = "sChan"
 	//StreamHandled        = "sHan"
@@ -287,6 +287,7 @@ func (r *bulkheadStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
+/*
 type SemaphoreStreamOpts struct {
 	streamOpts
 	MaxConcurrency int
@@ -360,6 +361,7 @@ func (r *semaphoreStream) GetMaxConcurrency() int {
 func (r *semaphoreStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
+*/
 
 type CircuitBreakerStreamOpts struct {
 	streamOpts
@@ -612,4 +614,3 @@ func (r *channelStream) GetNames() *Names {
 		Name:       r.name,
 	}
 }
-

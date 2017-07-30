@@ -15,7 +15,7 @@ import (
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
 // Every Message extracted from $src has a monotonically increasing id.
-func genMessageChannelInfinite() (<-chan interface{}, chan *struct{}) {
+func createInfiniteMessageChan() (<-chan interface{}, chan *struct{}) {
 	done := make(chan *struct{}, 1)
 	src := make(chan interface{}, 1)
 	go func() {
@@ -35,6 +35,7 @@ func genMessageChannelInfinite() (<-chan interface{}, chan *struct{}) {
 	return src, done
 }
 
+/*
 // Returns a channelStream which contains $count number of mock Messages that
 // are also returned.
 func genChannelStreamWithMessages(count int) (Stream, []Message) {
@@ -74,9 +75,10 @@ func TestChannelStream_Get_2(t *testing.T) {
 		assert.Equal(t, msgOut.ID(), msgs[i].ID())
 	}
 }
+*/
 
 func TestRateLimitedStream_Get(t *testing.T) {
-	src, done := genMessageChannelInfinite()
+	src, done := createInfiniteMessageChan()
 	// 1 msg/sec
 	requestsInterval := 100 * time.Millisecond
 
@@ -412,6 +414,7 @@ func TestBulkheadStream_Get(t *testing.T) {
 	}
 }
 
+/*
 func TestSemaphoreStream_Get(t *testing.T) {
 	maxConcurrency := 4
 	mstream := &MockStream{}
@@ -447,6 +450,7 @@ func TestSemaphoreStream_Get(t *testing.T) {
 	// not easy to prove the previous stream.Get() is blocked forever.
 	time.Sleep(2 * time.Second)
 }
+*/
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
 	defer hystrix.Flush()

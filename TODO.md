@@ -4,9 +4,6 @@
     https://github.com/Netflix/Hystrix/wiki/How-it-Works#Isolation
     https://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 
-* Remove Semaphore because it blocks so it's not resilient.
-    or move it to package extra
-
 * golint
 
 * provide mocks in package extra
@@ -33,6 +30,9 @@
 * Opts passed by addr
 * Make XXXStream/Handler xXXStgream/Handler
 * NewMockHandler/Stream(*mock.Mock)
+* Remove Semaphore because it blocks so it's not resilient.
+    or move it to package extra
+
 
 ## Ref
  https://github.com/golang/go/wiki/CodeReviewComments#pass-values

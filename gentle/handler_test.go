@@ -346,6 +346,7 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	}
 }
 
+/*
 func TestSemaphoreHandler_Handle(t *testing.T) {
 	maxConcurrency := 4
 	mhandler := &MockHandler{}
@@ -381,6 +382,7 @@ func TestSemaphoreHandler_Handle(t *testing.T) {
 	// not easy to prove the previous handler.Handle() is blocked forever.
 	time.Sleep(2 * time.Second)
 }
+*/
 
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	defer hystrix.Flush()
@@ -544,4 +546,3 @@ func TestCircuitBreakerHandler_Handle3(t *testing.T) {
 		}
 	}
 }
-

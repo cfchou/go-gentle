@@ -10,10 +10,10 @@ import (
 
 const (
 	// Types of resilience, are most often used as part of RegistryKey.
-	HandlerRateLimited    = "hRate"
-	HandlerRetry          = "hRetry"
-	HandlerBulkhead       = "hBulk"
-	HandlerSemaphore      = "hSem"
+	HandlerRateLimited = "hRate"
+	HandlerRetry       = "hRetry"
+	HandlerBulkhead    = "hBulk"
+	//HandlerSemaphore      = "hSem"
 	HandlerCircuitBreaker = "hCircuit"
 )
 
@@ -279,6 +279,7 @@ func (r *bulkheadHandler) GetNames() *Names {
 	}
 }
 
+/*
 type SemaphoreHandlerOpts struct {
 	handlerOpts
 	MaxConcurrency int
@@ -350,6 +351,7 @@ func (r *semaphoreHandler) GetNames() *Names {
 		Name:       r.name,
 	}
 }
+*/
 
 type CircuitBreakerHandlerOpts struct {
 	handlerOpts
@@ -463,4 +465,3 @@ func (r *circuitBreakerHandler) GetNames() *Names {
 func (r *circuitBreakerHandler) GetCircuitName() string {
 	return r.circuit
 }
-
