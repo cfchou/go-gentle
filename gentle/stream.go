@@ -15,7 +15,7 @@ const (
 	StreamBulkhead    = "sBulk"
 	//StreamSemaphore      = "sSem"
 	StreamCircuitBreaker = "sCircuit"
-	StreamChannel        = "sChan"
+	//StreamChannel        = "sChan"
 	//StreamHandled        = "sHan"
 	//StreamFallback       = "sFb"
 )
@@ -549,7 +549,6 @@ func (r *fallbackStream) GetNames() *Names {
 		Name:       r.name,
 	}
 }
-*/
 
 type ChannelStreamOpts struct {
 	streamOpts
@@ -614,3 +613,4 @@ func (r *channelStream) GetNames() *Names {
 		Name:       r.name,
 	}
 }
+*/
