@@ -8,58 +8,68 @@ import (
 )
 
 var (
-	// Package level logger. It uses log15(gopkg.in/inconshreveable/log15.v2)
-	// to provide finer control over logging.
+	// Log is a package level logger. It's the parent logger of all loggers used
+	// by resilience Streams/Handlers defined in this package.
 	Log = log15.New()
 
-	// Errors that circuitBreakerStream.Get() and
-	// circuitBreakerHandler.Handle() might return. They are replacement of
-	// hystrix errors.
+	// Errors related to CircuitBreakerStream/CircuitBreakerHandler. They are
+	// the replacement of underlying errors of package hystrix.
+
+	// ErrCbOpen suggests the circuit is opened.
 	ErrCbOpen           = errors.New(hystrix.ErrCircuitOpen.Error())
+	// ErrCbMaxConcurrency suggests the circuit has reached its maximum
+	// concurrency of operations.
 	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+	// ErrCbTimeout suggests the operation has run for too long.
 	ErrCbTimeout        = errors.New(hystrix.ErrTimeout.Error())
 
+	// ErrMaxConcurrency suggests BulkheadStream/BulkheadHandler has reached
+	// its maximum concurrency of operations.
 	ErrMaxConcurrency = errors.New("Reached Max Concurrency")
-	ErrInvalidType    = errors.New("Invalid Type")
 )
 
 func init() {
+	// Discard handler when pacakge is being loaded. You may set up the
+	// exported Log later.
 	Log.SetHandler(log15.DiscardHandler())
 }
 
+// Message is passed around Streams/Handlers.
 type Message interface {
-	// A Message is obliged to implement ID() for better tracing.
+	// ID() returns a unique string that identifies this Message.
 	ID() string
 }
 
-// Stream emits Message. Messages of a stream goes one way. Though two streams
-// can simulate two-way communication but it would require out-of-band logic.
+// Stream emits Message.
 type Stream interface {
-	// Get() returns either a Message or an error. Returned Message is nil
-	// if only if error is not nil.
+	// Get() returns either a Message or an error exclusively.
 	Get() (Message, error)
 }
 
 // Handler transforms a Message.
 type Handler interface {
-	// Handle() transforms an Message. Returned Message is nil if only if
-	// error is not nil.
+	// Handle() takes a Message as input and then returns either a Message or
+	// an error exclusively.
 	Handle(msg Message) (Message, error)
 }
 
+// Names identifies resilience Streams/Handlers defined in this package.
 type Names struct {
 	Namespace  string
 	Resilience string
 	Name       string
 }
 
+// Identity is supported by resilience Streams/Handlers defined in this
+// packages.
 type Identity interface {
 	GetNames() *Names
 }
 
-// A Logger writes key/value pairs to a Handler
+// Logger provides structural logging
 type Logger interface {
-	// Log a message at the given level with context key/value pairs
+	// Log a message at the given level with key/value pairs. The number of ctx
+	// must be a multiple of two(for a key/value pair).
 	Debug(msg string, ctx ...interface{})
 	Info(msg string, ctx ...interface{})
 	Warn(msg string, ctx ...interface{})
@@ -67,7 +77,7 @@ type Logger interface {
 	Crit(msg string, ctx ...interface{})
 }
 
-// A do-nothing Logger
+// noOpLogger logs nothing
 type noOpLogger struct{}
 
 func (l *noOpLogger) Debug(msg string, ctx ...interface{}) {}
@@ -76,11 +86,12 @@ func (l *noOpLogger) Warn(msg string, ctx ...interface{})  {}
 func (l *noOpLogger) Error(msg string, ctx ...interface{}) {}
 func (l *noOpLogger) Crit(msg string, ctx ...interface{})  {}
 
+// noopLogger is a single instance of noOpLogger.
 var noopLogger = &noOpLogger{}
 
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {
-	// Wait for $count tokens are granted(return true) or timeout(return
+	// Wait for $count tokens to be granted(return true) or timeout(return
 	// false). If $timeout == 0, it would block as long as it needs.
 	Wait(count int, timeout time.Duration) bool
 }

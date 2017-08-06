@@ -1,21 +1,34 @@
 /*
-This package provides composable resilient implementations of two interfaces:
+Package gentle provides composable resilient implementations of two interfaces:
 Stream and Handler.
 
-Stream and Handler and back-pressure
+Stream and Handler
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
-Stream has one method Get() that emits
-Message. Handler has another method Handle() that transforms a given Message. A
-Stream may chain with other Streams and a Handler may chain with with other
-Handlers. The helper NewHandlerMappedStream() creates a handlerMappedStream whose Get()
-emits a Message transformed by a Handler from a given Stream.
+Stream has Get() that returns Message. Handler has Handle() that transforms a
+given Message.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
-  NewHandlerMappedStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewHandlerMappedStream)
 
-Resiliency
+Developers should implement their own Stream/Handler logic. These two named
+types help to directly use a function as a Stream/Handler.
+
+  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
+  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
+
+A Stream/Handler can chain with an arbitrary number of Handlers. Their semantic
+is that any failing element in the chain would skip the rest of all. Also note
+that any element can also be a nested chain itself.
+
+  AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
+  AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
+
+If simply appending Streams/Handlers is not enough, like these resilience
+Streams/Handlers defined in this package, developers can form a Stream/Handler
+with an advanced flow control by embedding other Streams/Handlers.
+
+Our Resilience Streams and Handlers
 
 Besides back-pressure, resiliency patterns are indispensable in distributed
 systems as external services are not reliable at all time. Some of the patterns
@@ -23,27 +36,15 @@ come to useful include rate-limiting, retry(also known as back-off),
 circuit-breaker and bulkhead. Each of our implementations of resilience features one
 pattern:
 
-  rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#rateLimitedStream)
-  retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#retryStream)
-  bulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#bulkheadStream)
-  circuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#circuitBreakerStream)
+  rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
+  retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
+  bulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadStream)
+  circuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitBreakerStream)
 
-  rateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#rateLimitedHandler)
-  retryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#retryHandler)
-  bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#bulkheadHandler)
-  circuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#circuitBreakerHandler)
-
-Creation and options
-
-To create either a Stream or a Handler, you must firstly create a
-corresponding XXXOpts struct which can be done by using a helper. For instance,
-NewRateLimitedStreamOpts() creates and initialises RateLimitedStreamOpts for
-NewRateLimitedStream().
-
-Helper NewXXXOpts() creates and initialises XXXOpts struct with facilities like
-hierarchical naming, built-in logger but no support for metric collection.
-XXXOpts is a plain-old structure you can overwrite fields to replace
-logger or to add metric support, etc..
+  rateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedHandler)
+  retryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
+  bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
+  circuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitBreakerHandler)
 
 Composability
 
@@ -73,19 +74,12 @@ User defined Stream and Handler
 Users can define their own Stream/Handler and compose them with our resilient
 counterpart.
 
-Meanwhile, a helper is provided for creating a Stream from a chan:
+Note
 
-  NewChannelStream()(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewChannelStream)
-
-Parallelism
-
-We may want a Stream that fetches many Messages in parallel to achieve higher
-throughput. That's when ConcurrentFetchStream comes into rescue. However, noted
-that higher throughput is at the expense of breaking the order of Messages.
-
-  ConcurrentFetchStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#ConcurrentFetchStream)
-
-
+The implementation of Stream.Get() and Handler.Handle() should be thread-safe.
+A good practice is to make Stream/Handler state-less. A Message needs not to be
+immutable but it's good to be so. Our resilience Streams/Handlers are all
+thread-safe and don't mutate Messages.
 
 External References
 
