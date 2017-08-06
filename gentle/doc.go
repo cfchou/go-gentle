@@ -1,40 +1,31 @@
 /*
-Package gentle provides composable resilient implementations of two interfaces:
-Stream and Handler.
+Package gentle defines Stream and Handler interfaces and provides composable
+resilient implementations of them.
+
 
 Stream and Handler
 
 Stream and Handler are our fundamental abstractions to achieve back-pressure.
-Stream has Get() that returns Message. Handler has Handle() that transforms a
-given Message.
+Stream has Get() that emits Messages. Handler has Handle() that transforms
+given Messages.
 
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
 
-Developers should implement their own Stream/Handler logic. These two named
-types help to directly use a function as a Stream/Handler.
+Developers should implement their own logic in the forms of Stream/Handler.
+For simple cases, these named types SimpleStream and SimpleHandler help to
+directly use a function as a Stream/Handler.
 
   SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
   SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
 
-A Stream/Handler can chain with an arbitrary number of Handlers. Their semantic
-is that any failing element in the chain would skip the rest of all. Also note
-that any element can also be a nested chain itself.
-
-  AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
-  AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
-
-If simply appending Streams/Handlers is not enough, like these resilience
-Streams/Handlers defined in this package, developers can form a Stream/Handler
-with an advanced flow control by embedding other Streams/Handlers.
-
 Our Resilience Streams and Handlers
 
-Besides back-pressure, resiliency patterns are indispensable in distributed
-systems as external services are not reliable at all time. Some of the patterns
-come to useful include rate-limiting, retry(also known as back-off),
-circuit-breaker and bulkhead. Each of our implementations of resilience features one
-pattern:
+Resiliency patterns are indispensable in distributed systems because external
+services are not reliable at all time. We provide some useful patterns in the
+forms of Streams/Handlers. They include rate-limiting, retry(also known as back-off),
+bulkhead and circuit-breaker. Each of them can be freely composed with other
+Streams/Handlers as one sees fit.
 
   rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
   retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
@@ -48,31 +39,16 @@ pattern:
 
 Composability
 
-Each of our implementations of Stream and Handler features one resiliency
-pattern. Nevertheless, they and user-defined Stream/Handler are free to mix
-with each other to form an ad-hoc, combined resiliency. For example:
+A Stream/Handler can chain with an arbitrary number of Handlers. Their semantic
+is that any failing element in the chain would skip the rest of all. Also note
+that any element can also be a nested chain itself.
 
-  func compose(name string, userDefinedStream Stream, userDefinedHandler Handler) Stream {
-  	upstream := NewRetryStream(name,
-  		NewRateLimitedStream(name, userDefinedStream,
-  			NewTokenBucketRateLimit(100, 1)),
-  		func() []time.Duration {
-  			return []time.Duration{time.Second, time.Second}
-  		})
-  	return NewHandlerMappedStream(name, upstream,
-  		NewCircuitBreakerHandler(name, userDefinedHandler, "circuit"))
-  }
+  AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
+  AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
 
-A crucial difference exists in how Stream and Handler apply resiliency patterns.
-Take retry/back-off as an example, when a Stream observes a failure, it attempts
-to pull again the NEXT Message from its upstream. On the other hand, when a
-Handler sees a failure, it attempts to run again its wrapped-handler on the SAME
-Message.
-
-User defined Stream and Handler
-
-Users can define their own Stream/Handler and compose them with our resilient
-counterpart.
+If simply appending Streams/Handlers is not enough, developers can define
+Streams/Handlers with advanced flow controls, like these resilience Streams/Handlers
+defined in this package
 
 Note
 
