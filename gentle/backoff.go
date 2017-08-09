@@ -6,11 +6,16 @@ import (
 	"time"
 )
 
+// ConstantBackOffFactoryOpts is default options for ConstantBackOffFactory.
 type ConstantBackOffFactoryOpts struct {
 	Interval time.Duration
-	// After MaxElapsedTime the BackOff stops.
-	// It never stops if MaxElapsedTime == 0.
+
+	// After MaxElapsedTime or MaxNumBackOffs(whichever comes first) the BackOff
+	// stops.
+	// If both are 0, it never stops backing off.
+	// If only one of them is 0, then the other is checked.
 	MaxElapsedTime time.Duration
+	MaxNumBackOffs int64
 	Clock          Clock
 }
 
@@ -19,38 +24,53 @@ func NewConstantBackOffFactoryOpts(interval time.Duration,
 	return &ConstantBackOffFactoryOpts{
 		Interval:       interval,
 		MaxElapsedTime: maxElapsedTime,
+		MaxNumBackOffs: 0,
 		Clock:          clock.New(),
 	}
 }
 
+// ConstantBackOffFactory creates  non-thread-safe constant BackOff objects.
 type ConstantBackOffFactory struct {
 	interval       time.Duration
 	maxElapsedTime time.Duration
+	maxNumBackOffs int64
 	clock          Clock
 }
 
 func NewConstantBackOffFactory(opts *ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
+	if opts.Interval < 0 || opts.MaxElapsedTime < 0 || opts.MaxNumBackOffs < 0 {
+		panic("Invalid arguments")
+	}
 	return &ConstantBackOffFactory{
 		interval:       opts.Interval,
 		maxElapsedTime: opts.MaxElapsedTime,
+		maxNumBackOffs: opts.MaxNumBackOffs,
 		clock:          opts.Clock,
 	}
 }
 
 func (f *ConstantBackOffFactory) NewBackOff() BackOff {
+	remainingBackOffs := int64(-1)
+	if f.maxNumBackOffs > 0 {
+		remainingBackOffs = f.maxNumBackOffs
+	}
 	return &constantBackOff{
-		backOff:        backoff.NewConstantBackOff(f.interval),
-		maxElapsedTime: f.maxElapsedTime,
-		clock:          f.clock,
-		startTime:      f.clock.Now(),
+		//backOff:        backoff.NewConstantBackOff(f.interval),
+		interval:          f.interval,
+		maxElapsedTime:    f.maxElapsedTime,
+		remainingBackOffs: remainingBackOffs,
+		clock:             f.clock,
+		startTime:         f.clock.Now(),
 	}
 }
 
 type constantBackOff struct {
-	backOff        *backoff.ConstantBackOff
-	maxElapsedTime time.Duration
-	clock          Clock
-	startTime      time.Time
+	//backOff        *backoff.ConstantBackOff
+	interval          time.Duration
+	maxElapsedTime    time.Duration
+	remainingBackOffs int64
+	clock             Clock
+	startTime         time.Time
 }
 
 func (b *constantBackOff) getElapsedTime() time.Duration {
@@ -61,12 +81,11 @@ func (b *constantBackOff) Next() time.Duration {
 	if b.maxElapsedTime != 0 && b.getElapsedTime() > b.maxElapsedTime {
 		return BackOffStop
 	}
-	next := b.backOff.NextBackOff()
-	if next == backoff.Stop {
-		// should never happen
+	if b.remainingBackOffs == 0 {
 		return BackOffStop
 	}
-	return next
+	b.remainingBackOffs--
+	return b.interval
 }
 
 type ExponentialBackOffFactoryOpts struct {
@@ -80,9 +99,12 @@ type ExponentialBackOffFactoryOpts struct {
 	// Otherwise, currentInterval *= Multiplier
 	MaxInterval time.Duration
 
-	// After MaxElapsedTime the ExponentialBackOff stops.
-	// It never stops if MaxElapsedTime == 0.
+	// After MaxElapsedTime or MaxNumBackOffs(whichever comes first) the BackOff
+	// stops.
+	// If both are 0, it never stops backing off.
+	// If only one of them is 0, then the other is checked.
 	MaxElapsedTime time.Duration
+	MaxNumBackOffs int64
 	Clock          Clock
 }
 
@@ -94,31 +116,45 @@ func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
 		Multiplier:          multiplier,
 		MaxInterval:         maxInterval,
 		MaxElapsedTime:      maxElapsedTime,
+		MaxNumBackOffs:      0,
 	}
 }
 
+// ExponentialBackOffFactory creates non-thread-safe exponential BackOff objects
 type ExponentialBackOffFactory struct {
 	initialInterval     time.Duration
 	randomizationFactor float64
 	multiplier          float64
 	maxInterval         time.Duration
 	maxElapsedTime      time.Duration
+	maxNumBackOffs      int64
 	clock               Clock
 }
 
 func NewExponentialBackOffFactory(opts *ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {
+	if opts.InitialInterval < 0 ||
+		opts.RandomizationFactor < 0 || opts.RandomizationFactor > 1 ||
+		opts.Multiplier <= 0 || opts.MaxInterval <= 0 ||
+		opts.MaxElapsedTime < 0 || opts.MaxNumBackOffs < 0 {
+		panic("Invalid arguments")
+	}
 	return &ExponentialBackOffFactory{
 		initialInterval:     opts.InitialInterval,
 		randomizationFactor: opts.RandomizationFactor,
 		multiplier:          opts.Multiplier,
 		maxInterval:         opts.MaxInterval,
 		maxElapsedTime:      opts.MaxElapsedTime,
+		maxNumBackOffs:      opts.MaxNumBackOffs,
 		clock:               opts.Clock,
 	}
 
 }
 
 func (f *ExponentialBackOffFactory) NewBackOff() BackOff {
+	remainingBackOffs := int64(-1)
+	if f.maxNumBackOffs > 0 {
+		remainingBackOffs = f.maxNumBackOffs
+	}
 	b := &backoff.ExponentialBackOff{
 		InitialInterval:     f.initialInterval,
 		RandomizationFactor: f.randomizationFactor,
@@ -127,22 +163,23 @@ func (f *ExponentialBackOffFactory) NewBackOff() BackOff {
 		MaxElapsedTime:      f.maxElapsedTime,
 		Clock:               f.clock,
 	}
-	if b.RandomizationFactor < 0 {
-		b.RandomizationFactor = 0
-	} else if b.RandomizationFactor > 1 {
-		b.RandomizationFactor = 1
-	}
 	b.Reset()
 	return &exponentialBackOff{
-		backOff: b,
+		backOff:           b,
+		remainingBackOffs: remainingBackOffs,
 	}
 }
 
 type exponentialBackOff struct {
-	backOff *backoff.ExponentialBackOff
+	backOff           *backoff.ExponentialBackOff
+	remainingBackOffs int64
 }
 
 func (b *exponentialBackOff) Next() time.Duration {
+	if b.backOff.MaxElapsedTime == 0 && b.remainingBackOffs == 0 {
+		return BackOffStop
+	}
+	b.remainingBackOffs--
 	next := b.backOff.NextBackOff()
 	if next == backoff.Stop {
 		return BackOffStop

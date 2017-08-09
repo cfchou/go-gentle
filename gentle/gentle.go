@@ -16,12 +16,12 @@ var (
 	// the replacement of underlying errors of package hystrix.
 
 	// ErrCbOpen suggests the circuit is opened.
-	ErrCbOpen           = errors.New(hystrix.ErrCircuitOpen.Error())
+	ErrCbOpen = errors.New(hystrix.ErrCircuitOpen.Error())
 	// ErrCbMaxConcurrency suggests the circuit has reached its maximum
 	// concurrency of operations.
 	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
 	// ErrCbTimeout suggests the operation has run for too long.
-	ErrCbTimeout        = errors.New(hystrix.ErrTimeout.Error())
+	ErrCbTimeout = errors.New(hystrix.ErrTimeout.Error())
 
 	// ErrMaxConcurrency suggests BulkheadStream/BulkheadHandler has reached
 	// its maximum concurrency of operations.

@@ -34,6 +34,7 @@ import:
   version: ^2.11.0
 - package: github.com/cenkalti/backoff
   version: ^1.0.0
+- package: github.com/benbjohnson/clock
 testImport:
 - package: github.com/stretchr/testify
 - package: github.com/rs/xid
