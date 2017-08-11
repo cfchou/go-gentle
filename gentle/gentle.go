@@ -1,6 +1,7 @@
 package gentle
 
 import (
+	"context"
 	"errors"
 	"github.com/afex/hystrix-go/hystrix"
 	"gopkg.in/inconshreveable/log15.v2"
@@ -53,6 +54,11 @@ type Handler interface {
 	Handle(msg Message) (Message, error)
 }
 
+type CStream interface {
+	// Get() returns either a Message or an error exclusively.
+	Get(context.Context) (Message, error)
+}
+
 // Names identifies resilience Streams/Handlers defined in this package.
 type Names struct {
 	Namespace  string
@@ -68,23 +74,23 @@ type Identity interface {
 
 // Logger provides structural logging
 type Logger interface {
-	// Log a message at the given level with key/value pairs. The number of ctx
-	// must be a multiple of two(for a key/value pair).
-	Debug(msg string, ctx ...interface{})
-	Info(msg string, ctx ...interface{})
-	Warn(msg string, ctx ...interface{})
-	Error(msg string, ctx ...interface{})
-	Crit(msg string, ctx ...interface{})
+	// Log a message at the given level with key/value pairs. The number of
+	// fields must be multiple of two(for a key/value pair).
+	Debug(msg string, fields ...interface{})
+	Info(msg string, fields ...interface{})
+	Warn(msg string, fields ...interface{})
+	Error(msg string, fields ...interface{})
+	Crit(msg string, fields ...interface{})
 }
 
 // noOpLogger logs nothing
 type noOpLogger struct{}
 
-func (l *noOpLogger) Debug(msg string, ctx ...interface{}) {}
-func (l *noOpLogger) Info(msg string, ctx ...interface{})  {}
-func (l *noOpLogger) Warn(msg string, ctx ...interface{})  {}
-func (l *noOpLogger) Error(msg string, ctx ...interface{}) {}
-func (l *noOpLogger) Crit(msg string, ctx ...interface{})  {}
+func (l *noOpLogger) Debug(msg string, fields ...interface{}) {}
+func (l *noOpLogger) Info(msg string, fields ...interface{})  {}
+func (l *noOpLogger) Warn(msg string, fields ...interface{})  {}
+func (l *noOpLogger) Error(msg string, fields ...interface{}) {}
+func (l *noOpLogger) Crit(msg string, fields ...interface{})  {}
 
 // noopLogger is a single instance of noOpLogger.
 var noopLogger = &noOpLogger{}
