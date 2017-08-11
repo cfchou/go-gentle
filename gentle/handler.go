@@ -10,10 +10,9 @@ import (
 
 const (
 	// Types of resilience, are most often used as part of RegistryKey.
-	HandlerRateLimited = "hRate"
-	HandlerRetry       = "hRetry"
-	HandlerBulkhead    = "hBulk"
-	//HandlerSemaphore      = "hSem"
+	HandlerRateLimited    = "hRate"
+	HandlerRetry          = "hRetry"
+	HandlerBulkhead       = "hBulk"
 	HandlerCircuitBreaker = "hCircuit"
 )
 
@@ -278,80 +277,6 @@ func (r *bulkheadHandler) GetNames() *Names {
 		Name:       r.name,
 	}
 }
-
-/*
-type SemaphoreHandlerOpts struct {
-	handlerOpts
-	MaxConcurrency int
-}
-
-func NewSemaphoreHandlerOpts(namespace, name string, maxConcurrency int) *SemaphoreHandlerOpts {
-	if maxConcurrency <= 0 {
-		panic(errors.New("maxConcurrent must be greater than 0"))
-	}
-	return &SemaphoreHandlerOpts{
-		handlerOpts: handlerOpts{
-			Namespace: namespace,
-			Name:      name,
-			Log: Log.New("namespace", namespace,
-				"gentle", HandlerSemaphore, "name", name),
-			MetricHandle: noopMetric,
-		},
-		MaxConcurrency: maxConcurrency,
-	}
-}
-
-// It allows at maximum $max_concurrency Handle() to run concurrently. Similar
-// to Bulkhead, but it blocks when MaxConcurrency is reached.
-type semaphoreHandler struct {
-	*handlerFields
-	handler   Handler
-	semaphore chan struct{}
-}
-
-func NewSemaphoreHandler(opts *SemaphoreHandlerOpts, handler Handler) Handler {
-	return &semaphoreHandler{
-		handlerFields: newHandlerFields(&opts.handlerOpts),
-		handler:       handler,
-		semaphore:     make(chan struct{}, opts.MaxConcurrency),
-	}
-}
-
-func (r *semaphoreHandler) Handle(msg Message) (Message, error) {
-	begin := time.Now()
-	r.log.Debug("[Handler] Handle() ...", "msgIn", msg.ID())
-	r.semaphore <- struct{}{}
-	defer func() { <-r.semaphore }()
-	msgOut, err := r.handler.Handle(msg)
-	timespan := time.Since(begin).Seconds()
-	if err != nil {
-		r.log.Error("[Handler] Handle() err", "msgIn", msg.ID(),
-			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, labelErr)
-		return nil, err
-	}
-	r.log.Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
-		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, labelOk)
-	return msgOut, nil
-}
-
-func (r *semaphoreHandler) GetMaxConcurrency() int {
-	return cap(r.semaphore)
-}
-
-func (r *semaphoreHandler) GetCurrentConcurrency() int {
-	return len(r.semaphore)
-}
-
-func (r *semaphoreHandler) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: HandlerSemaphore,
-		Name:       r.name,
-	}
-}
-*/
 
 type CircuitBreakerHandlerOpts struct {
 	handlerOpts

@@ -15,7 +15,8 @@
     may consider integrate with context
     add mock
 
-* Add context support. Bulkhead can be thread-isolation.
+* Add context support.
+
 
 
 * eliminate duplicated log.Error
@@ -24,6 +25,8 @@
 
 * improve Observe(value, labels, optional data)
     remove Unused MX_XXXX
+
+* opentracing
 
 
 ## DONE
