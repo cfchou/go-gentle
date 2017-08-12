@@ -8,19 +8,6 @@ import (
 	"time"
 )
 
-const (
-	// Types of resilience, are most often used as part of RegistryKey.
-	StreamRateLimited    = "sRate"
-	StreamRetry          = "sRetry"
-	StreamBulkhead       = "sBulk"
-	StreamCircuitBreaker = "sCircuit"
-)
-
-var (
-	labelOk  = map[string]string{"result": "ok"}
-	labelErr = map[string]string{"result": "err"}
-)
-
 // Common options for XXXStreamOpts
 type streamOpts struct {
 	Namespace string

@@ -3,23 +3,24 @@ package gentle
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"sync"
 	"testing"
 	"time"
 )
 
-func TestRateLimitedCStream_Get(t *testing.T) {
-	// 1 msg/sec
+func TestRateLimitedCHandler_Handle(t *testing.T) {
+	// 1 msg/sec, no burst
 	requestsInterval := 100 * time.Millisecond
-	src, done := createInfiniteMessageChan()
-	var chanStream SimpleCStream = func(ctx2 context.Context) (Message, error) {
-		return <-src, nil
-	}
-	stream := NewRateLimitedCStream(
-		NewRateLimitedCStreamOpts("", "test",
+	mhandler := &MockCHandler{}
+	handler := NewRateLimitedCHandler(
+		NewRateLimitedCHandlerOpts("", "test",
 			NewTokenBucketRateLimit(requestsInterval, 1)),
-		chanStream)
-	count := 4
+		mhandler)
+	mm := &fakeMsg{id: "123"}
+	mhandler.On("Handle", mock.Anything, mm).Return(mm, nil)
+
+	count := 3
 	minimum := time.Duration(count-1) * requestsInterval
 	var wg sync.WaitGroup
 	wg.Add(count)
@@ -27,7 +28,7 @@ func TestRateLimitedCStream_Get(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := stream.Get(ctx)
+			_, err := handler.Handle(ctx, mm)
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -36,5 +37,4 @@ func TestRateLimitedCStream_Get(t *testing.T) {
 	dura := time.Now().Sub(begin)
 	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
 	assert.True(t, dura >= minimum)
-	done <- &struct{}{}
 }

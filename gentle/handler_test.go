@@ -346,44 +346,6 @@ func TestBulkheadHandler_Handle(t *testing.T) {
 	}
 }
 
-/*
-func TestSemaphoreHandler_Handle(t *testing.T) {
-	maxConcurrency := 4
-	mhandler := &MockHandler{}
-	handler := NewSemaphoreHandler(
-		NewSemaphoreHandlerOpts("", "test", maxConcurrency),
-		mhandler)
-	mm := &fakeMsg{id: "123"}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(maxConcurrency)
-	block := make(chan struct{}, 0)
-	mhandler.On("Handle", mm).Return(
-		func(Message) Message {
-			wg.Done()
-			// every Handle() would be blocked here
-			block <- struct{}{}
-			return mm
-		}, nil)
-
-	for i := 0; i < maxConcurrency; i++ {
-		go handler.Handle(mm)
-	}
-	// Wait() until $maxConcurrency of Handle() are blocked
-	wg.Wait()
-
-	go func() {
-		// blocked...
-		handler.Handle(mm)
-		assert.Fail(t, "Handle() should be blocked")
-	}()
-	// TODO:
-	// Sleep to see if assert.Fail() is triggered. This isn't perfect but it's
-	// not easy to prove the previous handler.Handle() is blocked forever.
-	time.Sleep(2 * time.Second)
-}
-*/
-
 func TestCircuitBreakerHandler_Handle(t *testing.T) {
 	defer hystrix.Flush()
 	maxConcurrency := 4

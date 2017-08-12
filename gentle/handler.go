@@ -8,14 +8,6 @@ import (
 	"time"
 )
 
-const (
-	// Types of resilience, are most often used as part of RegistryKey.
-	HandlerRateLimited    = "hRate"
-	HandlerRetry          = "hRetry"
-	HandlerBulkhead       = "hBulk"
-	HandlerCircuitBreaker = "hCircuit"
-)
-
 // Common options for XXXHandlerOpts
 type handlerOpts struct {
 	Namespace    string

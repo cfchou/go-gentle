@@ -1,5 +1,7 @@
 package gentle
 
+import "context"
+
 // StreamFallback is a fallback function of an error.
 type StreamFallback func(error) (Message, error)
 
@@ -84,6 +86,29 @@ func AppendFallbacksHandler(handler Handler, fallbacks ...HandlerFallback) Handl
 			}
 		}
 		return nil, err
+	}
+	return simple
+}
+
+type SimpleCStream func(context.Context) (Message, error)
+
+func (r SimpleCStream) Get(ctx context.Context) (Message, error) {
+	return r(ctx)
+}
+
+func AppendCHandlersCStream(stream CStream, handlers ...CHandler) CStream {
+	var simple SimpleCStream = func(ctx context.Context) (Message, error) {
+		msg, err := stream.Get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, handler := range handlers {
+			msg, err = handler.Handle(ctx, msg)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return msg, nil
 	}
 	return simple
 }

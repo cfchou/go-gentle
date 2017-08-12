@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+const (
+	// Types of resilience, are most often used with namespace & name to form a
+	// key.
+	// Since there's only one method for Stream/Handler, they are also used as
+	// operation names for opentracing spans.
+	StreamRateLimited     = "sRate"
+	StreamRetry           = "sRetry"
+	StreamBulkhead        = "sBulk"
+	StreamCircuitBreaker  = "sCircuit"
+	HandlerRateLimited    = "hRate"
+	HandlerRetry          = "hRetry"
+	HandlerBulkhead       = "hBulk"
+	HandlerCircuitBreaker = "hCircuit"
+)
+
 var (
 	// Log is a package level logger. It's the parent logger of all loggers used
 	// by resilience Streams/Handlers defined in this package.
@@ -27,6 +42,10 @@ var (
 	// ErrMaxConcurrency suggests BulkheadStream/BulkheadHandler has reached
 	// its maximum concurrency of operations.
 	ErrMaxConcurrency = errors.New("Reached Max Concurrency")
+
+	// Metrics
+	labelOk  = map[string]string{"result": "ok"}
+	labelErr = map[string]string{"result": "err"}
 )
 
 func init() {
@@ -51,12 +70,18 @@ type Stream interface {
 type Handler interface {
 	// Handle() takes a Message as input and then returns either a Message or
 	// an error exclusively.
-	Handle(msg Message) (Message, error)
+	Handle(Message) (Message, error)
 }
 
 type CStream interface {
 	// Get() returns either a Message or an error exclusively.
 	Get(context.Context) (Message, error)
+}
+
+type CHandler interface {
+	// Handle() takes a Message as input and then returns either a Message or
+	// an error exclusively.
+	Handle(context.Context, Message) (Message, error)
 }
 
 // Names identifies resilience Streams/Handlers defined in this package.
@@ -71,29 +96,6 @@ type Names struct {
 type Identity interface {
 	GetNames() *Names
 }
-
-// Logger provides structural logging
-type Logger interface {
-	// Log a message at the given level with key/value pairs. The number of
-	// fields must be multiple of two(for a key/value pair).
-	Debug(msg string, fields ...interface{})
-	Info(msg string, fields ...interface{})
-	Warn(msg string, fields ...interface{})
-	Error(msg string, fields ...interface{})
-	Crit(msg string, fields ...interface{})
-}
-
-// noOpLogger logs nothing
-type noOpLogger struct{}
-
-func (l *noOpLogger) Debug(msg string, fields ...interface{}) {}
-func (l *noOpLogger) Info(msg string, fields ...interface{})  {}
-func (l *noOpLogger) Warn(msg string, fields ...interface{})  {}
-func (l *noOpLogger) Error(msg string, fields ...interface{}) {}
-func (l *noOpLogger) Crit(msg string, fields ...interface{})  {}
-
-// noopLogger is a single instance of noOpLogger.
-var noopLogger = &noOpLogger{}
 
 // RateLimit is an interface for a "token bucket" algorithm.
 type RateLimit interface {

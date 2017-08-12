@@ -35,48 +35,6 @@ func createInfiniteMessageChan() (<-chan Message, chan *struct{}) {
 	return src, done
 }
 
-/*
-// Returns a channelStream which contains $count number of mock Messages that
-// are also returned.
-func genChannelStreamWithMessages(count int) (Stream, []Message) {
-	msgs := make([]Message, count)
-	for i := 0; i < count; i++ {
-		mm := &fakeMsg{id: strconv.Itoa(i)}
-		msgs[i] = mm
-	}
-	src := make(chan interface{}, 1)
-	go func() {
-		for i := 0; i < count; i++ {
-			src <- msgs[i]
-		}
-	}()
-	return NewChannelStream(
-		NewChannelStreamOpts("", "test", src)), msgs
-}
-
-func TestChannelStream_Get(t *testing.T) {
-	mm := &fakeMsg{id: "123"}
-	src := make(chan interface{}, 1)
-	src <- mm
-	stream := NewChannelStream(
-		NewChannelStreamOpts("", "test", src))
-	msgOut, err := stream.Get()
-	assert.NoError(t, err)
-	assert.Equal(t, msgOut.ID(), mm.ID())
-}
-
-func TestChannelStream_Get_2(t *testing.T) {
-	count := 10
-	stream, msgs := genChannelStreamWithMessages(count)
-
-	for i := 0; i < count; i++ {
-		msgOut, err := stream.Get()
-		assert.NoError(t, err)
-		assert.Equal(t, msgOut.ID(), msgs[i].ID())
-	}
-}
-*/
-
 func TestRateLimitedStream_Get(t *testing.T) {
 	// 1 msg/sec
 	requestsInterval := 100 * time.Millisecond
@@ -412,44 +370,6 @@ func TestBulkheadStream_Get(t *testing.T) {
 		<-block
 	}
 }
-
-/*
-func TestSemaphoreStream_Get(t *testing.T) {
-	maxConcurrency := 4
-	mstream := &MockStream{}
-	stream := NewSemaphoreStream(
-		NewSemaphoreStreamOpts("", "test", maxConcurrency),
-		mstream)
-	mm := &fakeMsg{id: "123"}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(maxConcurrency)
-	block := make(chan struct{}, 0)
-	mstream.On("Get").Return(
-		func() Message {
-			wg.Done()
-			// every Get() would be blocked here
-			block <- struct{}{}
-			return mm
-		}, nil)
-
-	for i := 0; i < maxConcurrency; i++ {
-		go stream.Get()
-	}
-	// Wait() until $maxConcurrency of Get() are blocked
-	wg.Wait()
-
-	go func() {
-		// blocked...
-		stream.Get()
-		assert.Fail(t, "Get() should be blocked")
-	}()
-	// TODO:
-	// Sleep to see if assert.Fail() is triggered. This isn't perfect but it's
-	// not easy to prove the previous stream.Get() is blocked forever.
-	time.Sleep(2 * time.Second)
-}
-*/
 
 func TestCircuitBreakerStream_Get(t *testing.T) {
 	defer hystrix.Flush()

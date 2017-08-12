@@ -6,17 +6,17 @@
 
 * golint
 
-* RateLimit interface
-    add https://godoc.org/golang.org/x/time/rate implementation
-
 * Add context support.
     context should not be embedded in Message, since context propagation is
     normally one-way(parent to children).
 
-* opentracing
-    Tracer can be obtain from context.
-    Abstract logger to optionally writes to SpanContext.
+* RateLimit interface
+    add https://godoc.org/golang.org/x/time/rate implementation
+    RateLimit.Wait() support context for supporting cancellation.
 
+* opentracing
+    Span an be obtain from context.
+    Abstract logger to optionally writes to SpanContext.
 
 * eliminate duplicated log.Error
 
