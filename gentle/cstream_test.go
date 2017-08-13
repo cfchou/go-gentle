@@ -3,7 +3,9 @@ package gentle
 import (
 	"context"
 	"errors"
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"math/rand"
@@ -313,8 +315,8 @@ func TestRetryCStream_Get_MockBackOff_Timeout(t *testing.T) {
 			})
 		// Never run out of back-offs
 		mback.On("Next").Return(func() time.Duration {
+			log.Debug("[test] Next() sleep")
 			time.Sleep(suspend)
-			log.Debug("[test] Next() no sleep")
 			return suspend
 		})
 
@@ -425,7 +427,8 @@ func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestBulkheadCStream_Get(t *testing.T) {
+func TestBulkheadCStream_Get_MaxConcurrency(t *testing.T) {
+	// Return ErrMaxConcurrency when allowance is reached
 	run := func(maxConcurrency int) bool {
 		mstream := &MockCStream{}
 		stream := NewBulkheadCStream(
@@ -463,5 +466,63 @@ func TestBulkheadCStream_Get(t *testing.T) {
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
+	}
+}
+
+// TODO: fix race-condition
+func __TestCircuitBreakerCStream_Get_MaxConcurrency(t *testing.T) {
+	// Return ErrCbMaxConcurrency when allowance is reached.
+	//
+	defer hystrix.Flush()
+	maxConcurrency := 4
+	circuit := xid.New().String()
+	mstream := &MockCStream{}
+
+	conf := NewDefaultCircuitBreakerConf()
+	conf.MaxConcurrent = maxConcurrency
+	// Make Timeout large enough for this test case
+	conf.Timeout = time.Minute
+	// The number of errors of ErrCbMaxConcurrency makes up ErrCbOpen
+	conf.VolumeThreshold = 5
+	conf.ErrorPercentThreshold = 10
+	// During SleepWindow, ErrCbOpen remains.
+	conf.SleepWindow = time.Minute
+	conf.RegisterFor(circuit)
+
+	stream := NewCircuitBreakerCStream(
+		NewCircuitBreakerCStreamOpts("", "test", circuit),
+		mstream)
+	mm := &fakeMsg{id: "123"}
+
+	var wg sync.WaitGroup
+	wg.Add(maxConcurrency)
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mstream.On("Get", mock.Anything).Return(
+		func(ctx2 context.Context) Message {
+			wg.Done()
+			<-block
+			return mm
+		}, nil)
+
+	ctx := context.Background()
+	for i := 0; i < maxConcurrency; i++ {
+		go func() {
+			stream.Get(ctx)
+		}()
+	}
+	// Make sure previous Get() are all running before the next
+	wg.Wait()
+	// One more call while all previous calls sticking in the circuit
+	_, err := stream.Get(ctx)
+	assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
+
+	for {
+		_, err := stream.Get(ctx)
+		if err == ErrCbOpen {
+			log.Debug("[Test] circuit opened")
+			break
+		}
+		assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
 	}
 }

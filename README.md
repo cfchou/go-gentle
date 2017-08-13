@@ -27,7 +27,7 @@ with advanced flow controls, like these resilience Streams/Handlers provided in 
 
 ## Install
 
-The master branch is considered unstable. Use [semantic versioning](http://gopkg.in/cfchou/go-gentle.v1/gentle) and verdor this library.
+The master branch is considered unstable. Always depend on [semantic versioning](http://semver.org/) and verdor this library.
 
 If you're using [glide](https://glide.sh/), simply run:
 ```

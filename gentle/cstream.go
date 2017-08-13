@@ -3,6 +3,7 @@ package gentle
 import (
 	"context"
 	"errors"
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
 	"github.com/opentracing/opentracing-go"
 	"time"
@@ -355,4 +356,135 @@ func (r *bulkheadCStream) GetMaxConcurrency() int {
 
 func (r *bulkheadCStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
+}
+
+type CircuitBreakerCStreamOpts struct {
+	cstreamOpts
+	MetricCbErr Metric
+	Circuit     string
+}
+
+func NewCircuitBreakerCStreamOpts(namespace, name, circuit string) *CircuitBreakerCStreamOpts {
+	return &CircuitBreakerCStreamOpts{
+		cstreamOpts: cstreamOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace,
+				"gentle", StreamCircuitBreaker,
+				"name", name, "circuit", circuit),
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
+		},
+		MetricCbErr: noopMetric,
+		Circuit:     circuit,
+	}
+}
+
+// circuitBreakerStream is a Stream equipped with a circuit-breaker.
+type circuitBreakerCStream struct {
+	*cstreamFields
+	mxCbErr Metric
+	circuit string
+	stream  CStream
+}
+
+// In hystrix-go, a circuit-breaker must be given a unique name.
+// NewCircuitBreakerStream() creates a circuitBreakerStream with a
+// circuit-breaker named $circuit.
+func NewCircuitBreakerCStream(opts *CircuitBreakerCStreamOpts, stream CStream) CStream {
+
+	// Note that if it might overwrite or be overwritten by concurrently
+	// registering the same circuit.
+	allCircuits := hystrix.GetCircuitSettings()
+	if _, ok := allCircuits[opts.Circuit]; !ok {
+		NewDefaultCircuitBreakerConf().RegisterFor(opts.Circuit)
+	}
+
+	return &circuitBreakerCStream{
+		cstreamFields: newCStreamFields(&opts.cstreamOpts),
+		mxCbErr:       opts.MetricCbErr,
+		circuit:       opts.Circuit,
+		stream:        stream,
+	}
+}
+
+func (r *circuitBreakerCStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	}
+	r.log.For(ctx).Info("[Stream] Get() ...")
+	begin := time.Now()
+
+	result := make(chan interface{}, 1)
+	err = hystrix.Do(r.circuit, func() error {
+		msg, err := r.stream.Get(ctx)
+		timespan := time.Since(begin).Seconds()
+		if err != nil {
+			r.log.For(ctx).Error("[Stream] stream.Get() err",
+				"err", err, "timespan", timespan)
+			// NOTE:
+			// 1. This err could be captured outside if a hystrix's error
+			//    doesn't take precedence.
+			// 2. Being captured or not, it contributes to hystrix metrics.
+			return err
+		}
+		r.log.For(ctx).Debug("[Stream] stream.Get() ok",
+			"msgOut", msg.ID(), "timespan", timespan)
+		result <- msg
+		return nil
+	}, nil)
+	// NOTE:
+	// Capturing error from stream.Get() or from hystrix if criteria met.
+	if err != nil {
+		timespan := time.Since(begin).Seconds()
+		defer func() {
+			r.mxGet.Observe(timespan, labelErr)
+		}()
+		// To prevent misinterpreting when wrapping one circuitBreakerStream
+		// over another. Hystrix errors are replaced so that Get() won't return
+		// any hystrix errors.
+		switch err {
+		case hystrix.ErrCircuitOpen:
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbOpen"})
+			return nil, ErrCbOpen
+		case hystrix.ErrMaxConcurrency:
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbMaxConcurrency"})
+			return nil, ErrCbMaxConcurrency
+		case hystrix.ErrTimeout:
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbTimeout"})
+			return nil, ErrCbTimeout
+		default:
+			// Captured error from stream::Get()
+			r.mxCbErr.Observe(1, map[string]string{"err": "NonCbErr"})
+			return nil, err
+		}
+	}
+	msgOut := (<-result).(Message)
+	timespan := time.Since(begin).Seconds()
+	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
+		"timespan", timespan)
+	r.mxGet.Observe(timespan, labelOk)
+	return msgOut, nil
+}
+
+func (r *circuitBreakerCStream) GetNames() *Names {
+	return &Names{
+		Namespace:  r.namespace,
+		Resilience: StreamCircuitBreaker,
+		Name:       r.name,
+	}
+}
+
+func (r *circuitBreakerCStream) GetCircuitName() string {
+	return r.circuit
 }
