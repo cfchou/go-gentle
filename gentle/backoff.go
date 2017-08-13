@@ -29,7 +29,7 @@ func NewConstantBackOffFactoryOpts(interval time.Duration,
 	}
 }
 
-// ConstantBackOffFactory creates  non-thread-safe constant BackOff objects.
+// ConstantBackOffFactory creates non-thread-safe constant BackOff objects.
 type ConstantBackOffFactory struct {
 	interval       time.Duration
 	maxElapsedTime time.Duration
@@ -55,17 +55,14 @@ func (f *ConstantBackOffFactory) NewBackOff() BackOff {
 		remainingBackOffs = f.maxNumBackOffs
 	}
 	return &constantBackOff{
-		//backOff:        backoff.NewConstantBackOff(f.interval),
 		interval:          f.interval,
 		maxElapsedTime:    f.maxElapsedTime,
 		remainingBackOffs: remainingBackOffs,
 		clock:             f.clock,
-		startTime:         f.clock.Now(),
 	}
 }
 
 type constantBackOff struct {
-	//backOff        *backoff.ConstantBackOff
 	interval          time.Duration
 	maxElapsedTime    time.Duration
 	remainingBackOffs int64
@@ -78,6 +75,9 @@ func (b *constantBackOff) getElapsedTime() time.Duration {
 }
 
 func (b *constantBackOff) Next() time.Duration {
+	if b.startTime.IsZero() {
+		b.startTime = b.clock.Now()
+	}
 	if b.maxElapsedTime != 0 && b.getElapsedTime() > b.maxElapsedTime {
 		return BackOffStop
 	}
@@ -117,6 +117,7 @@ func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
 		MaxInterval:         maxInterval,
 		MaxElapsedTime:      maxElapsedTime,
 		MaxNumBackOffs:      0,
+		Clock:               clock.New(),
 	}
 }
 
@@ -163,19 +164,25 @@ func (f *ExponentialBackOffFactory) NewBackOff() BackOff {
 		MaxElapsedTime:      f.maxElapsedTime,
 		Clock:               f.clock,
 	}
-	b.Reset()
+	//b.Reset()
 	return &exponentialBackOff{
 		backOff:           b,
+		started:           false,
 		remainingBackOffs: remainingBackOffs,
 	}
 }
 
 type exponentialBackOff struct {
 	backOff           *backoff.ExponentialBackOff
+	started           bool
 	remainingBackOffs int64
 }
 
 func (b *exponentialBackOff) Next() time.Duration {
+	if !b.started {
+		b.backOff.Reset()
+		b.started = true
+	}
 	if b.backOff.MaxElapsedTime == 0 && b.remainingBackOffs == 0 {
 		return BackOffStop
 	}

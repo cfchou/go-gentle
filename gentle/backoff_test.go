@@ -24,10 +24,8 @@ func TestConstantBackOffFactory_NewBackOff_MaxElapsedTime(t *testing.T) {
 func TestConstantBackOffFactory_NewBackOff_MaxNumBackOffs(t *testing.T) {
 	// MaxElapsedTime == 0 && MaxNumBackOffs > 0
 	// Stops when reached MaxNumBackOffs
-	mclock := clock.NewMock()
 	opts := NewConstantBackOffFactoryOpts(time.Second, 0)
 	opts.MaxNumBackOffs = 10
-	opts.Clock = mclock
 	factory := NewConstantBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	for i := int64(0); i < opts.MaxNumBackOffs; i++ {
@@ -68,10 +66,8 @@ func TestExponentialBackOffFactory_MaxElapsedTime(t *testing.T) {
 func TestExponentialBackOffFactory_MaxBackOffs(t *testing.T) {
 	// MaxElapsedTime == 0 && MaxNumBackOffs > 0
 	// Stops when reached MaxNumBackOffs
-	mclock := clock.NewMock()
 	opts := NewExponentialBackOffFactoryOpts(time.Second, 1, time.Second, 0)
 	opts.MaxNumBackOffs = 10
-	opts.Clock = mclock
 	factory := NewExponentialBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	for i := int64(0); i < opts.MaxNumBackOffs; i++ {
