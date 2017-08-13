@@ -18,13 +18,22 @@
     Span an be obtain from context.
     Abstract logger to optionally writes to SpanContext.
 
-* eliminate duplicated log.Error
+* eliminate duplicated log
+    logging levels in Get()/Handle():
+        info: entry(for auditing)
+        debug: success return
+        error: failure return
+        debug: others
+
 
 * remove/export noopLogger
+
+* package-wise setLogger()
 
 * improve Observe(value, labels, optional data)
     remove Unused MX_XXXX
 
+* exported symbols make clients also depend on external packages like clock.
 
 ## DONE
 * Opts passed by addr

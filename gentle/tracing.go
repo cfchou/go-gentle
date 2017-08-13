@@ -9,14 +9,14 @@ import (
 )
 
 // TracingRef is opentracing tracing causal reference, currently either a
-// ChildOf or a FlowFrom.
+// ChildOf or a FollowsFrom.
 type TracingRef int
 
 const (
 	// TracingChildOf represents tracing causal reference ChildOf.
 	TracingChildOf TracingRef = iota
-	// TracingFlowFrom represents tracing causal reference FromFrom.
-	TracingFlowFrom
+	// TracingFollowsFrom represents tracing causal reference FromFrom.
+	TracingFollowsFrom
 )
 
 var (
@@ -167,7 +167,7 @@ func contextWithNewSpan(ctx context.Context, tracer opentracing.Tracer,
 		span = tracer.StartSpan(StreamRateLimited,
 			opentracing.ChildOf(prevSpan.Context()))
 		ctx = opentracing.ContextWithSpan(ctx, span)
-	} else if ref == TracingFlowFrom {
+	} else if ref == TracingFollowsFrom {
 		span = tracer.StartSpan(StreamRateLimited,
 			opentracing.FollowsFrom(prevSpan.Context()))
 		ctx = opentracing.ContextWithSpan(ctx, span)
