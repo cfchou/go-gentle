@@ -2,7 +2,7 @@ package gentle
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"github.com/opentracing/opentracing-go"
 	tlog "github.com/opentracing/opentracing-go/log"
 	"time"
@@ -20,10 +20,10 @@ const (
 )
 
 var (
-	errNoSpan           = fmt.Errorf("No span")
-	errTracingReference = fmt.Errorf("Unsupported tracing reference")
-	errNotEvenFields    = fmt.Errorf("Number of log fields is not even")
-	errFieldType        = fmt.Errorf("Not valid log field type")
+	errNoSpan           = errors.New("No span")
+	errTracingReference = errors.New("Unsupported tracing reference")
+	errNotEvenFields    = errors.New("Number of log fields is not even")
+	errFieldType        = errors.New("Not valid log field type")
 )
 
 // loggerFactory is the default logging wrapper that can create either a

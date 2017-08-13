@@ -26,7 +26,8 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	rand.Seed(time.Now().UTC().UnixNano())
 	//h := log15.LvlFilterHandler(log15.LvlDebug, log15.CallerFuncHandler(log15.StdoutHandler))
-	h := log15.LvlFilterHandler(log15.LvlDebug, callerFuncHandler(log15.StdoutHandler))
+	//h := log15.LvlFilterHandler(log15.LvlDebug, callerFuncHandler(log15.StdoutHandler))
+	h := log15.LvlFilterHandler(log15.LvlDebug, log15.StdoutHandler)
 	//h := log15.LvlFilterHandler(log15.LvlDebug,
 	//	log15.MultiHandler(
 	//		log15.StdoutHandler,
@@ -37,6 +38,8 @@ func TestMain(m *testing.M) {
 
 // log15.CallerFuncHandler prints import-path-qualified function name whereas
 // we want function name only.
+// TODO:
+// callerFuncHandler doesn't work when logger is wrapped in loggerFactory
 func callerFuncHandler(h log15.Handler) log15.Handler {
 	return log15.FuncHandler(func(r *log15.Record) error {
 		call := stack.Call(r.CallPC[0])

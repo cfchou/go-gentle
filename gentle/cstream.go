@@ -2,6 +2,7 @@ package gentle
 
 import (
 	"context"
+	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/opentracing/opentracing-go"
 	"time"
@@ -81,8 +82,8 @@ func (r *rateLimitedCStream) Get(ctx context.Context) (Message, error) {
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	}
-	begin := time.Now()
 	r.log.For(ctx).Info("[Stream] Get() ...")
+	begin := time.Now()
 
 	c := make(chan struct{}, 1)
 	go func(ch chan<- struct{}) {
@@ -262,4 +263,96 @@ func (r *retryCStream) GetNames() *Names {
 		Resilience: StreamRetry,
 		Name:       r.name,
 	}
+}
+
+type BulkheadCStreamOpts struct {
+	cstreamOpts
+	MaxConcurrency int
+}
+
+func NewBulkheadCStreamOpts(namespace, name string, maxConcurrency int) *BulkheadCStreamOpts {
+	if maxConcurrency <= 0 {
+		panic(errors.New("max_concurrent must be greater than 0"))
+	}
+
+	return &BulkheadCStreamOpts{
+		cstreamOpts: cstreamOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace, "gentle",
+				StreamBulkhead, "name", name),
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
+		},
+		MaxConcurrency: maxConcurrency,
+	}
+}
+
+// Bulkhead pattern is used to limit the number of concurrently hanging Get().
+// It uses semaphore isolation, similar to the approach used in hystrix.
+// http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
+type bulkheadCStream struct {
+	*cstreamFields
+	stream    CStream
+	semaphore chan struct{}
+}
+
+// Create a bulkheadStream that allows at maximum $max_concurrency Get() to
+// run concurrently.
+func NewBulkheadCStream(opts *BulkheadCStreamOpts, upstream CStream) CStream {
+	return &bulkheadCStream{
+		cstreamFields: newCStreamFields(&opts.cstreamOpts),
+		stream:        upstream,
+		semaphore:     make(chan struct{}, opts.MaxConcurrency),
+	}
+}
+
+func (r *bulkheadCStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	}
+	r.log.For(ctx).Info("[Stream] Get() ...")
+	begin := time.Now()
+
+	select {
+	case r.semaphore <- struct{}{}:
+		defer func() {
+			<-r.semaphore
+		}()
+		msg, err := r.stream.Get(ctx)
+		timespan := time.Since(begin).Seconds()
+		if err != nil {
+			r.log.For(ctx).Error("[Stream] Get() err", "err", err,
+				"timespan", timespan)
+			r.mxGet.Observe(timespan, labelErr)
+			return nil, err
+		}
+		r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
+			"timespan", timespan)
+		r.mxGet.Observe(timespan, labelOk)
+		return msg, nil
+	default:
+		r.log.For(ctx).Error("[Stream] Get() err", "err", ErrMaxConcurrency)
+		return nil, ErrMaxConcurrency
+	}
+}
+
+func (r *bulkheadCStream) GetNames() *Names {
+	return &Names{
+		Namespace:  r.namespace,
+		Resilience: StreamBulkhead,
+		Name:       r.name,
+	}
+}
+
+func (r *bulkheadCStream) GetMaxConcurrency() int {
+	return cap(r.semaphore)
+}
+
+func (r *bulkheadCStream) GetCurrentConcurrency() int {
+	return len(r.semaphore)
 }

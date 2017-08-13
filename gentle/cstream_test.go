@@ -2,7 +2,7 @@ package gentle
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -134,7 +134,7 @@ func TestRetryCStream_Get_MockBackOff(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 		// create a backoff that fires 1 second for $backOffCount times
 		timespanMinimum := time.Duration(backOffCount) * time.Second
@@ -191,7 +191,7 @@ func TestRetryCStream_Get_ConstantBackOff(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
 		ctx := context.Background()
@@ -242,7 +242,7 @@ func TestRetryCStream_Get_ExponentialBackOff(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
 		ctx := context.Background()
@@ -296,7 +296,7 @@ func TestRetryCStream_Get_MockBackOff_Timeout(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
@@ -346,7 +346,7 @@ func TestRetryCStream_Get_ConstantBackOff_Timeout(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
@@ -393,7 +393,7 @@ func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 		mstream := &MockCStream{}
 		stream := NewRetryCStream(opts, mstream)
 
-		fakeErr := fmt.Errorf("A fake error")
+		fakeErr := errors.New("A fake error")
 		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
@@ -419,6 +419,47 @@ func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 		MaxCount: 10,
 		// [1ms, 2000ms]
 		Values: genBoundNonNegInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestBulkheadCStream_Get(t *testing.T) {
+	run := func(maxConcurrency int) bool {
+		mstream := &MockCStream{}
+		stream := NewBulkheadCStream(
+			NewBulkheadCStreamOpts("", "test", maxConcurrency),
+			mstream)
+		mm := &fakeMsg{id: "123"}
+
+		wg := &sync.WaitGroup{}
+		wg.Add(maxConcurrency)
+		block := make(chan struct{}, 1)
+		defer close(block)
+		mstream.On("Get", mock.Anything).Return(
+			func(ctx2 context.Context) Message {
+				wg.Done()
+				// every Get() would be blocked here
+				<-block
+				return mm
+			}, nil)
+
+		ctx := context.Background()
+		for i := 0; i < maxConcurrency; i++ {
+			go stream.Get(ctx)
+		}
+
+		// Wait() until $maxConcurrency of Get() are blocked
+		wg.Wait()
+		// one more Get() would cause ErrMaxConcurrency
+		msg, err := stream.Get(ctx)
+		return msg == nil && err == ErrMaxConcurrency
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		Values:   genBoundNonNegInt(1, 1000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
