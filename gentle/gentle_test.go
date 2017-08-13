@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"gopkg.in/inconshreveable/log15.v2"
 	"gopkg.in/inconshreveable/log15.v2/stack"
+	"math/rand"
 	"testing"
+	"time"
 )
 
 // Parent logger for tests
@@ -20,8 +22,9 @@ func (m *fakeMsg) ID() string {
 }
 
 func TestMain(m *testing.M) {
-	flag.Parse()
 	// TODO flags for log config
+	flag.Parse()
+	rand.Seed(time.Now().UTC().UnixNano())
 	//h := log15.LvlFilterHandler(log15.LvlDebug, log15.CallerFuncHandler(log15.StdoutHandler))
 	h := log15.LvlFilterHandler(log15.LvlDebug, callerFuncHandler(log15.StdoutHandler))
 	//h := log15.LvlFilterHandler(log15.LvlDebug,

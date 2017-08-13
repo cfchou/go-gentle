@@ -15,8 +15,8 @@ import (
 
 // Returns a $src of "chan Message" and $done chan of "chan *struct{}".
 // Every Message extracted from $src has a monotonically increasing id.
-func createInfiniteMessageChan() (<-chan Message, chan *struct{}) {
-	done := make(chan *struct{}, 1)
+func createInfiniteMessageChan() (<-chan Message, chan struct{}) {
+	done := make(chan struct{}, 1)
 	src := make(chan Message, 1)
 	go func() {
 		count := 0
@@ -39,6 +39,7 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	// 1 msg/sec
 	requestsInterval := 100 * time.Millisecond
 	src, done := createInfiniteMessageChan()
+	defer func() { done <- struct{}{} }()
 	var chanStream SimpleStream = func() (Message, error) {
 		return <-src, nil
 	}
@@ -62,7 +63,6 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	dura := time.Now().Sub(begin)
 	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
 	assert.True(t, dura >= minimum)
-	done <- &struct{}{}
 }
 
 func TestRetryStream_Get(t *testing.T) {
