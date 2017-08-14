@@ -3,7 +3,7 @@ package gentle
 import (
 	"context"
 	"errors"
-	"github.com/afex/hystrix-go/hystrix"
+	"github.com/cfchou/hystrix-go/hystrix"
 	"gopkg.in/inconshreveable/log15.v2"
 	"time"
 )

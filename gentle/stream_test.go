@@ -2,8 +2,8 @@ package gentle
 
 import (
 	"errors"
-	"github.com/afex/hystrix-go/hystrix"
 	"github.com/benbjohnson/clock"
+	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"strconv"
