@@ -10,7 +10,6 @@ import (
 )
 
 func TestRateLimitedCHandler_Handle(t *testing.T) {
-	// 1 msg/sec, no burst
 	requestsInterval := 100 * time.Millisecond
 	mhandler := &MockCHandler{}
 	handler := NewRateLimitedCHandler(
@@ -19,8 +18,7 @@ func TestRateLimitedCHandler_Handle(t *testing.T) {
 		mhandler)
 	mm := &fakeMsg{id: "123"}
 	mhandler.On("Handle", mock.Anything, mm).Return(mm, nil)
-
-	count := 3
+	count := 4
 	minimum := time.Duration(count-1) * requestsInterval
 	var wg sync.WaitGroup
 	wg.Add(count)

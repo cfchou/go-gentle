@@ -65,25 +65,27 @@ func TestRateLimitedCStream_Get(t *testing.T) {
 
 func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
 	// Get() timeout, while it's waiting for rate-limiter or upstream
+	timeout := 100 * time.Millisecond
 	run := func(intervalMs int) bool {
 		requestsInterval := time.Duration(intervalMs) * time.Millisecond
-		timeout := 100 * time.Millisecond
 		block := make(chan struct{}, 1)
 		_, done := createInfiniteMessageChan()
 		defer func() { done <- struct{}{} }()
-		var chanStream SimpleCStream = func(ctx2 context.Context) (Message, error) {
-			select {
-			case <-ctx2.Done():
-				log.Debug("[test] Context.Done()", "err", ctx2.Err())
-				return nil, ctx2.Err()
-			case <-block:
-				panic("never here")
-			}
-		}
+		mstream := &MockCStream{}
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx2 context.Context) error {
+				select {
+				case <-ctx2.Done():
+					log.Debug("[test] Context.Done()", "err", ctx2.Err())
+					return ctx2.Err()
+				case <-block:
+					panic("never here")
+				}
+			})
 		stream := NewRateLimitedCStream(
 			NewRateLimitedCStreamOpts("", "test",
 				NewTokenBucketRateLimit(requestsInterval, 1)),
-			chanStream)
+			mstream)
 		count := 4
 		var wg sync.WaitGroup
 		wg.Add(count)
@@ -115,8 +117,8 @@ func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
 		}
 	}
 	config := &quick.Config{
-		// [1ms, 1hour]
-		Values: genBoundNonNegInt(1, 3600*1000),
+		// [1ms, 200ms]
+		Values: genBoundNonNegInt(1, 200),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
