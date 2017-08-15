@@ -99,7 +99,7 @@ func (r *rateLimitedCStream) Get(ctx context.Context) (Message, error) {
 	case <-ctx.Done():
 		timespan := time.Since(begin).Seconds()
 		err := ctx.Err()
-		r.log.For(ctx).Error("[Stream] Wait() interrupted", "err", err,
+		r.log.For(ctx).Warn("[Stream] Wait() interrupted", "err", err,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, labelErr)
 		return nil, err
@@ -161,7 +161,7 @@ func NewRetryCStreamOpts(namespace, name string, backOffFactory BackOffFactory) 
 // and then retries.
 type retryCStream struct {
 	*cstreamFields
-	obTryNum       Metric
+	mxTryNum       Metric
 	clock          clock.Clock
 	backOffFactory BackOffFactory
 	stream         CStream
@@ -170,7 +170,7 @@ type retryCStream struct {
 func NewRetryCStream(opts *RetryCStreamOpts, upstream CStream) CStream {
 	return &retryCStream{
 		cstreamFields:  newCStreamFields(&opts.cstreamOpts),
-		obTryNum:       opts.MetricTryNum,
+		mxTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
 		stream:         upstream,
@@ -192,16 +192,27 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 		r.log.For(ctx).Debug(info, "msgOut", msg.ID(), "timespan", timespan,
 			"retry", retry)
 		r.mxGet.Observe(timespan, labelOk)
-		r.obTryNum.Observe(float64(retry), labelOk)
+		r.mxTryNum.Observe(float64(retry), labelOk)
 		return msg, nil
 	}
-	returnErr := func(info string, err error, retry int) (Message, error) {
+	returnNotOk := func(lvl, info string, err error, retry int) (Message, error) {
 		timespan := r.clock.Now().Sub(begin).Seconds()
-		r.log.For(ctx).Error(info, "err", err, "timespan", timespan,
-			"retry", retry)
+		if lvl == "warn" {
+			r.log.For(ctx).Warn(info, "err", err, "timespan", timespan,
+				"retry", retry)
+		} else {
+			r.log.For(ctx).Error(info, "err", err, "timespan", timespan,
+				"retry", retry)
+		}
 		r.mxGet.Observe(timespan, labelErr)
-		r.obTryNum.Observe(float64(retry), labelErr)
+		r.mxTryNum.Observe(float64(retry), labelErr)
 		return nil, err
+	}
+	returnErr := func(info string, err error, retry int) (Message, error) {
+		return returnNotOk("error", info, err, retry)
+	}
+	returnWarn := func(info string, err error, retry int) (Message, error) {
+		return returnNotOk("warn", info, err, retry)
 	}
 
 	retry := 0
@@ -213,7 +224,7 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 	var backOff BackOff
 	select {
 	case <-ctx.Done():
-		return returnErr("[Streamer] NewBackOff() interrupted", ctx.Err(), retry)
+		return returnWarn("[Streamer] NewBackOff() interrupted", ctx.Err(), retry)
 	case backOff = <-c:
 	}
 	for {
@@ -227,7 +238,7 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 			// in the latter select.
 			// Cancellation doesn't necessarily happen during Get() but it's
 			// likely. We choose to report ctx.Err() instead of err
-			return returnErr("[Streamer] Get() interrupted", ctx.Err(), retry)
+			return returnWarn("[Streamer] Get() interrupted", ctx.Err(), retry)
 		}
 		// In case BackOff.Next() takes too much time
 		c := make(chan time.Duration, 1)
@@ -237,21 +248,20 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 		var toWait time.Duration
 		select {
 		case <-ctx.Done():
-			return returnErr("[Streamer] Next() interrupted", ctx.Err(), retry)
+			return returnWarn("[Streamer] Next() interrupted", ctx.Err(), retry)
 		case toWait = <-c:
 			if toWait == BackOffStop {
-				return returnErr("[Streamer] Get() err and no more back-off",
-					err, retry)
+				return returnErr("[Streamer] Get() err and BackOffStop", err, retry)
 			}
 		}
 		r.log.For(ctx).Debug("[Stream] Get() err, backing off ...",
 			"err", err, "elapsed", r.clock.Now().Sub(begin).Seconds(), "retry", retry,
-			"backoff", toWait)
+			"backoff", toWait.Seconds())
 		tm := r.clock.Timer(toWait)
 		select {
 		case <-ctx.Done():
 			tm.Stop()
-			return returnErr("[Streamer] wait interrupted", ctx.Err(), retry)
+			return returnWarn("[Streamer] wait interrupted", ctx.Err(), retry)
 		case <-tm.C:
 		}
 		retry++

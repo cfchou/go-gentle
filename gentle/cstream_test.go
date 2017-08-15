@@ -34,6 +34,7 @@ func genBoundNonNegInt(min, max int) func(values []reflect.Value, rnd *rand.Rand
 }
 
 func TestRateLimitedCStream_Get(t *testing.T) {
+	// Get() is rate limited.
 	requestsInterval := 100 * time.Millisecond
 	src, done := createInfiniteMessageChan()
 	defer func() { done <- struct{}{} }()
@@ -64,7 +65,7 @@ func TestRateLimitedCStream_Get(t *testing.T) {
 }
 
 func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
-	// Get() timeout, while it's waiting for rate-limiter or upstream
+	// Context timeout while Get() is waiting for rate-limiter or upstream.
 	timeout := 100 * time.Millisecond
 	run := func(intervalMs int) bool {
 		requestsInterval := time.Duration(intervalMs) * time.Millisecond
@@ -92,29 +93,21 @@ func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
 		begin := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		success, failure := make(chan struct{}, 1), make(chan struct{}, count)
 		for i := 0; i < count; i++ {
 			go func() {
 				_, err := stream.Get(ctx)
-				if err != context.DeadlineExceeded {
-					failure <- struct{}{}
+				if err == context.DeadlineExceeded {
+					// It's interrupted when waiting either for the permission
+					// from the rate-limiter or for mstream.Get()
+					wg.Done()
 					return
 				}
-				wg.Done()
+				panic("never here")
 			}()
 		}
-		go func() {
-			wg.Wait()
-			success <- struct{}{}
-		}()
-		select {
-		case <-success:
-			log.Info("[Test] time spent",
-				"timespan", time.Since(begin).Seconds())
-			return true
-		case <-failure:
-			return false
-		}
+		wg.Wait()
+		log.Info("[Test] time spent", "timespan", time.Since(begin).Seconds())
+		return true
 	}
 	config := &quick.Config{
 		// [1ms, 200ms]
@@ -126,7 +119,7 @@ func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
 }
 
 func TestRetryCStream_Get_MockBackOff(t *testing.T) {
-	// Test against mocked BackOff
+	// Get() retries with mocked BackOff
 	run := func(backOffCount int) bool {
 		mfactory := &MockBackOffFactory{}
 		mback := &MockBackOff{}
@@ -155,7 +148,7 @@ func TestRetryCStream_Get_MockBackOff(t *testing.T) {
 		go func() {
 			begin := mclock.Now()
 			_, err := stream.Get(ctx)
-			// backoffs exhausted
+			// back-offs exhausted
 			if err != fakeErr {
 				panic("never here")
 			}
@@ -183,7 +176,7 @@ func TestRetryCStream_Get_MockBackOff(t *testing.T) {
 }
 
 func TestRetryCStream_Get_ConstantBackOff(t *testing.T) {
-	// Test against ConstantBackOff
+	// Get() retries with ConstantBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
@@ -203,7 +196,7 @@ func TestRetryCStream_Get_ConstantBackOff(t *testing.T) {
 		go func() {
 			begin := mclock.Now()
 			_, err := stream.Get(ctx)
-			// backoffs exhausted
+			// back-offs exhausted
 			if err != fakeErr {
 				panic("never here")
 			}
@@ -230,7 +223,7 @@ func TestRetryCStream_Get_ConstantBackOff(t *testing.T) {
 }
 
 func TestRetryCStream_Get_ExponentialBackOff(t *testing.T) {
-	// Test against ExponentialBackOff
+	// Get() retries with ExponentialBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
@@ -254,7 +247,7 @@ func TestRetryCStream_Get_ExponentialBackOff(t *testing.T) {
 		go func() {
 			begin := mclock.Now()
 			_, err := stream.Get(ctx)
-			// backoffs exhausted
+			// back-offs exhausted
 			if err != fakeErr {
 				panic("never here")
 			}
@@ -283,7 +276,7 @@ func TestRetryCStream_Get_ExponentialBackOff(t *testing.T) {
 }
 
 func TestRetryCStream_Get_MockBackOff_Timeout(t *testing.T) {
-	// Timeout interrupt mocked BackOff
+	// Context timeout interrupts Get() with mocked BackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
 		mfactory := &MockBackOffFactory{}
@@ -340,7 +333,7 @@ func TestRetryCStream_Get_MockBackOff_Timeout(t *testing.T) {
 }
 
 func TestRetryCStream_Get_ConstantBackOff_Timeout(t *testing.T) {
-	// Timeout interrupt ConstantBackOff
+	// Context timeout interrupts Get() with ConstantBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
 		backOffOpts := NewConstantBackOffFactoryOpts(suspend, 0)
@@ -383,7 +376,7 @@ func TestRetryCStream_Get_ConstantBackOff_Timeout(t *testing.T) {
 }
 
 func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
-	// Timeout interrupt ExponentialBackOff
+	// Context timeout interrupts Get() with ExponentialBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
 		backOffOpts := NewExponentialBackOffFactoryOpts(suspend, 2,
@@ -484,6 +477,9 @@ func TestCircuitBreakerCStream_Get_MaxConcurrency(t *testing.T) {
 	// Set properly to not affect this test:
 	conf.Timeout = time.Minute
 	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerCStream(
@@ -535,6 +531,9 @@ func TestCircuitBreakerCStream_Get_Timeout(t *testing.T) {
 	// Set properly to not affect this test:
 	conf.MaxConcurrent = 4096
 	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerCStream(
@@ -574,6 +573,9 @@ func TestCircuitBreakerCStream_Get_Error(t *testing.T) {
 	conf.MaxConcurrent = 4096
 	conf.Timeout = time.Minute
 	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerCStream(

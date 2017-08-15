@@ -2,6 +2,7 @@ package gentle
 
 import (
 	"context"
+	"github.com/benbjohnson/clock"
 	"github.com/opentracing/opentracing-go"
 	"time"
 )
@@ -95,7 +96,7 @@ func (r *rateLimitedCHandler) Handle(ctx context.Context, msg Message) (Message,
 	case <-ctx.Done():
 		timespan := time.Since(begin).Seconds()
 		err := ctx.Err()
-		r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
+		r.log.For(ctx).Warn("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
 		r.mxHandle.Observe(timespan, labelErr)
 		return nil, err
@@ -119,6 +120,151 @@ func (r *rateLimitedCHandler) GetNames() *Names {
 	return &Names{
 		Namespace:  r.namespace,
 		Resilience: HandlerRateLimited,
+		Name:       r.name,
+	}
+}
+
+type RetryCHandlerOpts struct {
+	chandlerOpts
+	MetricTryNum Metric
+	// TODO
+	// remove the dependency to package clock for this exported symbol
+	Clock          clock.Clock
+	BackOffFactory BackOffFactory
+}
+
+func NewRetryCHandlerOpts(namespace, name string, backOffFactory BackOffFactory) *RetryCHandlerOpts {
+	return &RetryCHandlerOpts{
+		chandlerOpts: chandlerOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace, "gentle",
+				HandlerRetry, "name", name),
+			Tracer:       opentracing.GlobalTracer(),
+			TracingRef:   TracingChildOf,
+			MetricHandle: noopMetric,
+		},
+		MetricTryNum:   noopMetric,
+		Clock:          clock.New(),
+		BackOffFactory: backOffFactory,
+	}
+}
+
+// retryHandler takes an Handler. When Handler.Handle() encounters an error,
+// retryHandler back off for some time and then retries.
+type retryCHandler struct {
+	*chandlerFields
+	mxTryNum       Metric
+	clock          clock.Clock
+	backOffFactory BackOffFactory
+	handler        CHandler
+}
+
+func NewRetryCHandler(opts *RetryCHandlerOpts, handler CHandler) CHandler {
+	return &retryCHandler{
+		chandlerFields: newCHandlerFields(&opts.chandlerOpts),
+		mxTryNum:       opts.MetricTryNum,
+		clock:          opts.Clock,
+		backOffFactory: opts.BackOffFactory,
+		handler:        handler,
+	}
+}
+
+func (r *retryCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.Bg().Debug("[Handler] New span err", "err", err)
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	}
+	r.log.For(ctx).Info("[Handler] Handle() ...")
+	begin := r.clock.Now()
+
+	returnOk := func(info string, msgIn, msgOut Message, retry int) (Message, error) {
+		timespan := r.clock.Now().Sub(begin).Seconds()
+		r.log.For(ctx).Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
+			"timespan", timespan, "retry", retry)
+		r.mxHandle.Observe(timespan, labelOk)
+		r.mxTryNum.Observe(float64(retry), labelOk)
+		return msg, nil
+	}
+	returnNotOk := func(lvl, info string, msgIn Message, err error, retry int) (Message, error) {
+		timespan := r.clock.Now().Sub(begin).Seconds()
+		if lvl == "warn" {
+			r.log.For(ctx).Warn(info, "msgIn", msgIn.ID(), "err", err,
+				"timespan", timespan, "retry", retry)
+		} else {
+			r.log.For(ctx).Error(info, "msgIn", msgIn.ID(), "err", err,
+				"timespan", timespan, "retry", retry)
+		}
+		r.mxHandle.Observe(timespan, labelErr)
+		r.mxTryNum.Observe(float64(retry), labelErr)
+		return nil, err
+	}
+	returnErr := func(info string, msgIn Message, err error, retry int) (Message, error) {
+		return returnNotOk("error", info, msgIn, err, retry)
+	}
+	returnWarn := func(info string, msgIn Message, err error, retry int) (Message, error) {
+		return returnNotOk("warn", info, msgIn, err, retry)
+	}
+
+	retry := 0
+	// In case NewBackOff() takes too much time
+	c := make(chan BackOff, 1)
+	go func() {
+		c <- r.backOffFactory.NewBackOff()
+	}()
+	var backOff BackOff
+	select {
+	case <-ctx.Done():
+		return returnWarn("[Handler] NewBackOff() interrupted", msg, ctx.Err(), retry)
+	case backOff = <-c:
+	}
+	for {
+		msgOut, err := r.handler.Handle(ctx, msg)
+		if err == nil {
+			// If it's interrupt at this point, we choose to return successfully.
+			return returnOk("[Handler] Handle() ok", msg, msgOut, retry)
+		}
+		if ctx.Err() != nil {
+			// This check is an optimization in that it still could be captured
+			// in the latter select.
+			// Cancellation doesn't necessarily happen during Get() but it's
+			// likely. We choose to report ctx.Err() instead of err
+			return returnWarn("[Handler] Handle() interrupted", msg, ctx.Err(), retry)
+		}
+		// In case BackOff.Next() takes too much time
+		c := make(chan time.Duration, 1)
+		go func() {
+			c <- backOff.Next()
+		}()
+		var toWait time.Duration
+		select {
+		case <-ctx.Done():
+			return returnWarn("[Handler] Next() interrupted", msg, ctx.Err(), retry)
+		case toWait = <-c:
+			if toWait == BackOffStop {
+				return returnErr("[Handler] Handle() err and BackOffStop", msg, err, retry)
+			}
+		}
+		r.log.For(ctx).Debug("[Handler] Get() err, backing off ...",
+			"err", err, "elapsed", r.clock.Now().Sub(begin).Seconds(), "retry", retry,
+			"backoff", toWait.Seconds())
+		tm := r.clock.Timer(toWait)
+		select {
+		case <-ctx.Done():
+			tm.Stop()
+			return returnWarn("[Streamer] wait interrupted", msg, ctx.Err(), retry)
+		case <-tm.C:
+		}
+		retry++
+	}
+}
+
+func (r *retryCHandler) GetNames() *Names {
+	return &Names{
+		Namespace:  r.namespace,
+		Resilience: HandlerRetry,
 		Name:       r.name,
 	}
 }

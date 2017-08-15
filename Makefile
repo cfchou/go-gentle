@@ -8,7 +8,7 @@ test-and-lint: test lint
 
 .PHONY: test
 test:   format
-	go test -v -race -cover ./gentle/... | grep '\-\-\-'
+	go test -v -race -cover ./gentle/...  -quickchecks 50 | grep '\-\-\-'
 
 format:
 	go fmt ./gentle/...
