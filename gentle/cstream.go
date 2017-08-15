@@ -75,15 +75,16 @@ func NewRateLimitedCStream(opts *RateLimitedCStreamOpts, upstream CStream) CStre
 	}
 }
 
-// Get() is blocked when the limit is exceeded.
+// Get() is blocked when the limit is reached.
 func (r *rateLimitedCStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.For(ctx).Info("[Stream] Get() ...")
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
 	}
-	r.log.For(ctx).Info("[Stream] Get() ...")
 	begin := time.Now()
 
 	c := make(chan struct{}, 1)
@@ -180,11 +181,12 @@ func NewRetryCStream(opts *RetryCStreamOpts, upstream CStream) CStream {
 func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.For(ctx).Info("[Stream] Get() ...")
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
 	}
-	r.log.For(ctx).Info("[Stream] Get() ...")
 	begin := r.clock.Now()
 
 	returnOk := func(info string, msg Message, retry int) (Message, error) {
@@ -224,7 +226,7 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 	var backOff BackOff
 	select {
 	case <-ctx.Done():
-		return returnWarn("[Streamer] NewBackOff() interrupted", ctx.Err(), retry)
+		return returnWarn("[Stream] NewBackOff() interrupted", ctx.Err(), retry)
 	case backOff = <-c:
 	}
 	for {
@@ -236,9 +238,9 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 		if ctx.Err() != nil {
 			// This check is an optimization in that it still could be captured
 			// in the latter select.
-			// Cancellation doesn't necessarily happen during Get() but it's
-			// likely. We choose to report ctx.Err() instead of err
-			return returnWarn("[Streamer] Get() interrupted", ctx.Err(), retry)
+			// Cancellation happens likely during stream.Handle(). We choose to
+			// report ctx.Err() instead of err
+			return returnWarn("[Stream] Get() interrupted", ctx.Err(), retry)
 		}
 		// In case BackOff.Next() takes too much time
 		c := make(chan time.Duration, 1)
@@ -248,10 +250,10 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 		var toWait time.Duration
 		select {
 		case <-ctx.Done():
-			return returnWarn("[Streamer] Next() interrupted", ctx.Err(), retry)
+			return returnWarn("[Stream] Next() interrupted", ctx.Err(), retry)
 		case toWait = <-c:
 			if toWait == BackOffStop {
-				return returnErr("[Streamer] Get() err and BackOffStop", err, retry)
+				return returnErr("[Stream] Get() err and BackOffStop", err, retry)
 			}
 		}
 		r.log.For(ctx).Debug("[Stream] Get() err, backing off ...",
@@ -261,7 +263,7 @@ func (r *retryCStream) Get(ctx context.Context) (Message, error) {
 		select {
 		case <-ctx.Done():
 			tm.Stop()
-			return returnWarn("[Streamer] wait interrupted", ctx.Err(), retry)
+			return returnWarn("[Stream] wait interrupted", ctx.Err(), retry)
 		case <-tm.C:
 		}
 		retry++
@@ -323,11 +325,12 @@ func NewBulkheadCStream(opts *BulkheadCStreamOpts, upstream CStream) CStream {
 func (r *bulkheadCStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.For(ctx).Info("[Stream] Get() ...")
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
 	}
-	r.log.For(ctx).Info("[Stream] Get() ...")
 	begin := time.Now()
 
 	select {
@@ -423,11 +426,12 @@ func NewCircuitBreakerCStream(opts *CircuitBreakerCStreamOpts, stream CStream) C
 func (r *circuitBreakerCStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.For(ctx).Info("[Stream] Get() ...")
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
 	}
-	r.log.For(ctx).Info("[Stream] Get() ...")
 	begin := time.Now()
 
 	result := make(chan interface{}, 1)
