@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	errNoSpan           = errors.New("No span")
+	errNoSpan           = errors.New("No parent span")
 	errTracingReference = errors.New("Unsupported tracing reference")
 	errNotEvenFields    = errors.New("Number of log fields is not even")
 	errFieldType        = errors.New("Not valid log field type")
@@ -34,14 +34,14 @@ type loggerFactory struct {
 
 // Bg creates a context-unaware logger.
 func (b loggerFactory) Bg() Logger {
-	return bgLogger{logger: b.logger}
+	return &bgLogger{logger: b.logger}
 }
 
 // For returns a context-aware Logger. If the context contains an OpenTracing
 // span, all logging calls are also echo-ed into the span.
 func (b loggerFactory) For(ctx context.Context) Logger {
 	if span := opentracing.SpanFromContext(ctx); span != nil {
-		return spanLogger{logger: b.logger}
+		return &spanLogger{logger: b.logger}
 	}
 	return b.Bg()
 }
@@ -50,11 +50,11 @@ type bgLogger struct {
 	logger Logger
 }
 
-func (l bgLogger) Debug(msg string, fields ...interface{}) { l.logger.Debug(msg, fields...) }
-func (l bgLogger) Info(msg string, fields ...interface{})  { l.logger.Info(msg, fields...) }
-func (l bgLogger) Warn(msg string, fields ...interface{})  { l.logger.Warn(msg, fields...) }
-func (l bgLogger) Error(msg string, fields ...interface{}) { l.logger.Error(msg, fields...) }
-func (l bgLogger) Crit(msg string, fields ...interface{})  { l.logger.Crit(msg, fields...) }
+func (l *bgLogger) Debug(msg string, fields ...interface{}) { l.logger.Debug(msg, fields...) }
+func (l *bgLogger) Info(msg string, fields ...interface{})  { l.logger.Info(msg, fields...) }
+func (l *bgLogger) Warn(msg string, fields ...interface{})  { l.logger.Warn(msg, fields...) }
+func (l *bgLogger) Error(msg string, fields ...interface{}) { l.logger.Error(msg, fields...) }
+func (l *bgLogger) Crit(msg string, fields ...interface{})  { l.logger.Crit(msg, fields...) }
 
 type spanLogger struct {
 	logger Logger
@@ -113,7 +113,7 @@ func (l spanLogger) logToSpan(level string, msg string, fields ...interface{}) e
 	return nil
 }
 
-func (l spanLogger) Debug(msg string, fields ...interface{}) {
+func (l *spanLogger) Debug(msg string, fields ...interface{}) {
 	// Leave "traced" for distinguishing spanLogger and bgLogger. Also any
 	// error while logging to span can be recorded locally.
 	if err := l.logToSpan("debug", msg, fields...); err != nil {
@@ -123,7 +123,7 @@ func (l spanLogger) Debug(msg string, fields ...interface{}) {
 	}
 }
 
-func (l spanLogger) Info(msg string, fields ...interface{}) {
+func (l *spanLogger) Info(msg string, fields ...interface{}) {
 	if err := l.logToSpan("info", msg, fields...); err != nil {
 		l.logger.Info(msg, append([]interface{}{"traced", err}, fields)...)
 	} else {
@@ -131,7 +131,7 @@ func (l spanLogger) Info(msg string, fields ...interface{}) {
 	}
 }
 
-func (l spanLogger) Warn(msg string, fields ...interface{}) {
+func (l *spanLogger) Warn(msg string, fields ...interface{}) {
 	if err := l.logToSpan("warn", msg, fields...); err != nil {
 		l.logger.Warn(msg, append([]interface{}{"traced", err}, fields)...)
 	} else {
@@ -139,7 +139,7 @@ func (l spanLogger) Warn(msg string, fields ...interface{}) {
 	}
 }
 
-func (l spanLogger) Error(msg string, fields ...interface{}) {
+func (l *spanLogger) Error(msg string, fields ...interface{}) {
 	if err := l.logToSpan("error", msg, fields...); err != nil {
 		l.logger.Error(msg, append([]interface{}{"traced", err}, fields)...)
 	} else {
@@ -147,7 +147,7 @@ func (l spanLogger) Error(msg string, fields ...interface{}) {
 	}
 }
 
-func (l spanLogger) Crit(msg string, fields ...interface{}) {
+func (l *spanLogger) Crit(msg string, fields ...interface{}) {
 	if err := l.logToSpan("crit", msg, fields...); err != nil {
 		l.logger.Crit(msg, append([]interface{}{"traced", err}, fields)...)
 	} else {
