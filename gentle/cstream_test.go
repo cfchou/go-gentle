@@ -423,7 +423,7 @@ func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 }
 
 func TestBulkheadCStream_Get_MaxConcurrency(t *testing.T) {
-	// BulkheadStream returns ErrMaxConcurrency when threshold is reached
+	// BulkheadStream returns ErrMaxConcurrency when passing the threshold
 	run := func(maxConcurrency int) bool {
 		mstream := &MockCStream{}
 		stream := NewBulkheadCStream(
@@ -456,8 +456,7 @@ func TestBulkheadCStream_Get_MaxConcurrency(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		MaxCount: 10,
-		Values:   genBoundNonNegInt(1, 1000),
+		Values: genBoundNonNegInt(1, 100),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)

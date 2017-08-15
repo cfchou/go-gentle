@@ -2,6 +2,7 @@ package gentle
 
 import (
 	"context"
+	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/opentracing/opentracing-go"
 	"time"
@@ -267,4 +268,95 @@ func (r *retryCHandler) GetNames() *Names {
 		Resilience: HandlerRetry,
 		Name:       r.name,
 	}
+}
+
+type BulkheadCHandlerOpts struct {
+	chandlerOpts
+	MaxConcurrency int
+}
+
+func NewBulkheadCHandlerOpts(namespace, name string, maxConcurrency int) *BulkheadCHandlerOpts {
+	if maxConcurrency <= 0 {
+		panic(errors.New("maxConcurrent must be greater than 0"))
+	}
+	return &BulkheadCHandlerOpts{
+		chandlerOpts: chandlerOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace,
+				"gentle", HandlerBulkhead, "name", name),
+			Tracer:       opentracing.GlobalTracer(),
+			TracingRef:   TracingChildOf,
+			MetricHandle: noopMetric,
+		},
+		MaxConcurrency: maxConcurrency,
+	}
+}
+
+type bulkheadCHandler struct {
+	*chandlerFields
+	handler   CHandler
+	semaphore chan struct{}
+}
+
+// Create a bulkheadHandler that allows at maximum $max_concurrency Handle() to
+// run concurrently.
+func NewBulkheadCHandler(opts *BulkheadCHandlerOpts, handler CHandler) CHandler {
+
+	return &bulkheadCHandler{
+		chandlerFields: newCHandlerFields(&opts.chandlerOpts),
+		handler:        handler,
+		semaphore:      make(chan struct{}, opts.MaxConcurrency),
+	}
+}
+
+// Handle() returns ErrMaxConcurrency when passing the threshold.
+func (r *bulkheadCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.Bg().Debug("[Handle] New span err", "err", err)
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	}
+	r.log.For(ctx).Info("[Handle] Get() ...")
+	begin := time.Now()
+
+	select {
+	case r.semaphore <- struct{}{}:
+		defer func() {
+			<-r.semaphore
+		}()
+		msgOut, err := r.handler.Handle(ctx, msg)
+		timespan := time.Since(begin).Seconds()
+		if err != nil {
+			r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
+				"err", err, "timespan", timespan)
+			r.mxHandle.Observe(timespan, labelErr)
+			return nil, err
+		}
+		r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+			"msgOut", msgOut.ID(), "timespan", timespan)
+		r.mxHandle.Observe(timespan, labelOk)
+		return msgOut, nil
+	default:
+		r.log.For(ctx).Error("[Hander] Handle() err", "msgIn", msg.ID(),
+			"err", ErrMaxConcurrency)
+		return nil, ErrMaxConcurrency
+	}
+}
+
+func (r *bulkheadCHandler) GetNames() *Names {
+	return &Names{
+		Namespace:  r.namespace,
+		Resilience: HandlerBulkhead,
+		Name:       r.name,
+	}
+}
+
+func (r *bulkheadCHandler) GetMaxConcurrency() int {
+	return cap(r.semaphore)
+}
+
+func (r *bulkheadCHandler) GetCurrentConcurrency() int {
+	return len(r.semaphore)
 }

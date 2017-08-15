@@ -319,6 +319,7 @@ func NewBulkheadCStream(opts *BulkheadCStreamOpts, upstream CStream) CStream {
 	}
 }
 
+// Get() returns ErrMaxConcurrency when passing the threshold.
 func (r *bulkheadCStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {

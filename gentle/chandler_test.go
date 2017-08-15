@@ -406,3 +406,44 @@ func TestRetryCHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestBulkheadCHandler_Get_MaxConcurrency(t *testing.T) {
+	// BulkheadHandler returns ErrMaxConcurrency when passing the threshold
+	run := func(maxConcurrency int) bool {
+		mhandler := &MockCHandler{}
+		handler := NewBulkheadCHandler(
+			NewBulkheadCHandlerOpts("", "test", maxConcurrency),
+			mhandler)
+		wg := &sync.WaitGroup{}
+		wg.Add(maxConcurrency)
+		block := make(chan struct{}, 1)
+		defer close(block)
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+			func(ctx2 context.Context, m Message) Message {
+				wg.Done()
+				// every Handle() would be blocked here
+				<-block
+				return m
+			}, nil)
+
+		ctx := context.Background()
+		mm := &fakeMsg{id: "123"}
+
+		for i := 0; i < maxConcurrency; i++ {
+			go handler.Handle(ctx, mm)
+		}
+
+		// Wait() until $maxConcurrency of Handle() are blocked
+		wg.Wait()
+		// one more Handle() would cause ErrMaxConcurrency
+		msg, err := handler.Handle(ctx, mm)
+		return msg == nil && err == ErrMaxConcurrency
+	}
+
+	config := &quick.Config{
+		Values: genBoundNonNegInt(1, 100),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
