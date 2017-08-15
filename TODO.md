@@ -30,6 +30,8 @@
 
 * Alternative circuitbreaker implementation https://github.com/rubyist/circuitbreaker
 
+* Have a look at https://github.com/trustmaster/goflow. Inter-op?
+
 ## Done
 * Opts passed by addr
 * Make XXXStream/Handler xXXStgream/Handler

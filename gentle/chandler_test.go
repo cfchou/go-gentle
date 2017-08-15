@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
+	"github.com/cfchou/hystrix-go/hystrix"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"math/rand"
@@ -407,7 +409,7 @@ func TestRetryCHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestBulkheadCHandler_Get_MaxConcurrency(t *testing.T) {
+func TestBulkheadCHandler_Handle_MaxConcurrency(t *testing.T) {
 	// BulkheadHandler returns ErrMaxConcurrency when passing the threshold
 	run := func(maxConcurrency int) bool {
 		mhandler := &MockCHandler{}
@@ -445,5 +447,137 @@ func TestBulkheadCHandler_Get_MaxConcurrency(t *testing.T) {
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestCircuitBreakerCHandler_Handle_MaxConcurrency(t *testing.T) {
+	// CircuitBreakerHandler returns ErrCbMaxConcurrency when
+	// CircuitBreakerConf.MaxConcurrent is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
+	defer hystrix.Flush()
+	circuit := xid.New().String()
+	mhandler := &MockCHandler{}
+
+	conf := NewDefaultCircuitBreakerConf()
+	conf.MaxConcurrent = 4
+	// Set properly to not affect this test:
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
+	conf.RegisterFor(circuit)
+
+	handler := NewCircuitBreakerCHandler(
+		NewCircuitBreakerCHandlerOpts("", "test", circuit),
+		mhandler)
+	var wg sync.WaitGroup
+	wg.Add(conf.MaxConcurrent)
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+		func(ctx2 context.Context, msg Message) Message {
+			wg.Done()
+			// block to saturate concurrent requests
+			<-block
+			return msg
+		}, nil)
+
+	ctx := context.Background()
+	mm := &fakeMsg{id: "123"}
+
+	for i := 0; i < conf.MaxConcurrent; i++ {
+		go func() {
+			handler.Handle(ctx, mm)
+		}()
+	}
+	// Make sure previous Get() are all running
+	wg.Wait()
+
+	for {
+		_, err := handler.Handle(ctx, mm)
+		if err == ErrCbOpen {
+			log.Debug("[Test] circuit opened")
+			break
+		}
+		assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
+	}
+}
+
+func TestCircuitBreakerCHandler_Handle_Timeout(t *testing.T) {
+	// CircuitBreakerHandler returns ErrCbTimeout when
+	// CircuitBreakerConf.Timeout is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
+	defer hystrix.Flush()
+	circuit := xid.New().String()
+	mhandler := &MockCHandler{}
+
+	conf := NewDefaultCircuitBreakerConf()
+	conf.Timeout = time.Millisecond
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
+	conf.RegisterFor(circuit)
+
+	handler := NewCircuitBreakerCHandler(
+		NewCircuitBreakerCHandlerOpts("", "test", circuit),
+		mhandler)
+
+	// Suspend longer than Timeout
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+		func(ctx2 context.Context, msg Message) Message {
+			// block to hit timeout
+			<-block
+			return msg
+		}, nil)
+
+	ctx := context.Background()
+	mm := &fakeMsg{id: "123"}
+	for {
+		_, err := handler.Handle(ctx, mm)
+		if err == ErrCbOpen {
+			break
+		}
+		assert.EqualError(t, err, ErrCbTimeout.Error())
+	}
+}
+
+func TestCircuitBreakerCHandler_Handle_Error(t *testing.T) {
+	// CircuitBreakerHandler returns the designated error.
+	// It then returns ErrCbOpen when error threshold is reached.
+	defer hystrix.Flush()
+	circuit := xid.New().String()
+	mhandler := &MockCHandler{}
+
+	conf := NewDefaultCircuitBreakerConf()
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
+	conf.RegisterFor(circuit)
+
+	handler := NewCircuitBreakerCHandler(
+		NewCircuitBreakerCHandlerOpts("", "test", circuit),
+		mhandler)
+	fakeErr := errors.New("fake error")
+
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+
+	ctx := context.Background()
+	mm := &fakeMsg{id: "123"}
+	for {
+		_, err := handler.Handle(ctx, mm)
+		if err == ErrCbOpen {
+			break
+		}
+		assert.EqualError(t, err, fakeErr.Error())
 	}
 }

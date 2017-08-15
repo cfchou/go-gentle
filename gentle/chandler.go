@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
+	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/opentracing/opentracing-go"
 	"time"
 )
@@ -74,17 +75,18 @@ func NewRateLimitedCHandler(opts *RateLimitedCHandlerOpts, handler CHandler) CHa
 	}
 }
 
-// Handle() is blocked when the limit is exceeded.
+// Handle() is blocked when the limit is reached.
 func (r *rateLimitedCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+			"err", err)
 	}
-
 	begin := time.Now()
-	r.log.For(ctx).Debug("[Handler] Handle() ...", "msgIn", msg.ID())
 
 	c := make(chan struct{}, 1)
 	go func() {
@@ -174,11 +176,13 @@ func NewRetryCHandler(opts *RetryCHandlerOpts, handler CHandler) CHandler {
 func (r *retryCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Handler] New span err", "err", err)
+		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+			"err", err)
 	}
-	r.log.For(ctx).Info("[Handler] Handle() ...")
 	begin := r.clock.Now()
 
 	returnOk := func(info string, msgIn, msgOut Message, retry int) (Message, error) {
@@ -230,8 +234,8 @@ func (r *retryCHandler) Handle(ctx context.Context, msg Message) (Message, error
 		if ctx.Err() != nil {
 			// This check is an optimization in that it still could be captured
 			// in the latter select.
-			// Cancellation doesn't necessarily happen during Get() but it's
-			// likely. We choose to report ctx.Err() instead of err
+			// Cancellation happens likely during handler.Handle(). We choose to
+			// report ctx.Err() instead of err
 			return returnWarn("[Handler] Handle() interrupted", msg, ctx.Err(), retry)
 		}
 		// In case BackOff.Next() takes too much time
@@ -248,14 +252,14 @@ func (r *retryCHandler) Handle(ctx context.Context, msg Message) (Message, error
 				return returnErr("[Handler] Handle() err and BackOffStop", msg, err, retry)
 			}
 		}
-		r.log.For(ctx).Debug("[Handler] Get() err, backing off ...",
+		r.log.For(ctx).Debug("[Handler] Handle() err, backing off ...",
 			"err", err, "elapsed", r.clock.Now().Sub(begin).Seconds(), "retry", retry,
 			"backoff", toWait.Seconds())
 		tm := r.clock.Timer(toWait)
 		select {
 		case <-ctx.Done():
 			tm.Stop()
-			return returnWarn("[Streamer] wait interrupted", msg, ctx.Err(), retry)
+			return returnWarn("[Handler] wait interrupted", msg, ctx.Err(), retry)
 		case <-tm.C:
 		}
 		retry++
@@ -314,11 +318,13 @@ func NewBulkheadCHandler(opts *BulkheadCHandlerOpts, handler CHandler) CHandler 
 func (r *bulkheadCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
-		r.log.Bg().Debug("[Handle] New span err", "err", err)
+		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+			"err", err)
 	}
-	r.log.For(ctx).Info("[Handle] Get() ...")
 	begin := time.Now()
 
 	select {
@@ -359,4 +365,132 @@ func (r *bulkheadCHandler) GetMaxConcurrency() int {
 
 func (r *bulkheadCHandler) GetCurrentConcurrency() int {
 	return len(r.semaphore)
+}
+
+type CircuitBreakerCHandlerOpts struct {
+	chandlerOpts
+	MetricCbErr Metric
+	Circuit     string
+}
+
+func NewCircuitBreakerCHandlerOpts(namespace, name, circuit string) *CircuitBreakerCHandlerOpts {
+	return &CircuitBreakerCHandlerOpts{
+		chandlerOpts: chandlerOpts{
+			Namespace: namespace,
+			Name:      name,
+			Log: Log.New("namespace", namespace,
+				"gentle", HandlerCircuitBreaker,
+				"name", name, "circuit", circuit),
+			Tracer:       opentracing.GlobalTracer(),
+			TracingRef:   TracingChildOf,
+			MetricHandle: noopMetric,
+		},
+		MetricCbErr: noopMetric,
+		Circuit:     circuit,
+	}
+}
+
+type circuitBreakerCHandler struct {
+	*chandlerFields
+	mxCbErr Metric
+	circuit string
+	handler CHandler
+}
+
+// In hystrix-go, a circuit-breaker must be given a unique name.
+// NewCircuitBreakerStream() creates a circuitBreakerStream with a
+// circuit-breaker named $circuit.
+func NewCircuitBreakerCHandler(opts *CircuitBreakerCHandlerOpts, handler CHandler) CHandler {
+	return &circuitBreakerCHandler{
+		chandlerFields: newCHandlerFields(&opts.chandlerOpts),
+		mxCbErr:        opts.MetricCbErr,
+		circuit:        opts.Circuit,
+		handler:        handler,
+	}
+}
+
+func (r *circuitBreakerCHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+			"err", err)
+	}
+	begin := time.Now()
+
+	result := make(chan interface{}, 1)
+	err = hystrix.Do(r.circuit, func() error {
+		msgOut, err := r.handler.Handle(ctx, msg)
+		timespan := time.Since(begin).Seconds()
+		if err != nil {
+			r.log.For(ctx).Error("[Handler] handler.Handle() err",
+				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+			// NOTE:
+			// 1. This err could be captured outside if a hystrix's error
+			//    doesn't take precedence.
+			// 2. Being captured or not, it contributes to hystrix metrics.
+			return err
+		}
+		r.log.For(ctx).Debug("[Handler] handller.Handle() ok",
+			"msgIn", msg.ID(), "msgOut", msgOut.ID(),
+			"timespan", timespan)
+		result <- msgOut
+		return nil
+	}, nil)
+	// NOTE:
+	// Capturing error from handler.Handle() or from hystrix if criteria met.
+	if err != nil {
+		timespan := time.Since(begin).Seconds()
+		defer func() {
+			r.mxHandle.Observe(timespan, labelErr)
+		}()
+		// To prevent misinterpreting when wrapping one circuitBreakerStream
+		// over another. Hystrix errors are replaced so that Get() won't return
+		// any hystrix errors.
+		switch err {
+		case hystrix.ErrCircuitOpen:
+			r.log.For(ctx).Error("[Handler] Circuit err",
+				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+			r.mxCbErr.Observe(1,
+				map[string]string{"err": "ErrCbOpen"})
+			return nil, ErrCbOpen
+		case hystrix.ErrMaxConcurrency:
+			r.log.For(ctx).Error("[Handler] Circuit err",
+				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+			r.mxCbErr.Observe(1,
+				map[string]string{"err": "ErrCbMaxConcurrency"})
+			return nil, ErrCbMaxConcurrency
+		case hystrix.ErrTimeout:
+			r.log.For(ctx).Error("[Handler] Circuit err",
+				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+			r.mxCbErr.Observe(1,
+				map[string]string{"err": "ErrCbTimeout"})
+			return nil, ErrCbTimeout
+		default:
+			r.mxCbErr.Observe(1,
+				map[string]string{"err": "NonCbErr"})
+			return nil, err
+		}
+	}
+	msgOut := (<-result).(Message)
+	timespan := time.Since(begin).Seconds()
+	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+		"msgOut", msgOut.ID(), "timespan", timespan)
+	r.mxHandle.Observe(timespan, labelOk)
+	return msg, nil
+}
+
+func (r *circuitBreakerCHandler) GetNames() *Names {
+	return &Names{
+		Namespace:  r.namespace,
+		Resilience: HandlerCircuitBreaker,
+		Name:       r.name,
+	}
+}
+
+func (r *circuitBreakerCHandler) GetCircuitName() string {
+	return r.circuit
 }
