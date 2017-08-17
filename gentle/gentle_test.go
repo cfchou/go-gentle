@@ -6,6 +6,7 @@ import (
 	"gopkg.in/inconshreveable/log15.v2"
 	"gopkg.in/inconshreveable/log15.v2/stack"
 	"math/rand"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -46,4 +47,17 @@ func callerFuncHandler(h log15.Handler) log15.Handler {
 		r.Ctx = append(r.Ctx, "fn", fmt.Sprintf("%n", call))
 		return h.Log(r)
 	})
+}
+
+// helper for package quick
+// randomized value in the range [min, max)
+func genBoundInt(min, max int) func(values []reflect.Value, rnd *rand.Rand) {
+	if min > max {
+		panic("Invalid argument")
+	}
+	n := max - min
+	return func(values []reflect.Value, rnd *rand.Rand) {
+		v := rnd.Intn(n)
+		values[0] = reflect.ValueOf(v + min)
+	}
 }

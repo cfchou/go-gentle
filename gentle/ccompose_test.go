@@ -83,8 +83,8 @@ func TestAppendHandlersCStream_Timeout(t *testing.T) {
 		return err == context.DeadlineExceeded
 	}
 	config := &quick.Config{
-		// [1ms, 3*suspend]
-		Values: genBoundNonNegInt(1, 300),
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -270,8 +270,8 @@ func TestAppendFallbacksCStream_Timeout(t *testing.T) {
 		return err == context.DeadlineExceeded
 	}
 	config := &quick.Config{
-		// [1ms, 3*suspend]
-		Values: genBoundNonNegInt(1, 300),
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -413,8 +413,8 @@ func TestAppendHandlersCHandler_Timeout(t *testing.T) {
 		return err == context.DeadlineExceeded
 	}
 	config := &quick.Config{
-		// [1ms, 3*suspend]
-		Values: genBoundNonNegInt(1, 300),
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -608,8 +608,8 @@ func TestAppendFallbacksCHandler_Timeout(t *testing.T) {
 		return err == context.DeadlineExceeded
 	}
 	config := &quick.Config{
-		// [1ms, 3*suspend]
-		Values: genBoundNonNegInt(1, 300),
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)

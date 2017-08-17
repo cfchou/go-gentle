@@ -9,29 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"math/rand"
-	"reflect"
 	"sync"
 	"testing"
 	"testing/quick"
 	"time"
 )
-
-func genBoundNonNegInt(min, max int) func(values []reflect.Value, rnd *rand.Rand) {
-	if min < 0 || max < 0 {
-		panic("Invalid argument")
-	}
-	return func(values []reflect.Value, rnd *rand.Rand) {
-		for {
-			// Within an hour
-			n := rnd.Intn(max + 1)
-			if n < min {
-				continue
-			}
-			values[0] = reflect.ValueOf(n)
-			break
-		}
-	}
-}
 
 func TestRateLimitedCStream_Get(t *testing.T) {
 	// Get() is rate limited.
@@ -110,8 +92,8 @@ func TestRateLimitedCStream_Get_Timeout(t *testing.T) {
 		return true
 	}
 	config := &quick.Config{
-		// [1ms, 200ms]
-		Values: genBoundNonNegInt(1, 200),
+		// [1ms, 200ms)
+		Values: genBoundInt(1, 200),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -168,7 +150,7 @@ func TestRetryCStream_Get_MockBackOff(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 50),
+		Values: genBoundInt(1, 50),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -215,7 +197,7 @@ func TestRetryCStream_Get_ConstantBackOff(t *testing.T) {
 		}
 	}
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 50),
+		Values: genBoundInt(1, 50),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -267,8 +249,8 @@ func TestRetryCStream_Get_ExponentialBackOff(t *testing.T) {
 	}
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1s, 20m]
-		Values: genBoundNonNegInt(1, 1200),
+		// [1s, 20m)
+		Values: genBoundInt(1, 1200),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -324,8 +306,8 @@ func TestRetryCStream_Get_MockBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -367,8 +349,8 @@ func TestRetryCStream_Get_ConstantBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -414,8 +396,8 @@ func TestRetryCStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -456,7 +438,7 @@ func TestBulkheadCStream_Get_MaxConcurrency(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 100),
+		Values: genBoundInt(1, 100),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)

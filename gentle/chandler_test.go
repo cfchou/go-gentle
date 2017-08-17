@@ -89,8 +89,8 @@ func TestRateLimitedCHandler_Handle_Timeout(t *testing.T) {
 		return true
 	}
 	config := &quick.Config{
-		// [1ms, 200ms]
-		Values: genBoundNonNegInt(1, 200),
+		// [1ms, 200ms)
+		Values: genBoundInt(1, 200),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -148,7 +148,7 @@ func TestRetryCHandler_Handle_MockBackOff(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 50),
+		Values: genBoundInt(1, 50),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -158,6 +158,7 @@ func TestRetryCHandler_Handle_MockBackOff(t *testing.T) {
 func TestRetryCHandler_Handle_ConstantBackOff(t *testing.T) {
 	// Handle() retries with ConstantBackOff
 	run := func(maxElapsedSec int) bool {
+		log.Debug("=============", "sec", maxElapsedSec)
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
 		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
@@ -197,7 +198,7 @@ func TestRetryCHandler_Handle_ConstantBackOff(t *testing.T) {
 		}
 	}
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 50),
+		Values: genBoundInt(1, 50),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -251,8 +252,8 @@ func TestRetryCHandler_Handle_ExponentialBackOff(t *testing.T) {
 	}
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1s, 20m]
-		Values: genBoundNonNegInt(1, 1200),
+		// [1s, 20m)
+		Values: genBoundInt(1, 1200),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -309,8 +310,8 @@ func TestRetryCHandler_Handle_MockBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -353,8 +354,8 @@ func TestRetryCHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -401,8 +402,8 @@ func TestRetryCHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
 
 	config := &quick.Config{
 		MaxCount: 10,
-		// [1ms, 2000ms]
-		Values: genBoundNonNegInt(1, 2000),
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
@@ -443,7 +444,7 @@ func TestBulkheadCHandler_Handle_MaxConcurrency(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		Values: genBoundNonNegInt(1, 100),
+		Values: genBoundInt(1, 100),
 	}
 	if err := quick.Check(run, config); err != nil {
 		t.Error(err)
