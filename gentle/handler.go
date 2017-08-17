@@ -11,12 +11,11 @@ import (
 
 // Common options for XXXHandlerOpts
 type handlerOpts struct {
-	Namespace    string
-	Name         string
-	Log          Logger
-	Tracer       opentracing.Tracer
-	TracingRef   TracingRef
-	MetricHandle Metric
+	Namespace  string
+	Name       string
+	Log        Logger
+	Tracer     opentracing.Tracer
+	TracingRef TracingRef
 }
 
 // Common fields for XXXHandler
@@ -26,7 +25,6 @@ type handlerFields struct {
 	log        loggerFactory
 	tracer     opentracing.Tracer
 	tracingRef TracingRef
-	mxHandle   Metric
 }
 
 func newHandlerFields(opts *handlerOpts) *handlerFields {
@@ -36,12 +34,12 @@ func newHandlerFields(opts *handlerOpts) *handlerFields {
 		log:        loggerFactory{opts.Log},
 		tracer:     opts.Tracer,
 		tracingRef: opts.TracingRef,
-		mxHandle:   opts.MetricHandle,
 	}
 }
 
 type RateLimitedHandlerOpts struct {
 	handlerOpts
+	Metric  Metric
 	Limiter RateLimit
 }
 
@@ -52,10 +50,10 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"gentle", HandlerRateLimited, "name", name),
-			Tracer:       opentracing.GlobalTracer(),
-			TracingRef:   TracingChildOf,
-			MetricHandle: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
 		},
+		Metric:  noopMetric,
 		Limiter: limiter,
 	}
 }
@@ -63,6 +61,7 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 // Rate limiting pattern is used to limit the speed of a series of Handle().
 type rateLimitedHandler struct {
 	*handlerFields
+	metric  Metric
 	limiter RateLimit
 	handler Handler
 }
@@ -70,6 +69,7 @@ type rateLimitedHandler struct {
 func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) Handler {
 	return &rateLimitedHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
+		metric:        opts.Metric,
 		limiter:       opts.Limiter,
 		handler:       handler,
 	}
@@ -101,7 +101,7 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 		err := ctx.Err()
 		r.log.For(ctx).Warn("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, labelErr)
+		r.metric.ObserveErr(timespan)
 		return nil, err
 	case <-c:
 	}
@@ -110,12 +110,12 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	if err != nil {
 		r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan)
-		r.mxHandle.Observe(timespan, labelErr)
+		r.metric.ObserveErr(timespan)
 		return nil, err
 	}
 	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, labelOk)
+	r.metric.ObserveOk(timespan)
 	return msgOut, nil
 }
 
@@ -129,7 +129,7 @@ func (r *rateLimitedHandler) GetNames() *Names {
 
 type RetryHandlerOpts struct {
 	handlerOpts
-	MetricTryNum Metric
+	RetryMetric RetryMetric
 	// TODO
 	// remove the dependency to package clock for this exported symbol
 	Clock          clock.Clock
@@ -143,11 +143,10 @@ func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) 
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
 				HandlerRetry, "name", name),
-			Tracer:       opentracing.GlobalTracer(),
-			TracingRef:   TracingChildOf,
-			MetricHandle: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
 		},
-		MetricTryNum:   noopMetric,
+		RetryMetric:    noopRetryMetric,
 		Clock:          clock.New(),
 		BackOffFactory: backOffFactory,
 	}
@@ -157,7 +156,7 @@ func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) 
 // retryHandler back off for some time and then retries.
 type retryHandler struct {
 	*handlerFields
-	mxTryNum       Metric
+	retryMetric    RetryMetric
 	clock          clock.Clock
 	backOffFactory BackOffFactory
 	handler        Handler
@@ -166,7 +165,7 @@ type retryHandler struct {
 func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) Handler {
 	return &retryHandler{
 		handlerFields:  newHandlerFields(&opts.handlerOpts),
-		mxTryNum:       opts.MetricTryNum,
+		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
 		handler:        handler,
@@ -189,8 +188,7 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 		timespan := r.clock.Now().Sub(begin).Seconds()
 		r.log.For(ctx).Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
 			"timespan", timespan, "retry", retry)
-		r.mxHandle.Observe(timespan, labelOk)
-		r.mxTryNum.Observe(float64(retry), labelOk)
+		r.retryMetric.ObserveOk(timespan, retry)
 		return msg, nil
 	}
 	returnNotOk := func(lvl, info string, msgIn Message, err error, retry int) (Message, error) {
@@ -202,8 +200,7 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 			r.log.For(ctx).Error(info, "msgIn", msgIn.ID(), "err", err,
 				"timespan", timespan, "retry", retry)
 		}
-		r.mxHandle.Observe(timespan, labelErr)
-		r.mxTryNum.Observe(float64(retry), labelErr)
+		r.retryMetric.ObserveErr(timespan, retry)
 		return nil, err
 	}
 	returnErr := func(info string, msgIn Message, err error, retry int) (Message, error) {
@@ -276,6 +273,7 @@ func (r *retryHandler) GetNames() *Names {
 
 type BulkheadHandlerOpts struct {
 	handlerOpts
+	Metric         Metric
 	MaxConcurrency int
 }
 
@@ -289,16 +287,17 @@ func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *Bulkhea
 			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"gentle", HandlerBulkhead, "name", name),
-			Tracer:       opentracing.GlobalTracer(),
-			TracingRef:   TracingChildOf,
-			MetricHandle: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
 		},
+		Metric:         noopMetric,
 		MaxConcurrency: maxConcurrency,
 	}
 }
 
 type bulkheadHandler struct {
 	*handlerFields
+	metric    Metric
 	handler   Handler
 	semaphore chan struct{}
 }
@@ -309,6 +308,7 @@ func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 
 	return &bulkheadHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
+		metric:        opts.Metric,
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -337,16 +337,18 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 		if err != nil {
 			r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
 				"err", err, "timespan", timespan)
-			r.mxHandle.Observe(timespan, labelErr)
+			r.metric.ObserveErr(timespan)
 			return nil, err
 		}
 		r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 			"msgOut", msgOut.ID(), "timespan", timespan)
-		r.mxHandle.Observe(timespan, labelOk)
+		r.metric.ObserveOk(timespan)
 		return msgOut, nil
 	default:
+		timespan := time.Since(begin).Seconds()
 		r.log.For(ctx).Error("[Hander] Handle() err", "msgIn", msg.ID(),
-			"err", ErrMaxConcurrency)
+			"err", ErrMaxConcurrency, "timespan", timespan)
+		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
 	}
 }
@@ -369,8 +371,8 @@ func (r *bulkheadHandler) GetCurrentConcurrency() int {
 
 type CircuitBreakerHandlerOpts struct {
 	handlerOpts
-	MetricCbErr Metric
-	Circuit     string
+	CbMetric CbMetric
+	Circuit  string
 }
 
 func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreakerHandlerOpts {
@@ -381,20 +383,19 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreak
 			Log: Log.New("namespace", namespace,
 				"gentle", HandlerCircuitBreaker,
 				"name", name, "circuit", circuit),
-			Tracer:       opentracing.GlobalTracer(),
-			TracingRef:   TracingChildOf,
-			MetricHandle: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
 		},
-		MetricCbErr: noopMetric,
-		Circuit:     circuit,
+		CbMetric: noopCbMetric,
+		Circuit:  circuit,
 	}
 }
 
 type circuitBreakerHandler struct {
 	*handlerFields
-	mxCbErr Metric
-	circuit string
-	handler Handler
+	cbMetric CbMetric
+	circuit  string
+	handler  Handler
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -403,7 +404,7 @@ type circuitBreakerHandler struct {
 func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) Handler {
 	return &circuitBreakerHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
-		mxCbErr:       opts.MetricCbErr,
+		cbMetric:      opts.CbMetric,
 		circuit:       opts.Circuit,
 		handler:       handler,
 	}
@@ -444,42 +445,33 @@ func (r *circuitBreakerHandler) Handle(ctx context.Context, msg Message) (Messag
 	// Capturing error from handler.Handle() or from hystrix if criteria met.
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
-		defer func() {
-			r.mxHandle.Observe(timespan, labelErr)
-		}()
 		// To prevent misinterpreting when wrapping one circuitBreakerStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
+			err = ErrCbOpen
 			r.log.For(ctx).Error("[Handler] Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan)
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbOpen"})
-			return nil, ErrCbOpen
 		case hystrix.ErrMaxConcurrency:
+			err = ErrCbMaxConcurrency
 			r.log.For(ctx).Error("[Handler] Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan)
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbMaxConcurrency"})
-			return nil, ErrCbMaxConcurrency
 		case hystrix.ErrTimeout:
+			err = ErrCbTimeout
 			r.log.For(ctx).Error("[Handler] Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan)
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbTimeout"})
-			return nil, ErrCbTimeout
 		default:
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "NonCbErr"})
-			return nil, err
+			// Captured error from handler.Get()
 		}
+		r.cbMetric.ObserveErr(timespan, err)
+		return nil, err
 	}
 	msgOut := (<-result).(Message)
 	timespan := time.Since(begin).Seconds()
 	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
-	r.mxHandle.Observe(timespan, labelOk)
+	r.cbMetric.ObserveOk(timespan)
 	return msg, nil
 }
 

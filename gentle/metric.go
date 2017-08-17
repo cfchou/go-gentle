@@ -1,127 +1,37 @@
 package gentle
 
-import (
-	"errors"
-	"sync"
-)
-
-const (
-	// Observation supported by all Stream.Get(), it observes the time spent
-	// with the label "result" of possible values "ok" or "err"
-	MxStreamGet = "get"
-
-	// Observation supported by all Handler.Handle(), it observes the time
-	// spent with the label "result" of possible values "ok" or "err"
-	MxHandlerHandle = "handle"
-
-	// Observation supported by RetryStreams.Get(), it observes the total
-	// number tries(retries+1) with the label "result" of possible values "ok"
-	// or "err"
-	MxStreamRetryTry = "try"
-
-	// Observation supported by retryHandler.Handle(), it observes the total
-	// number of tries with the label "result" of possible values "ok" or
-	// "err"
-	MxHandlerRetryTry = "try"
-
-	// Observation supported by circuitBreakerStream.Get(), when an error is
-	// met, it observes 1 with the label "err" of possible values of
-	// "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
-	// "NonCbErr"
-	MxStreamCircuitBreakerHxerr = "hxerr"
-
-	// Observation supported by circuitBreakerHandler.Handle(), when an
-	// error is met, it observes 1 with the label "err" of possible values
-	// of "ErrCbCircuitOpen", "ErrCbMaxConcurrency", "ErrCbTimeout" or
-	// "NonCbErr"
-	MxHandlerCircuitBreakerHxerr = "hxerr"
-)
-
-var (
-	// metric labels
-	labelOk  = map[string]string{"result": "ok"}
-	labelErr = map[string]string{"result": "err"}
-
-	ErrMxNotFound = errors.New("Metric Not found")
-
-	gentleMetrics = &metricRegistry{
-		metrics: make(map[RegistryKey]Metric),
-		lock:    &sync.RWMutex{},
-	}
-)
-
-// Metric
 type Metric interface {
-	Observe(value float64, labels map[string]string)
+	ObserveOk(value float64)
+	ObserveErr(value float64)
 }
 
-// Instead of commonly used Counter/Gauge/Timer/Histogram/Percentile,
-// Observation is a general interface that doesn't limit the implementation. An
-// implementation can be whatever meaningful.
-type Observation interface {
-	//Metric
-	Observe(value float64, labels map[string]string)
+type RetryMetric interface {
+	ObserveOk(value float64, retry int)
+	ObserveErr(value float64, retry int)
 }
 
-type RegistryKey struct {
-	Namespace, Resilience, Name, Mx string
+type CbMetric interface {
+	ObserveOk(value float64)
+	ObserveErr(value float64, err error)
 }
 
-// Registration helpers. Not thread-safe so synchronization has be done by
-// application if needed.
-func RegisterObservation(key *RegistryKey, observation Observation) {
-	gentleMetrics.RegisterMetric(key, observation)
-}
-
-// Registration helpers. Not thread-safe so synchronization has be done by
-// application if needed.
-func UnRegisterObservation(key *RegistryKey) {
-	gentleMetrics.UnRegisterMetric(key)
-}
-
-// Registration helpers. Not thread-safe so synchronization has be done by
-// application if needed.
-func GetObservation(key *RegistryKey) (Observation, error) {
-	mx := gentleMetrics.GetMetric(key)
-	if ob, ok := mx.(Observation); ok {
-		return ob, nil
-	}
-	return nil, ErrMxNotFound
-}
-
-type metricRegistry struct {
-	metrics map[RegistryKey]Metric
-	lock    *sync.RWMutex
-}
-
-func (r *metricRegistry) RegisterMetric(key *RegistryKey, mx Metric) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	r.metrics[*key] = mx
-}
-
-func (r *metricRegistry) UnRegisterMetric(key *RegistryKey) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	delete(r.metrics, *key)
-}
-
-func (r *metricRegistry) GetMetric(key *RegistryKey) Metric {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	return r.metrics[*key]
-}
-
-// A do-nothing Metric
 type noOpMetric struct{}
 
-func (m *noOpMetric) Observe(value float64, labels map[string]string) {}
+func (m *noOpMetric) ObserveOk(value float64)  {}
+func (m *noOpMetric) ObserveErr(value float64) {}
 
-var noopMetric = &noOpMetric{}
+type noOpRetryMetric struct{}
 
-func NoOpObservationIfNonRegistered(key *RegistryKey) Observation {
-	if ob, err := GetObservation(key); err == nil {
-		return ob
-	}
-	return noopMetric
-}
+func (m *noOpRetryMetric) ObserveOk(value float64, retry int)  {}
+func (m *noOpRetryMetric) ObserveErr(value float64, retry int) {}
+
+type noOpCbMetric struct{}
+
+func (m *noOpCbMetric) ObserveOk(value float64)             {}
+func (m *noOpCbMetric) ObserveErr(value float64, err error) {}
+
+var (
+	noopMetric      = &noOpMetric{}
+	noopRetryMetric = &noOpRetryMetric{}
+	noopCbMetric    = &noOpCbMetric{}
+)

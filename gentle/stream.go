@@ -16,7 +16,6 @@ type streamOpts struct {
 	Log        Logger
 	Tracer     opentracing.Tracer
 	TracingRef TracingRef
-	MetricGet  Metric
 }
 
 // Common fields for XXXStream
@@ -26,7 +25,6 @@ type streamFields struct {
 	log        loggerFactory
 	tracer     opentracing.Tracer
 	tracingRef TracingRef
-	mxGet      Metric
 }
 
 func newStreamFields(opts *streamOpts) *streamFields {
@@ -36,12 +34,12 @@ func newStreamFields(opts *streamOpts) *streamFields {
 		log:        loggerFactory{opts.Log},
 		tracer:     opts.Tracer,
 		tracingRef: opts.TracingRef,
-		mxGet:      opts.MetricGet,
 	}
 }
 
 type RateLimitedStreamOpts struct {
 	streamOpts
+	Metric  Metric
 	Limiter RateLimit
 }
 
@@ -54,8 +52,8 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 				"gentle", StreamRateLimited, "name", name),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
-			MetricGet:  noopMetric,
 		},
+		Metric:  noopMetric,
 		Limiter: limiter,
 	}
 }
@@ -63,6 +61,7 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 // Rate limiting pattern is used to limit the speed of a series of Get().
 type rateLimitedStream struct {
 	*streamFields
+	metric  Metric
 	limiter RateLimit
 	stream  Stream
 }
@@ -70,6 +69,7 @@ type rateLimitedStream struct {
 func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
 	return &rateLimitedStream{
 		streamFields: newStreamFields(&opts.streamOpts),
+		metric:       opts.Metric,
 		limiter:      opts.Limiter,
 		stream:       upstream,
 	}
@@ -102,7 +102,7 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 		err := ctx.Err()
 		r.log.For(ctx).Warn("[Stream] Wait() interrupted", "err", err,
 			"timespan", timespan)
-		r.mxGet.Observe(timespan, labelErr)
+		r.metric.ObserveErr(timespan)
 		return nil, err
 	case <-c:
 	}
@@ -115,12 +115,12 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 	if err != nil {
 		r.log.For(ctx).Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
-		r.mxGet.Observe(timespan, labelErr)
+		r.metric.ObserveErr(timespan)
 		return nil, err
 	}
 	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 		"timespan", timespan)
-	r.mxGet.Observe(timespan, labelOk)
+	r.metric.ObserveOk(timespan)
 	return msg, nil
 }
 
@@ -134,7 +134,7 @@ func (r *rateLimitedStream) GetNames() *Names {
 
 type RetryStreamOpts struct {
 	streamOpts
-	MetricTryNum Metric
+	RetryMetric RetryMetric
 	// TODO
 	// remove the dependency to package clock for this exported symbol
 	Clock          clock.Clock
@@ -150,9 +150,8 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 				StreamRetry, "name", name),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
-			MetricGet:  noopMetric,
 		},
-		MetricTryNum:   noopMetric,
+		RetryMetric:    noopRetryMetric,
 		Clock:          clock.New(),
 		BackOffFactory: backOffFactory,
 	}
@@ -162,7 +161,7 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 // and then retries.
 type retryStream struct {
 	*streamFields
-	mxTryNum       Metric
+	retryMetric    RetryMetric
 	clock          clock.Clock
 	backOffFactory BackOffFactory
 	stream         Stream
@@ -171,7 +170,7 @@ type retryStream struct {
 func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
 	return &retryStream{
 		streamFields:   newStreamFields(&opts.streamOpts),
-		mxTryNum:       opts.MetricTryNum,
+		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
 		stream:         upstream,
@@ -193,8 +192,7 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 		timespan := r.clock.Now().Sub(begin).Seconds()
 		r.log.For(ctx).Debug(info, "msgOut", msg.ID(), "timespan", timespan,
 			"retry", retry)
-		r.mxGet.Observe(timespan, labelOk)
-		r.mxTryNum.Observe(float64(retry), labelOk)
+		r.retryMetric.ObserveOk(float64(retry), retry)
 		return msg, nil
 	}
 	returnNotOk := func(lvl, info string, err error, retry int) (Message, error) {
@@ -206,8 +204,7 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 			r.log.For(ctx).Error(info, "err", err, "timespan", timespan,
 				"retry", retry)
 		}
-		r.mxGet.Observe(timespan, labelErr)
-		r.mxTryNum.Observe(float64(retry), labelErr)
+		r.retryMetric.ObserveErr(timespan, retry)
 		return nil, err
 	}
 	returnErr := func(info string, err error, retry int) (Message, error) {
@@ -280,6 +277,7 @@ func (r *retryStream) GetNames() *Names {
 
 type BulkheadStreamOpts struct {
 	streamOpts
+	Metric         Metric
 	MaxConcurrency int
 }
 
@@ -296,8 +294,8 @@ func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *Bulkhead
 				StreamBulkhead, "name", name),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
-			MetricGet:  noopMetric,
 		},
+		Metric:         noopMetric,
 		MaxConcurrency: maxConcurrency,
 	}
 }
@@ -307,6 +305,7 @@ func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *Bulkhead
 // http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
 type bulkheadStream struct {
 	*streamFields
+	metric    Metric
 	stream    Stream
 	semaphore chan struct{}
 }
@@ -316,6 +315,7 @@ type bulkheadStream struct {
 func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
 	return &bulkheadStream{
 		streamFields: newStreamFields(&opts.streamOpts),
+		metric:       opts.Metric,
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
 	}
@@ -343,15 +343,18 @@ func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
 		if err != nil {
 			r.log.For(ctx).Error("[Stream] Get() err", "err", err,
 				"timespan", timespan)
-			r.mxGet.Observe(timespan, labelErr)
+			r.metric.ObserveErr(timespan)
 			return nil, err
 		}
 		r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 			"timespan", timespan)
-		r.mxGet.Observe(timespan, labelOk)
+		r.metric.ObserveOk(timespan)
 		return msg, nil
 	default:
-		r.log.For(ctx).Error("[Stream] Get() err", "err", ErrMaxConcurrency)
+		timespan := time.Since(begin).Seconds()
+		r.log.For(ctx).Error("[Stream] Get() err", "err", ErrMaxConcurrency,
+			"timespan", timespan)
+		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
 	}
 }
@@ -374,8 +377,8 @@ func (r *bulkheadStream) GetCurrentConcurrency() int {
 
 type CircuitBreakerStreamOpts struct {
 	streamOpts
-	MetricCbErr Metric
-	Circuit     string
+	CbMetric CbMetric
+	Circuit  string
 }
 
 func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreakerStreamOpts {
@@ -388,19 +391,18 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 				"name", name, "circuit", circuit),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
-			MetricGet:  noopMetric,
 		},
-		MetricCbErr: noopMetric,
-		Circuit:     circuit,
+		CbMetric: noopCbMetric,
+		Circuit:  circuit,
 	}
 }
 
 // circuitBreakerStream is a Stream equipped with a circuit-breaker.
 type circuitBreakerStream struct {
 	*streamFields
-	mxCbErr Metric
-	circuit string
-	stream  Stream
+	cbMetric CbMetric
+	circuit  string
+	stream   Stream
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
@@ -417,7 +419,7 @@ func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) Stre
 
 	return &circuitBreakerStream{
 		streamFields: newStreamFields(&opts.streamOpts),
-		mxCbErr:      opts.MetricCbErr,
+		cbMetric:     opts.CbMetric,
 		circuit:      opts.Circuit,
 		stream:       stream,
 	}
@@ -456,39 +458,33 @@ func (r *circuitBreakerStream) Get(ctx context.Context) (Message, error) {
 	// Capturing error from stream.Get() or from hystrix if criteria met.
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
-		defer func() {
-			r.mxGet.Observe(timespan, labelErr)
-		}()
 		// To prevent misinterpreting when wrapping one circuitBreakerStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
+			err = ErrCbOpen
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
 				"timespan", timespan)
-			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbOpen"})
-			return nil, ErrCbOpen
 		case hystrix.ErrMaxConcurrency:
+			err = ErrCbMaxConcurrency
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
 				"timespan", timespan)
-			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbMaxConcurrency"})
-			return nil, ErrCbMaxConcurrency
 		case hystrix.ErrTimeout:
+			err = ErrCbTimeout
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
 				"timespan", timespan)
-			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbTimeout"})
-			return nil, ErrCbTimeout
 		default:
-			// Captured error from stream::Get()
-			r.mxCbErr.Observe(1, map[string]string{"err": "NonCbErr"})
-			return nil, err
+			// Captured error from stream.Get()
 		}
+		r.cbMetric.ObserveErr(timespan, err)
+		return nil, err
 	}
 	msgOut := (<-result).(Message)
 	timespan := time.Since(begin).Seconds()
 	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
 		"timespan", timespan)
-	r.mxGet.Observe(timespan, labelOk)
+	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
 }
 

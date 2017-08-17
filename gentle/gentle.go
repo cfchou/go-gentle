@@ -45,7 +45,7 @@ var (
 )
 
 func init() {
-	// Discard handler when pacakge is being loaded. You may set up the
+	// Discard handler when package is being loaded. You may set up the
 	// exported Log later.
 	Log.SetHandler(log15.DiscardHandler())
 }

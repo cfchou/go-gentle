@@ -41,7 +41,7 @@ func TestRateLimitedStream_Get(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	dura := time.Now().Sub(begin)
+	dura := time.Since(begin)
 	log.Info("[Test] spent >= minimum?", "spent", dura, "minimum", minimum)
 	assert.True(t, dura >= minimum)
 }
