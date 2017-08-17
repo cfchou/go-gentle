@@ -1,21 +1,22 @@
 package gentle
 
 import (
+	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"strconv"
+	"math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
+	"testing/quick"
 	"time"
 )
 
 func TestRateLimitedHandler_Handle(t *testing.T) {
-	// 1 msg/sec, no burst
+	// Handle() is rate limited.
 	requestsInterval := 100 * time.Millisecond
 	mhandler := &MockHandler{}
 	handler := NewRateLimitedHandler(
@@ -23,16 +24,16 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 			NewTokenBucketRateLimit(requestsInterval, 1)),
 		mhandler)
 	mm := &fakeMsg{id: "123"}
-	mhandler.On("Handle", mm).Return(mm, nil)
-
-	count := 3
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
+	count := 4
 	minimum := time.Duration(count-1) * requestsInterval
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
+	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := handler.Handle(mm)
+			_, err := handler.Handle(ctx, mm)
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -43,468 +44,541 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	assert.True(t, dura >= minimum)
 }
 
-func TestRetryHandler_Handle(t *testing.T) {
-	// Test against mocked BackOff
-	mfactory := &MockBackOffFactory{}
-	mback := &MockBackOff{}
-	// mock clock so that we don't need to wait for the real timer to move
-	// forward
-	mclock := clock.NewMock()
-	opts := NewRetryHandlerOpts("", "test", mfactory)
-	opts.Clock = mclock
-	mhandler := &MockHandler{}
-	handler := NewRetryHandler(opts, mhandler)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-	// create a backoff that fires 1 second for $count times
-	count := 3
-	timespanMinimum := time.Duration(count) * time.Second
-	mfactory.On("NewBackOff").Return(mback)
-	mback.On("Next").Return(func() time.Duration {
-		if count == 0 {
-			return BackOffStop
+func TestRateLimitedHandler_Handle_Timeout(t *testing.T) {
+	// Context timeout while Handle() is waiting for rate-limiter or upstream.
+	timeout := 100 * time.Millisecond
+	run := func(intervalMs int) bool {
+		requestsInterval := time.Duration(intervalMs) * time.Millisecond
+		block := make(chan struct{}, 1)
+		mhandler := &MockHandler{}
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+			(*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+				select {
+				case <-ctx2.Done():
+					log.Debug("[test] Context.Done()", "err", ctx2.Err())
+					return ctx2.Err()
+				case <-block:
+					panic("never here")
+				}
+			})
+		stream := NewRateLimitedHandler(
+			NewRateLimitedHandlerOpts("", "test",
+				NewTokenBucketRateLimit(requestsInterval, 1)),
+			mhandler)
+		mm := &fakeMsg{id: "123"}
+		count := 4
+		var wg sync.WaitGroup
+		wg.Add(count)
+		begin := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		for i := 0; i < count; i++ {
+			go func() {
+				_, err := stream.Handle(ctx, mm)
+				if err == context.DeadlineExceeded {
+					// It's interrupted when waiting either for the permission
+					// from the rate-limiter or for mhandler.Handle()
+					wg.Done()
+					return
+				}
+				panic("never here")
+			}()
 		}
-		count--
-		return 1 * time.Second
-	})
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = handler.Handle(mm)
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
+		wg.Wait()
+		log.Info("[Test] time spent", "timespan", time.Since(begin).Seconds())
+		return true
+	}
+	config := &quick.Config{
+		// [1ms, 200ms)
+		Values: genBoundInt(1, 200),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestRetryHandler_Get2(t *testing.T) {
-	// Test against ConstantBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
-	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(backOffOpts)
-	opts := NewRetryHandlerOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mhandler := &MockHandler{}
-	handler := NewRetryHandler(opts, mhandler)
+func TestRetryHandler_Handle_MockBackOff(t *testing.T) {
+	// Handle() retries with mocked BackOff
+	run := func(backOffCount int) bool {
+		mfactory := &MockBackOffFactory{}
+		mback := &MockBackOff{}
+		mfactory.On("NewBackOff").Return(mback)
+		// mock clock so that we don't need to wait for the real timer to move forward.
+		mclock := clock.NewMock()
+		opts := NewRetryHandlerOpts("", "test", mfactory)
+		opts.Clock = mclock
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
 
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		// create a backoff that fires 1 second for $backOffCount times
+		timespanMinimum := time.Duration(backOffCount) * time.Second
+		mback.On("Next").Return(func() time.Duration {
+			if backOffCount == 0 {
+				return BackOffStop
+			}
+			backOffCount--
+			return 1 * time.Second
+		})
 
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = handler.Handle(mm)
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
-	}
-}
-
-func TestRetryHandler_Get3(t *testing.T) {
-	// Test against ExponentialBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespanMinimum)
-	// No randomization to make the growth of backoff time approximately exponential.
-	backOffOpts.RandomizationFactor = 0
-	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
-	opts := NewRetryHandlerOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mhandler := &MockHandler{}
-	handler := NewRetryHandler(opts, mhandler)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = handler.Handle(mm)
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
-	}
-}
-
-func TestRetryHandler_Get4(t *testing.T) {
-	// Test against concurrent retryHandler.Handle() and ConstantBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
-	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(backOffOpts)
-	opts := NewRetryHandlerOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mhandler := &MockHandler{}
-	handler := NewRetryHandler(opts, mhandler)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	count := 2
-	wg := sync.WaitGroup{}
-	wg.Add(count)
-	done := make(chan struct{}, 1)
-
-	for i := 0; i < count; i++ {
+		ctx := context.Background()
+		mm := &fakeMsg{}
+		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
-			_, err = handler.Handle(mm)
-			// backoffs exhausted
-			assert.EqualError(t, err, fakeErr.Error())
-			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			wg.Done()
+			_, err := handler.Handle(ctx, mm)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
 		}()
 
-	}
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
-
-	begin := mclock.Now()
-	for {
-		select {
-		case <-done:
-			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+				return dura >= timespanMinimum
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
 		}
+	}
+
+	config := &quick.Config{
+		Values: genBoundInt(1, 50),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestRetryHandler_Get5(t *testing.T) {
-	// Test against concurrent retryHandler.Handle() and ExponentialBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0, 256*time.Second, timespanMinimum)
-	// No randomization to make the growth of backoff time approximately exponential.
-	backOffOpts.RandomizationFactor = 0
-	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
-	opts := NewRetryHandlerOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mhandler := &MockHandler{}
-	handler := NewRetryHandler(opts, mhandler)
+func TestRetryHandler_Handle_ConstantBackOff(t *testing.T) {
+	// Handle() retries with ConstantBackOff
+	run := func(maxElapsedSec int) bool {
+		log.Debug("=============", "sec", maxElapsedSec)
+		mclock := clock.NewMock()
+		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
+		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
+		backOffOpts.Clock = mclock
+		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		opts := NewRetryHandlerOpts("", "test", backOffFactory)
+		opts.Clock = mclock
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
 
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mhandler.On("Handle", mm)
-	call.Return(mm, nil)
-	_, err := handler.Handle(mm)
-	assert.NoError(t, err)
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).
+			Return((*fakeMsg)(nil), fakeErr)
 
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	count := 2
-	wg := sync.WaitGroup{}
-	wg.Add(count)
-	done := make(chan struct{}, 1)
-
-	for i := 0; i < count; i++ {
+		ctx := context.Background()
+		mm := &fakeMsg{}
+		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
-			_, err = handler.Handle(mm)
-			// backoffs exhausted
-			assert.EqualError(t, err, fakeErr.Error())
-			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			wg.Done()
+			_, err := handler.Handle(ctx, mm)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
 		}()
 
-	}
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
-
-	begin := mclock.Now()
-	for {
-		select {
-		case <-done:
-			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "maxElapsedTime", maxElapsedTime)
+				return dura >= maxElapsedTime
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
 		}
 	}
-}
-
-func TestBulkheadHandler_Handle(t *testing.T) {
-	maxConcurrency := 4
-	mhandler := &MockHandler{}
-
-	handler := NewBulkheadHandler(
-		NewBulkheadHandlerOpts("", "test", maxConcurrency),
-		mhandler)
-	mm := &fakeMsg{id: "123"}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(maxConcurrency)
-	block := make(chan struct{}, 0)
-	mhandler.On("Handle", mm).Return(
-		func(Message) Message {
-			wg.Done()
-			// every Handle() would be blocked here
-			block <- struct{}{}
-			return mm
-		}, nil)
-
-	for i := 0; i < maxConcurrency; i++ {
-		go handler.Handle(mm)
+	config := &quick.Config{
+		Values: genBoundInt(1, 50),
 	}
-
-	// Wait() until $maxConcurrency of Handle() are blocked
-	wg.Wait()
-	// one more Handle() would cause ErrMaxConcurrency
-	msg, err := handler.Handle(mm)
-	assert.Equal(t, msg, nil)
-	assert.EqualError(t, err, ErrMaxConcurrency.Error())
-	// Release blocked
-	for i := 0; i < maxConcurrency; i++ {
-		<-block
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestCircuitBreakerHandler_Handle(t *testing.T) {
+func TestRetryHandler_Handle_ExponentialBackOff(t *testing.T) {
+	// Handle() retries with ExponentialBackOff
+	run := func(maxElapsedSec int) bool {
+		mclock := clock.NewMock()
+		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
+		backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2,
+			128*time.Second, maxElapsedTime)
+		// No randomization to make the backoff time really exponential. Easier
+		// to examine log.
+		backOffOpts.RandomizationFactor = 0
+		backOffOpts.Clock = mclock
+		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		opts := NewRetryHandlerOpts("", "test", backOffFactory)
+		opts.Clock = mclock
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
+
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).
+			Return((*fakeMsg)(nil), fakeErr)
+
+		ctx := context.Background()
+		mm := &fakeMsg{id: "123"}
+		timespan := make(chan time.Duration, 1)
+		go func() {
+			begin := mclock.Now()
+			_, err := handler.Handle(ctx, mm)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
+		}()
+
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "maxElapsedTime", maxElapsedTime)
+				return dura >= maxElapsedTime
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
+		}
+	}
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1s, 20m)
+		Values: genBoundInt(1, 1200),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryHandler_Handle_MockBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Handle() with mocked BackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		mfactory := &MockBackOffFactory{}
+		mback := &MockBackOff{}
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		mfactory.On("NewBackOff").Return(func() BackOff {
+			// 1/10 chances that NewBackOff() would sleep over timeout
+			if rand.Intn(timeoutMs)%10 == 1 {
+				time.Sleep(timeout + 10*time.Second)
+			}
+			return mback
+		})
+		opts := NewRetryHandlerOpts("", "test", mfactory)
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
+
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).
+			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+				log.Debug("[test] Handle()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		// Never run out of back-offs
+		mback.On("Next").Return(func() time.Duration {
+			log.Debug("[test] Next() sleep")
+			time.Sleep(suspend)
+			return suspend
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		mm := &fakeMsg{id: "123"}
+
+		_, err := handler.Handle(ctx, mm)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Handle() with ConstantBackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		backOffOpts := NewConstantBackOffFactoryOpts(suspend, 0)
+		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		opts := NewRetryHandlerOpts("", "test", backOffFactory)
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
+
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).
+			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+				log.Debug("[test] Handle()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		mm := &fakeMsg{id: "123"}
+
+		_, err := handler.Handle(ctx, mm)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Handle() with ExponentialBackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		backOffOpts := NewExponentialBackOffFactoryOpts(suspend, 2,
+			128*time.Second, 0)
+		// No randomization to make the backoff time really exponential. Easier
+		// to examine log.
+		backOffOpts.RandomizationFactor = 0
+		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		opts := NewRetryHandlerOpts("", "test", backOffFactory)
+		mhandler := &MockHandler{}
+		handler := NewRetryHandler(opts, mhandler)
+
+		fakeErr := errors.New("A fake error")
+		mhandler.On("Handle", mock.Anything, mock.Anything).
+			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+				log.Debug("[test] Handle()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		mm := &fakeMsg{id: "123"}
+
+		_, err := handler.Handle(ctx, mm)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestBulkheadHandler_Handle_MaxConcurrency(t *testing.T) {
+	// BulkheadHandler returns ErrMaxConcurrency when passing the threshold
+	run := func(maxConcurrency int) bool {
+		mhandler := &MockHandler{}
+		handler := NewBulkheadHandler(
+			NewBulkheadHandlerOpts("", "test", maxConcurrency),
+			mhandler)
+		wg := &sync.WaitGroup{}
+		wg.Add(maxConcurrency)
+		block := make(chan struct{}, 1)
+		defer close(block)
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+			func(ctx2 context.Context, m Message) Message {
+				wg.Done()
+				// every Handle() would be blocked here
+				<-block
+				return m
+			}, nil)
+
+		ctx := context.Background()
+		mm := &fakeMsg{id: "123"}
+
+		for i := 0; i < maxConcurrency; i++ {
+			go handler.Handle(ctx, mm)
+		}
+
+		// Wait() until $maxConcurrency of Handle() are blocked
+		wg.Wait()
+		// one more Handle() would cause ErrMaxConcurrency
+		msg, err := handler.Handle(ctx, mm)
+		return msg == nil && err == ErrMaxConcurrency
+	}
+
+	config := &quick.Config{
+		Values: genBoundInt(1, 100),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCircuitBreakerHandler_Handle_MaxConcurrency(t *testing.T) {
+	// CircuitBreakerHandler returns ErrCbMaxConcurrency when
+	// CircuitBreakerConf.MaxConcurrent is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
 	defer hystrix.Flush()
-	maxConcurrency := 4
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	// requests exceeding MaxConcurrentRequests would get
-	// ErrCbMaxConcurrency provided that Timeout is large enough for this
-	// test case
 	conf := NewDefaultCircuitBreakerConf()
-	conf.MaxConcurrent = maxConcurrency
-	conf.Timeout = 10 * time.Second
+	conf.MaxConcurrent = 4
+	// Set properly to not affect this test:
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
 		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
-	mm := &fakeMsg{id: "123"}
-
 	var wg sync.WaitGroup
-	wg.Add(maxConcurrency)
-	cond := sync.NewCond(&sync.Mutex{})
-	mhandler.On("Handle", mm).Return(
-		func(Message) Message {
-			// wg.Done() here instead of in the loop guarantees Get() is
-			// running by the circuit
+	wg.Add(conf.MaxConcurrent)
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+		func(ctx2 context.Context, msg Message) Message {
 			wg.Done()
-			cond.L.Lock()
-			cond.Wait()
-			return mm
+			// block to saturate concurrent requests
+			<-block
+			return msg
 		}, nil)
 
-	for i := 0; i < maxConcurrency; i++ {
+	ctx := context.Background()
+	mm := &fakeMsg{id: "123"}
+
+	for i := 0; i < conf.MaxConcurrent; i++ {
 		go func() {
-			handler.Handle(mm)
+			handler.Handle(ctx, mm)
 		}()
 	}
-	// Make sure previous Handle() are all running before the next
+	// Make sure previous Get() are all running
 	wg.Wait()
-	// One more call while all previous calls sticking in the circuit
-	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
-	cond.Broadcast()
+
+	for {
+		_, err := handler.Handle(ctx, mm)
+		if err == ErrCbOpen {
+			log.Debug("[Test] circuit opened")
+			break
+		}
+		assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
+	}
 }
 
-func TestCircuitBreakerHandler_Handle2(t *testing.T) {
-	// Test ErrCbTimeout and subsequent ErrCbOpen
+func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
+	// CircuitBreakerHandler returns ErrCbTimeout when
+	// CircuitBreakerConf.Timeout is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
 	defer hystrix.Flush()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
 	conf := NewDefaultCircuitBreakerConf()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request hits timeout would make the subsequent
-	// requests coming within SleepWindow see ErrCbOpen
-	conf.VolumeThreshold = 1
-	conf.ErrorPercentThreshold = 1
-	conf.SleepWindow = time.Second
-	// A short Timeout to speed up the test
 	conf.Timeout = time.Millisecond
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
 		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
-	var nth int64
-	newMsg := func() Message {
-		tmp := atomic.AddInt64(&nth, 1)
-		return &fakeMsg{id: strconv.FormatInt(tmp, 10)}
-	}
 
 	// Suspend longer than Timeout
-	var toSuspend int64
-	suspend := conf.Timeout + time.Millisecond
-	mhandler.On("Handle", mock.AnythingOfType("*gentle.fakeMsg")).Return(
-		func(mm Message) Message {
-			if atomic.LoadInt64(&toSuspend) == 0 {
-				time.Sleep(suspend)
-			}
-			return mm
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+		func(ctx2 context.Context, msg Message) Message {
+			// block to hit timeout
+			<-block
+			return msg
 		}, nil)
 
-	// ErrCbTimeout then the subsequent requests eventually see ErrCbOpen.
-	// "Eventually" because hystrix updates metrics asynchronously.
+	ctx := context.Background()
+	mm := &fakeMsg{id: "123"}
 	for {
-		log.Debug("[Test] try again for ErrCbOpen")
-		_, err := handler.Handle(newMsg())
+		_, err := handler.Handle(ctx, mm)
 		if err == ErrCbOpen {
 			break
 		}
-		// err could be nil if $suspend is short and scheduling is slow.
-		// if that's the case, we'll try until threshold is reached.
-	}
-
-	// Disable toSuspend
-	atomic.StoreInt64(&toSuspend, 1)
-	time.Sleep(conf.SleepWindow)
-	for {
-		log.Debug("[Test] try again for no err")
-		_, err := handler.Handle(newMsg())
-		if err == nil {
-			// In the end, circuit is closed because of no error.
-			break
-		}
-		// err could be ErrCbOpen or even ErrCbTimeout if scheduling
-		// is slow. If that's the case, we'll try until circuit is closed.
+		assert.EqualError(t, err, ErrCbTimeout.Error())
 	}
 }
 
-func TestCircuitBreakerHandler_Handle3(t *testing.T) {
-	// Test fakeErr and subsequent ErrCbOpen
+func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
+	// CircuitBreakerHandler returns the designated error.
+	// It then returns ErrCbOpen when error threshold is reached.
 	defer hystrix.Flush()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
 	conf := NewDefaultCircuitBreakerConf()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request returns error would make the subsequent
-	// requests coming within SleepWindow see ErrCbOpen
-	conf.VolumeThreshold = 1
-	conf.ErrorPercentThreshold = 1
-	conf.SleepWindow = time.Second
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	handler := NewCircuitBreakerHandler(
 		NewCircuitBreakerHandlerOpts("", "test", circuit),
 		mhandler)
+	fakeErr := errors.New("fake error")
+
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+
+	ctx := context.Background()
 	mm := &fakeMsg{id: "123"}
-	fakeErr := errors.New("A fake error")
-
-	call := mhandler.On("Handle", mm)
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	// 1st call gets fakeErr
-	_, err := handler.Handle(mm)
-	assert.EqualError(t, err, fakeErr.Error())
-
-	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
-	// "Eventually" because hystrix updates metrics asynchronously.
 	for {
-		log.Debug("[Test] try again for ErrCbOpen")
-		_, err := handler.Handle(mm)
+		_, err := handler.Handle(ctx, mm)
 		if err == ErrCbOpen {
 			break
-		} else {
-			assert.EqualError(t, err, fakeErr.Error())
 		}
-	}
-
-	time.Sleep(conf.SleepWindow)
-	call.Return(mm, nil)
-	for {
-		log.Debug("[Test] try again for no err")
-		_, err := handler.Handle(mm)
-		if err == nil {
-			// In the end, circuit is closed because of no error.
-			break
-		} else {
-			assert.EqualError(t, err, ErrCbOpen.Error())
-		}
+		assert.EqualError(t, err, fakeErr.Error())
 	}
 }

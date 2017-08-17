@@ -1,35 +1,42 @@
 package gentle
 
 import (
+	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/cfchou/hystrix-go/hystrix"
-	"sync"
+	"github.com/opentracing/opentracing-go"
 	"time"
 )
 
 // Common options for XXXStreamOpts
 type streamOpts struct {
-	Namespace string
-	Name      string
-	Log       Logger
-	MetricGet Metric
+	Namespace  string
+	Name       string
+	Log        Logger
+	Tracer     opentracing.Tracer
+	TracingRef TracingRef
+	MetricGet  Metric
 }
 
 // Common fields for XXXStream
 type streamFields struct {
-	namespace string
-	name      string
-	log       Logger
-	mxGet     Metric
+	namespace  string
+	name       string
+	log        loggerFactory
+	tracer     opentracing.Tracer
+	tracingRef TracingRef
+	mxGet      Metric
 }
 
 func newStreamFields(opts *streamOpts) *streamFields {
 	return &streamFields{
-		namespace: opts.Namespace,
-		name:      opts.Name,
-		log:       opts.Log,
-		mxGet:     opts.MetricGet,
+		namespace:  opts.Namespace,
+		name:       opts.Name,
+		log:        loggerFactory{opts.Log},
+		tracer:     opts.Tracer,
+		tracingRef: opts.TracingRef,
+		mxGet:      opts.MetricGet,
 	}
 }
 
@@ -45,7 +52,9 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 			Name:      name,
 			Log: Log.New("namespace", namespace,
 				"gentle", StreamRateLimited, "name", name),
-			MetricGet: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
 		},
 		Limiter: limiter,
 	}
@@ -66,20 +75,50 @@ func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
 	}
 }
 
-// Get() is blocked when the limit is exceeded.
-func (r *rateLimitedStream) Get() (Message, error) {
+// Get() is blocked when the limit is reached.
+func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.For(ctx).Info("[Stream] Get() ...")
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+	}
 	begin := time.Now()
-	r.log.Debug("[Stream] Get() ...")
-	r.limiter.Wait(1, 0)
-	msg, err := r.stream.Get()
+
+	c := make(chan struct{}, 1)
+	go func(ch chan<- struct{}) {
+		// FIXME
+		// A possible timer-leakage is created when ctx.Done() is triggered but
+		// the underlying timer is still running until a bucket available. To
+		// fix it, RateLimit.Wait() might as well need to support context.
+		r.limiter.Wait(1, 0)
+		ch <- struct{}{}
+	}(c)
+	select {
+	case <-ctx.Done():
+		timespan := time.Since(begin).Seconds()
+		err := ctx.Err()
+		r.log.For(ctx).Warn("[Stream] Wait() interrupted", "err", err,
+			"timespan", timespan)
+		r.mxGet.Observe(timespan, labelErr)
+		return nil, err
+	case <-c:
+	}
+	// NOTE:
+	// We don't simultaneously check ctx.Done() because it's down to
+	// stream.Get() to respect timeout/cancellation and to release resource
+	// acquired. This behaviour aligns thread-join model.
+	msg, err := r.stream.Get(ctx)
 	timespan := time.Since(begin).Seconds()
 	if err != nil {
-		r.log.Error("[Stream] Get() err", "err", err,
+		r.log.For(ctx).Error("[Stream] Get() err", "err", err,
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, labelErr)
 		return nil, err
 	}
-	r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
+	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, labelOk)
 	return msg, nil
@@ -95,8 +134,10 @@ func (r *rateLimitedStream) GetNames() *Names {
 
 type RetryStreamOpts struct {
 	streamOpts
-	MetricTryNum   Metric
-	Clock          Clock
+	MetricTryNum Metric
+	// TODO
+	// remove the dependency to package clock for this exported symbol
+	Clock          clock.Clock
 	BackOffFactory BackOffFactory
 }
 
@@ -107,7 +148,9 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
 				StreamRetry, "name", name),
-			MetricGet: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
 		},
 		MetricTryNum:   noopMetric,
 		Clock:          clock.New(),
@@ -119,8 +162,8 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 // and then retries.
 type retryStream struct {
 	*streamFields
-	obTryNum       Metric
-	clock          Clock
+	mxTryNum       Metric
+	clock          clock.Clock
 	backOffFactory BackOffFactory
 	stream         Stream
 }
@@ -128,52 +171,102 @@ type retryStream struct {
 func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
 	return &retryStream{
 		streamFields:   newStreamFields(&opts.streamOpts),
-		obTryNum:       opts.MetricTryNum,
+		mxTryNum:       opts.MetricTryNum,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
 		stream:         upstream,
 	}
 }
 
-func (r *retryStream) Get() (Message, error) {
+func (r *retryStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.For(ctx).Info("[Stream] Get() ...")
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+	}
 	begin := r.clock.Now()
-	count := 1
-	r.log.Debug("[Stream] Get() ...", "count", count)
-	var once sync.Once
-	var backOff BackOff
-	for {
-		msg, err := r.stream.Get()
-		if err == nil {
-			timespan := r.clock.Now().Sub(begin).Seconds()
-			r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
-				"timespan", timespan, "count", count)
-			r.mxGet.Observe(timespan, labelOk)
-			r.obTryNum.Observe(float64(count), labelOk)
-			return msg, nil
-		}
-		once.Do(func() {
-			backOff = r.backOffFactory.NewBackOff()
-		})
-		toWait := backOff.Next()
-		// Next() should immediately return but we can't guarantee so
-		// timespan is calculated after Next().
+
+	returnOk := func(info string, msg Message, retry int) (Message, error) {
 		timespan := r.clock.Now().Sub(begin).Seconds()
-		if toWait == BackOffStop {
-			r.log.Error("[Streamer] Get() err and no more backing off",
-				"err", err, "timespan", timespan,
-				"count", count)
-			r.mxGet.Observe(timespan, labelErr)
-			r.obTryNum.Observe(float64(count), labelErr)
-			return nil, err
+		r.log.For(ctx).Debug(info, "msgOut", msg.ID(), "timespan", timespan,
+			"retry", retry)
+		r.mxGet.Observe(timespan, labelOk)
+		r.mxTryNum.Observe(float64(retry), labelOk)
+		return msg, nil
+	}
+	returnNotOk := func(lvl, info string, err error, retry int) (Message, error) {
+		timespan := r.clock.Now().Sub(begin).Seconds()
+		if lvl == "warn" {
+			r.log.For(ctx).Warn(info, "err", err, "timespan", timespan,
+				"retry", retry)
+		} else {
+			r.log.For(ctx).Error(info, "err", err, "timespan", timespan,
+				"retry", retry)
 		}
-		// timespan in our convention is used to track the overall
-		// time of current function. Here we record time
-		// passed as "elapsed".
-		count++
-		r.log.Error("[Stream] Get() err, backing off ...",
-			"err", err, "elapsed", timespan, "count", count,
-			"wait", toWait)
-		r.clock.Sleep(toWait)
+		r.mxGet.Observe(timespan, labelErr)
+		r.mxTryNum.Observe(float64(retry), labelErr)
+		return nil, err
+	}
+	returnErr := func(info string, err error, retry int) (Message, error) {
+		return returnNotOk("error", info, err, retry)
+	}
+	returnWarn := func(info string, err error, retry int) (Message, error) {
+		return returnNotOk("warn", info, err, retry)
+	}
+
+	retry := 0
+	// In case NewBackOff() takes too much time
+	c := make(chan BackOff, 1)
+	go func() {
+		c <- r.backOffFactory.NewBackOff()
+	}()
+	var backOff BackOff
+	select {
+	case <-ctx.Done():
+		return returnWarn("[Stream] NewBackOff() interrupted", ctx.Err(), retry)
+	case backOff = <-c:
+	}
+	for {
+		msg, err := r.stream.Get(ctx)
+		if err == nil {
+			// If it's interrupt at this point, we choose to return successfully.
+			return returnOk("[Stream] Get() ok", msg, retry)
+		}
+		if ctx.Err() != nil {
+			// This check is an optimization in that it still could be captured
+			// in the latter select.
+			// Cancellation happens likely during stream.Handle(). We choose to
+			// report ctx.Err() instead of err
+			return returnWarn("[Stream] Get() interrupted", ctx.Err(), retry)
+		}
+		// In case BackOff.Next() takes too much time
+		c := make(chan time.Duration, 1)
+		go func() {
+			c <- backOff.Next()
+		}()
+		var toWait time.Duration
+		select {
+		case <-ctx.Done():
+			return returnWarn("[Stream] Next() interrupted", ctx.Err(), retry)
+		case toWait = <-c:
+			if toWait == BackOffStop {
+				return returnErr("[Stream] Get() err and BackOffStop", err, retry)
+			}
+		}
+		r.log.For(ctx).Debug("[Stream] Get() err, backing off ...",
+			"err", err, "elapsed", r.clock.Now().Sub(begin).Seconds(), "retry", retry,
+			"backoff", toWait.Seconds())
+		tm := r.clock.Timer(toWait)
+		select {
+		case <-ctx.Done():
+			tm.Stop()
+			return returnWarn("[Stream] wait interrupted", ctx.Err(), retry)
+		case <-tm.C:
+		}
+		retry++
 	}
 }
 
@@ -201,7 +294,9 @@ func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *Bulkhead
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
 				StreamBulkhead, "name", name),
-			MetricGet: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
 		},
 		MaxConcurrency: maxConcurrency,
 	}
@@ -219,7 +314,6 @@ type bulkheadStream struct {
 // Create a bulkheadStream that allows at maximum $max_concurrency Get() to
 // run concurrently.
 func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
-
 	return &bulkheadStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		stream:       upstream,
@@ -227,29 +321,37 @@ func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
 	}
 }
 
-// Get() is blocked when the limit is exceeded.
-func (r *bulkheadStream) Get() (Message, error) {
+// Get() returns ErrMaxConcurrency when passing the threshold.
+func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.For(ctx).Info("[Stream] Get() ...")
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+	}
 	begin := time.Now()
-	r.log.Debug("[Stream] Get() ...")
+
 	select {
 	case r.semaphore <- struct{}{}:
 		defer func() {
 			<-r.semaphore
 		}()
-		msg, err := r.stream.Get()
+		msg, err := r.stream.Get(ctx)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			r.log.Error("[Stream] Get() err", "err", err,
+			r.log.For(ctx).Error("[Stream] Get() err", "err", err,
 				"timespan", timespan)
 			r.mxGet.Observe(timespan, labelErr)
 			return nil, err
 		}
-		r.log.Debug("[Stream] Get() ok", "msgOut", msg.ID(),
+		r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
 			"timespan", timespan)
 		r.mxGet.Observe(timespan, labelOk)
 		return msg, nil
 	default:
-		r.log.Error("[Stream] Get() err", "err", ErrMaxConcurrency)
+		r.log.For(ctx).Error("[Stream] Get() err", "err", ErrMaxConcurrency)
 		return nil, ErrMaxConcurrency
 	}
 }
@@ -284,7 +386,9 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 			Log: Log.New("namespace", namespace,
 				"gentle", StreamCircuitBreaker,
 				"name", name, "circuit", circuit),
-			MetricGet: noopMetric,
+			Tracer:     opentracing.GlobalTracer(),
+			TracingRef: TracingChildOf,
+			MetricGet:  noopMetric,
 		},
 		MetricCbErr: noopMetric,
 		Circuit:     circuit,
@@ -319,58 +423,70 @@ func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) Stre
 	}
 }
 
-func (r *circuitBreakerStream) Get() (Message, error) {
+func (r *circuitBreakerStream) Get(ctx context.Context) (Message, error) {
+	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	if err == nil {
+		r.log.For(ctx).Info("[Stream] Get() ...")
+		span := opentracing.SpanFromContext(ctx)
+		defer span.Finish()
+	} else {
+		r.log.Bg().Debug("[Stream] New span err", "err", err)
+	}
 	begin := time.Now()
-	r.log.Debug("[Stream] Get() ...")
+
 	result := make(chan interface{}, 1)
-	err := hystrix.Do(r.circuit, func() error {
-		msg, err := r.stream.Get()
+	err = hystrix.Do(r.circuit, func() error {
+		msg, err := r.stream.Get(ctx)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			r.log.Error("[Stream] Do()::Get() err",
+			r.log.For(ctx).Error("[Stream] stream.Get() err",
 				"err", err, "timespan", timespan)
+			// NOTE:
+			// 1. This err could be captured outside if a hystrix's error
+			//    doesn't take precedence.
+			// 2. Being captured or not, it contributes to hystrix metrics.
 			return err
 		}
-		r.log.Debug("[Stream] Do()::Get() ok",
+		r.log.For(ctx).Debug("[Stream] stream.Get() ok",
 			"msgOut", msg.ID(), "timespan", timespan)
 		result <- msg
 		return nil
 	}, nil)
 	// NOTE:
-	// err can be from Do()::Get() or hystrix errors if criteria are matched.
-	// Do()::Get()'s err, being returned or not, contributes to hystrix metrics
+	// Capturing error from stream.Get() or from hystrix if criteria met.
 	if err != nil {
+		timespan := time.Since(begin).Seconds()
 		defer func() {
-			timespan := time.Since(begin).Seconds()
-			r.log.Error("[Stream] Circuit err", "err", err,
-				"timespan", timespan)
 			r.mxGet.Observe(timespan, labelErr)
 		}()
-		// To prevent misinterpreting when wrapping one
-		// circuitBreakerStream over another. Hystrix errors are
-		// replaced so that Get() won't return any hystrix errors.
+		// To prevent misinterpreting when wrapping one circuitBreakerStream
+		// over another. Hystrix errors are replaced so that Get() won't return
+		// any hystrix errors.
 		switch err {
 		case hystrix.ErrCircuitOpen:
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbOpen"})
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbOpen"})
 			return nil, ErrCbOpen
 		case hystrix.ErrMaxConcurrency:
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbMaxConcurrency"})
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbMaxConcurrency"})
 			return nil, ErrCbMaxConcurrency
 		case hystrix.ErrTimeout:
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "ErrCbTimeout"})
+			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
+				"timespan", timespan)
+			r.mxCbErr.Observe(1, map[string]string{"err": "ErrCbTimeout"})
 			return nil, ErrCbTimeout
 		default:
-			r.mxCbErr.Observe(1,
-				map[string]string{"err": "NonCbErr"})
+			// Captured error from stream::Get()
+			r.mxCbErr.Observe(1, map[string]string{"err": "NonCbErr"})
 			return nil, err
 		}
 	}
 	msgOut := (<-result).(Message)
 	timespan := time.Since(begin).Seconds()
-	r.log.Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
+	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
 		"timespan", timespan)
 	r.mxGet.Observe(timespan, labelOk)
 	return msgOut, nil

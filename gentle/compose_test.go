@@ -1,11 +1,14 @@
 package gentle
 
 import (
+	"context"
 	"errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"strconv"
 	"testing"
+	"testing/quick"
+	"time"
 )
 
 func TestAppendHandlersStream(t *testing.T) {
@@ -15,20 +18,77 @@ func TestAppendHandlersStream(t *testing.T) {
 	stream := AppendHandlersStream(mstream, mhandlers...)
 	id := 0
 	mm := &fakeMsg{id: strconv.Itoa(id)}
-	mstream.On("Get").Return(mm, nil)
+	mstream.On("Get", mock.Anything).Return(mm, nil)
 
 	for _, mhandler := range mhandlers {
-		mhandler.(*MockHandler).On("Handle", mock.Anything).Return(
-			func(msg Message) Message {
-				i, err := strconv.Atoi(msg.ID())
-				assert.NoError(t, err)
+		mhandler.(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+			func(_ context.Context, msg Message) Message {
+				i, _ := strconv.Atoi(msg.ID())
 				return &fakeMsg{id: strconv.Itoa(i + 1)}
 			}, nil)
 	}
 
-	msg, err := stream.Get()
+	msg, err := stream.Get(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, strconv.Itoa(id+len(mhandlers)), msg.ID())
+}
+
+func TestAppendHandlersStream_Timeout(t *testing.T) {
+	// Timeout happens in appended stream and handlers
+	suspend := 100 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		mstream := &MockStream{}
+		mhandlers := []Handler{&MockHandler{}, &MockHandler{}, &MockHandler{}}
+		stream := AppendHandlersStream(mstream, mhandlers...)
+		id := 0
+		mm := &fakeMsg{id: strconv.Itoa(id)}
+		var maybeErr error
+		mstream.On("Get", mock.Anything).Return(func(ctx context.Context) Message {
+			tm := time.NewTimer(suspend)
+			defer tm.Stop()
+			select {
+			case <-ctx.Done():
+				maybeErr = ctx.Err()
+				return nil
+			case <-tm.C:
+				return mm
+			}
+		}, func(_ context.Context) error {
+			return maybeErr
+		})
+
+		for _, mhandler := range mhandlers {
+			var maybeErr error
+			mhandler.(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+				func(ctx context.Context, msg Message) Message {
+					tm := time.NewTimer(suspend)
+					defer tm.Stop()
+					select {
+					case <-ctx.Done():
+						maybeErr = ctx.Err()
+						return nil
+					case <-tm.C:
+						i, _ := strconv.Atoi(msg.ID())
+						return &fakeMsg{id: strconv.Itoa(i + 1)}
+					}
+				}, func(_ context.Context, _ Message) error {
+					return maybeErr
+				})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
+		_, err := stream.Get(ctx)
+		return err == context.DeadlineExceeded
+	}
+	config := &quick.Config{
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestAppendHandlersStream_SimpleHandler(t *testing.T) {
@@ -39,12 +99,12 @@ func TestAppendHandlersStream_SimpleHandler(t *testing.T) {
 	id2 := "1"
 	id3 := "2"
 
-	var h1 SimpleHandler = func(msg Message) (Message, error) {
+	var h1 SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
 		assert.Equal(t, id, msg.ID())
 		return &fakeMsg{id2}, nil
 	}
 
-	h2 := func(msg Message) (Message, error) {
+	h2 := func(_ context.Context, msg Message) (Message, error) {
 		assert.Equal(t, id2, msg.ID())
 		return &fakeMsg{id3}, nil
 	}
@@ -52,9 +112,9 @@ func TestAppendHandlersStream_SimpleHandler(t *testing.T) {
 	stream := AppendHandlersStream(mstream, h1, (SimpleHandler)(h2))
 
 	mm := &fakeMsg{id}
-	mstream.On("Get").Return(mm, nil)
+	mstream.On("Get", mock.Anything).Return(mm, nil)
 
-	msg, err := stream.Get()
+	msg, err := stream.Get(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, id3, msg.ID())
 }
@@ -66,13 +126,14 @@ func TestAppendHandlersStream_UpstreamFail(t *testing.T) {
 	stream := AppendHandlersStream(mstream, mhandler)
 
 	fakeErr := errors.New("stream failed")
-	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
-	mhandler.On("Handle", mock.Anything).Run(
-		func(arguments mock.Arguments) {
+	mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+		func(_ context.Context, _ Message) Message {
 			assert.FailNow(t, "shouldn't run")
-		})
+			return nil
+		}, nil)
 
-	msg, err := stream.Get()
+	msg, err := stream.Get(context.Background())
 	assert.Nil(t, msg)
 	assert.EqualError(t, err, fakeErr.Error())
 }
@@ -85,26 +146,26 @@ func TestAppendHandlersStream_FallThrough(t *testing.T) {
 	stream := AppendHandlersStream(mstream, mhandlers...)
 	id := 0
 	mm := &fakeMsg{id: strconv.Itoa(id)}
-	mstream.On("Get").Return(mm, nil)
+	mstream.On("Get", mock.Anything).Return(mm, nil)
 
-	mhandlers[0].(*MockHandler).On("Handle", mock.Anything).Return(
-		func(msg Message) Message {
+	mhandlers[0].(*MockHandler).On("Handle", mock.Anything, mock.Anything).
+		Return(func(_ context.Context, msg Message) Message {
 			id++
-			i, err := strconv.Atoi(msg.ID())
-			assert.NoError(t, err)
+			i, _ := strconv.Atoi(msg.ID())
 			return &fakeMsg{id: strconv.Itoa(i + 1)}
 		}, nil)
 
 	fakeErr := errors.New("handler failed")
-	mhandlers[1].(*MockHandler).On("Handle", mock.Anything).
+	mhandlers[1].(*MockHandler).On("Handle", mock.Anything, mock.Anything).
 		Return((*fakeMsg)(nil), fakeErr)
 
-	mhandlers[2].(*MockHandler).On("Handle", mock.Anything).Run(
-		func(arguments mock.Arguments) {
+	mhandlers[2].(*MockHandler).On("Handle", mock.Anything, mock.Anything).
+		Return(func(_ context.Context, _ Message) Message {
 			assert.FailNow(t, "shouldn't run")
-		})
+			return nil
+		}, nil)
 
-	msg, err := stream.Get()
+	msg, err := stream.Get(context.Background())
 	assert.Nil(t, msg)
 	assert.EqualError(t, err, fakeErr.Error())
 	assert.Equal(t, 1, id)
@@ -119,15 +180,15 @@ func TestAppendFallbacksStream(t *testing.T) {
 	}
 	mstream := &MockStream{}
 	fallbacks := []StreamFallback{
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.EqualError(t, err, fakeErr.Error())
 			return nil, fallbackErrors[0]
 		},
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.EqualError(t, err, fallbackErrors[0].Error())
 			return nil, fallbackErrors[1]
 		},
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.EqualError(t, err, fallbackErrors[1].Error())
 			return nil, fallbackErrors[2]
 		},
@@ -135,16 +196,91 @@ func TestAppendFallbacksStream(t *testing.T) {
 
 	fstream := AppendFallbacksStream(mstream, fallbacks...)
 
-	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
+	mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
-	msg, err := fstream.Get()
+	msg, err := fstream.Get(context.Background())
 	assert.Nil(t, msg)
 	assert.EqualError(t, err, fallbackErrors[2].Error())
 }
 
+func TestAppendFallbacksStream_Timeout(t *testing.T) {
+	suspend := 100 * time.Millisecond
+	fakeErr := errors.New("stream error")
+	fallbackErrors := []error{
+		errors.New("Fallback error 0"),
+		errors.New("Fallback error 1"),
+		errors.New("Fallback error 2"),
+	}
+	run := func(timeoutMs int) bool {
+		mstream := &MockStream{}
+		fallbacks := []StreamFallback{
+			func(ctx context.Context, err error) (Message, error) {
+				assert.EqualError(t, err, fakeErr.Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[0]
+			},
+			func(ctx context.Context, err error) (Message, error) {
+				assert.EqualError(t, err, fallbackErrors[0].Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[0]
+			},
+			func(ctx context.Context, err error) (Message, error) {
+				assert.EqualError(t, err, fallbackErrors[1].Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[2]
+			},
+		}
+
+		fstream := AppendFallbacksStream(mstream, fallbacks...)
+
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx context.Context) error {
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+
+		ctx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
+		_, err := fstream.Get(ctx)
+		return err == context.DeadlineExceeded
+	}
+	config := &quick.Config{
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestAppendFallbacksStream_UpstreamSucceed(t *testing.T) {
 	mstream := &MockStream{}
-	fallback := func(err error) (Message, error) {
+	fallback := func(_ context.Context, err error) (Message, error) {
 		assert.FailNow(t, "shouldn't run")
 		return nil, nil
 	}
@@ -152,9 +288,9 @@ func TestAppendFallbacksStream_UpstreamSucceed(t *testing.T) {
 	fstream := AppendFallbacksStream(mstream, fallback)
 
 	mm := &fakeMsg{"0"}
-	mstream.On("Get").Return(mm, nil)
+	mstream.On("Get", mock.Anything).Return(mm, nil)
 
-	msg, err := fstream.Get()
+	msg, err := fstream.Get(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, mm.ID(), msg.ID())
 }
@@ -165,15 +301,15 @@ func TestAppendFallbacksStream_FallThrough(t *testing.T) {
 	mm := &fakeMsg{"123"}
 	mstream := &MockStream{}
 	fallbacks := []StreamFallback{
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.EqualError(t, err, fakeErr.Error())
 			return nil, fallbackErr
 		},
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.EqualError(t, err, fallbackErr.Error())
 			return mm, nil
 		},
-		func(err error) (Message, error) {
+		func(_ context.Context, err error) (Message, error) {
 			assert.FailNow(t, "shouldn't run")
 			return nil, nil
 		},
@@ -181,9 +317,26 @@ func TestAppendFallbacksStream_FallThrough(t *testing.T) {
 
 	fstream := AppendFallbacksStream(mstream, fallbacks...)
 
-	mstream.On("Get").Return((*fakeMsg)(nil), fakeErr)
+	mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
-	msg, err := fstream.Get()
+	msg, err := fstream.Get(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, mm.ID(), msg.ID())
+}
+
+func TestAppendFallbacksStream_FirstHandlerSucceed(t *testing.T) {
+	mhandler := &MockHandler{}
+	fallback := func(_ context.Context, msg Message, err error) (Message, error) {
+		assert.FailNow(t, "shouldn't run")
+		return nil, nil
+	}
+
+	fstream := AppendFallbacksHandler(mhandler, fallback)
+
+	mm := &fakeMsg{"0"}
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
+
+	msg, err := fstream.Handle(context.Background(), mm)
 	assert.NoError(t, err)
 	assert.Equal(t, mm.ID(), msg.ID())
 }
@@ -195,20 +348,77 @@ func TestAppendHandlersHandler(t *testing.T) {
 	handler := AppendHandlersHandler(mhandler, mhandlers...)
 	id := 0
 	mm := &fakeMsg{id: strconv.Itoa(id)}
-	mhandler.On("Handle", mock.Anything).Return(mm, nil)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
 
 	for _, h := range mhandlers {
-		h.(*MockHandler).On("Handle", mock.Anything).Return(
-			func(msg Message) Message {
-				i, err := strconv.Atoi(msg.ID())
-				assert.NoError(t, err)
+		h.(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+			func(_ context.Context, msg Message) Message {
+				i, _ := strconv.Atoi(msg.ID())
 				return &fakeMsg{id: strconv.Itoa(i + 1)}
 			}, nil)
 	}
 
-	msg, err := handler.Handle(mm)
+	msg, err := handler.Handle(context.Background(), mm)
 	assert.NoError(t, err)
 	assert.Equal(t, strconv.Itoa(id+len(mhandlers)), msg.ID())
+}
+
+func TestAppendHandlersHandler_Timeout(t *testing.T) {
+	suspend := 100 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		mhandler := &MockHandler{}
+		mhandlers := []Handler{&MockHandler{}, &MockHandler{}, &MockHandler{}}
+		handler := AppendHandlersHandler(mhandler, mhandlers...)
+		id := 0
+		mm := &fakeMsg{id: strconv.Itoa(id)}
+		var maybeErr error
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return(
+			func(ctx context.Context, _ Message) Message {
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					maybeErr = ctx.Err()
+					return nil
+				case <-tm.C:
+				}
+				return mm
+			}, func(_ context.Context, _ Message) error {
+				return maybeErr
+			})
+
+		for _, h := range mhandlers {
+			var maybeErr error
+			h.(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+				func(ctx context.Context, msg Message) Message {
+					tm := time.NewTimer(suspend)
+					defer tm.Stop()
+					select {
+					case <-ctx.Done():
+						maybeErr = ctx.Err()
+						return nil
+					case <-tm.C:
+					}
+					i, _ := strconv.Atoi(msg.ID())
+					return &fakeMsg{id: strconv.Itoa(i + 1)}
+				}, func(_ context.Context, _ Message) error {
+					return maybeErr
+				})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
+		_, err := handler.Handle(ctx, mm)
+		return err == context.DeadlineExceeded
+	}
+	config := &quick.Config{
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestAppendHandlersHandler_SimpleHandler(t *testing.T) {
@@ -219,12 +429,12 @@ func TestAppendHandlersHandler_SimpleHandler(t *testing.T) {
 	id2 := "1"
 	id3 := "2"
 
-	var h1 SimpleHandler = func(msg Message) (Message, error) {
+	var h1 SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
 		assert.Equal(t, id, msg.ID())
 		return &fakeMsg{id2}, nil
 	}
 
-	h2 := func(msg Message) (Message, error) {
+	h2 := func(_ context.Context, msg Message) (Message, error) {
 		assert.Equal(t, id2, msg.ID())
 		return &fakeMsg{id3}, nil
 	}
@@ -232,29 +442,11 @@ func TestAppendHandlersHandler_SimpleHandler(t *testing.T) {
 	handler := AppendHandlersHandler(mhandler, h1, (SimpleHandler)(h2))
 
 	mm := &fakeMsg{id}
-	mhandler.On("Handle", mock.Anything).Return(mm, nil)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
 
-	msg, err := handler.Handle(mm)
+	msg, err := handler.Handle(context.Background(), mm)
 	assert.NoError(t, err)
 	assert.Equal(t, id3, msg.ID())
-}
-
-func TestAppendHandlersHandler_FirstHandlerFail(t *testing.T) {
-	// A failing Handler would not trigger subsequent Handlers
-	mhandler := &MockHandler{}
-	mhandler2 := &MockHandler{}
-	handler := AppendHandlersHandler(mhandler, mhandler2)
-
-	fakeErr := errors.New("handler failed")
-	mhandler.On("Handle", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
-	mhandler2.On("Handle", mock.Anything).Run(
-		func(arguments mock.Arguments) {
-			assert.FailNow(t, "shouldn't run")
-		})
-
-	msg, err := handler.Handle(&fakeMsg{"123"})
-	assert.Nil(t, msg)
-	assert.EqualError(t, err, fakeErr.Error())
 }
 
 func TestAppendHandlersHandler_FallThrough(t *testing.T) {
@@ -265,29 +457,48 @@ func TestAppendHandlersHandler_FallThrough(t *testing.T) {
 	handler := AppendHandlersHandler(mhandler, mhandlers...)
 	id := 0
 	mm := &fakeMsg{id: strconv.Itoa(id)}
-	mhandler.On("Handle", mock.Anything).Return(mm, nil)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
 
-	mhandlers[0].(*MockHandler).On("Handle", mock.Anything).Return(
-		func(msg Message) Message {
+	mhandlers[0].(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+		func(_ context.Context, msg Message) Message {
 			id++
-			i, err := strconv.Atoi(msg.ID())
-			assert.NoError(t, err)
+			i, _ := strconv.Atoi(msg.ID())
 			return &fakeMsg{id: strconv.Itoa(i + 1)}
 		}, nil)
 
 	fakeErr := errors.New("handler failed")
-	mhandlers[1].(*MockHandler).On("Handle", mock.Anything).
+	mhandlers[1].(*MockHandler).On("Handle", mock.Anything, mock.Anything).
 		Return((*fakeMsg)(nil), fakeErr)
 
-	mhandlers[2].(*MockHandler).On("Handle", mock.Anything).Run(
-		func(arguments mock.Arguments) {
+	mhandlers[2].(*MockHandler).On("Handle", mock.Anything, mock.Anything).Return(
+		func(_ context.Context, _ Message) Message {
 			assert.FailNow(t, "shouldn't run")
-		})
+			return nil
+		}, nil)
 
-	msg, err := handler.Handle(mm)
+	msg, err := handler.Handle(context.Background(), mm)
 	assert.Nil(t, msg)
 	assert.EqualError(t, err, fakeErr.Error())
 	assert.Equal(t, 1, id)
+}
+
+func TestAppendHandlersHandler_FirstHandlerFail(t *testing.T) {
+	// A failing Handler would not trigger subsequent Handlers
+	mhandler := &MockHandler{}
+	mhandler2 := &MockHandler{}
+	handler := AppendHandlersHandler(mhandler, mhandler2)
+
+	fakeErr := errors.New("handler failed")
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mhandler2.On("Handle", mock.Anything, mock.Anything).Return(
+		func(_ context.Context, _ Message) Message {
+			assert.FailNow(t, "shouldn't run")
+			return nil
+		}, nil)
+
+	msg, err := handler.Handle(context.Background(), &fakeMsg{"123"})
+	assert.Nil(t, msg)
+	assert.EqualError(t, err, fakeErr.Error())
 }
 
 func TestAppendFallbacksHandler(t *testing.T) {
@@ -300,17 +511,17 @@ func TestAppendFallbacksHandler(t *testing.T) {
 	mhandler := &MockHandler{}
 	mm := &fakeMsg{"123"}
 	fallbacks := []HandlerFallback{
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.Equal(t, mm.ID(), msg.ID())
 			assert.EqualError(t, err, fakeErr.Error())
 			return nil, fallbackErrors[0]
 		},
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.Equal(t, mm.ID(), msg.ID())
 			assert.EqualError(t, err, fallbackErrors[0].Error())
 			return nil, fallbackErrors[1]
 		},
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.Equal(t, mm.ID(), msg.ID())
 			assert.EqualError(t, err, fallbackErrors[1].Error())
 			return nil, fallbackErrors[2]
@@ -319,28 +530,90 @@ func TestAppendFallbacksHandler(t *testing.T) {
 
 	fhandler := AppendFallbacksHandler(mhandler, fallbacks...)
 
-	mhandler.On("Handle", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
-	msg, err := fhandler.Handle(mm)
+	msg, err := fhandler.Handle(context.Background(), mm)
 	assert.Nil(t, msg)
 	assert.EqualError(t, err, fallbackErrors[2].Error())
 }
 
-func TestAppendFallbacksStream_FirstHandlerSucceed(t *testing.T) {
-	mhandler := &MockHandler{}
-	fallback := func(msg Message, err error) (Message, error) {
-		assert.FailNow(t, "shouldn't run")
-		return nil, nil
+func TestAppendFallbacksHandler_Timeout(t *testing.T) {
+	suspend := 100 * time.Millisecond
+	fakeErr := errors.New("handler error")
+	fallbackErrors := []error{
+		errors.New("Fallback error 0"),
+		errors.New("Fallback error 1"),
+		errors.New("Fallback error 2"),
 	}
+	run := func(timeoutMs int) bool {
+		mhandler := &MockHandler{}
+		mm := &fakeMsg{"123"}
+		fallbacks := []HandlerFallback{
+			func(ctx context.Context, msg Message, err error) (Message, error) {
+				assert.Equal(t, mm.ID(), msg.ID())
+				assert.EqualError(t, err, fakeErr.Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[0]
+			},
+			func(ctx context.Context, msg Message, err error) (Message, error) {
+				assert.Equal(t, mm.ID(), msg.ID())
+				assert.EqualError(t, err, fallbackErrors[0].Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[1]
+			},
+			func(ctx context.Context, msg Message, err error) (Message, error) {
+				assert.Equal(t, mm.ID(), msg.ID())
+				assert.EqualError(t, err, fallbackErrors[1].Error())
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-tm.C:
+				}
+				return nil, fallbackErrors[2]
+			},
+		}
 
-	fstream := AppendFallbacksHandler(mhandler, fallback)
+		fhandler := AppendFallbacksHandler(mhandler, fallbacks...)
 
-	mm := &fakeMsg{"0"}
-	mhandler.On("Handle", mock.Anything).Return(mm, nil)
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx context.Context, _ Message) error {
+				tm := time.NewTimer(suspend)
+				defer tm.Stop()
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-tm.C:
+				}
+				return fakeErr
+			})
 
-	msg, err := fstream.Handle(mm)
-	assert.NoError(t, err)
-	assert.Equal(t, mm.ID(), msg.ID())
+		ctx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
+		_, err := fhandler.Handle(ctx, mm)
+		return err == context.DeadlineExceeded
+	}
+	config := &quick.Config{
+		// [1ms, 3*suspend)
+		Values: genBoundInt(1, 300),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestAppendFallbacksHandler_FallThrough(t *testing.T) {
@@ -349,17 +622,17 @@ func TestAppendFallbacksHandler_FallThrough(t *testing.T) {
 	mm := &fakeMsg{"123"}
 	mhandler := &MockHandler{}
 	fallbacks := []HandlerFallback{
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.Equal(t, mm.ID(), msg.ID())
 			assert.EqualError(t, err, fakeErr.Error())
 			return nil, fallbackErr
 		},
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.Equal(t, mm.ID(), msg.ID())
 			assert.EqualError(t, err, fallbackErr.Error())
 			return mm, nil
 		},
-		func(msg Message, err error) (Message, error) {
+		func(_ context.Context, msg Message, err error) (Message, error) {
 			assert.FailNow(t, "shouldn't run")
 			return nil, nil
 		},
@@ -367,9 +640,9 @@ func TestAppendFallbacksHandler_FallThrough(t *testing.T) {
 
 	fhandler := AppendFallbacksHandler(mhandler, fallbacks...)
 
-	mhandler.On("Handle", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
-	msg, err := fhandler.Handle(mm)
+	msg, err := fhandler.Handle(context.Background(), mm)
 	assert.NoError(t, err)
 	assert.Equal(t, mm.ID(), msg.ID())
 }

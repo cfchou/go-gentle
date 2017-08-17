@@ -7,6 +7,7 @@ import (
 	"gopkg.in/inconshreveable/log15.v2/stack"
 	"math/rand"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -60,4 +61,26 @@ func genBoundInt(min, max int) func(values []reflect.Value, rnd *rand.Rand) {
 		v := rnd.Intn(n)
 		values[0] = reflect.ValueOf(v + min)
 	}
+}
+
+// Returns a $src of "chan Message" and $done chan of "chan *struct{}".
+// Every Message extracted from $src has a monotonically increasing id.
+func createInfiniteMessageChan() (<-chan Message, chan struct{}) {
+	done := make(chan struct{}, 1)
+	src := make(chan Message, 1)
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-done:
+				log.Info("[Test] Channel closing")
+				close(src)
+				return
+			default:
+				count++
+				src <- &fakeMsg{id: strconv.Itoa(count)}
+			}
+		}
+	}()
+	return src, done
 }

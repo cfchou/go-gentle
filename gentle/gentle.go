@@ -63,22 +63,11 @@ type Message interface {
 // Stream emits Message.
 type Stream interface {
 	// Get() returns either a Message or an error exclusively.
-	Get() (Message, error)
+	Get(context.Context) (Message, error)
 }
 
 // Handler transforms a Message.
 type Handler interface {
-	// Handle() takes a Message as input and then returns either a Message or
-	// an error exclusively.
-	Handle(Message) (Message, error)
-}
-
-type CStream interface {
-	// Get() returns either a Message or an error exclusively.
-	Get(context.Context) (Message, error)
-}
-
-type CHandler interface {
 	// Handle() takes a Message as input and then returns either a Message or
 	// an error exclusively.
 	Handle(context.Context, Message) (Message, error)

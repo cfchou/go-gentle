@@ -1,46 +1,26 @@
 package gentle
 
 import (
+	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
 	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
-	"strconv"
+	"github.com/stretchr/testify/mock"
+	"math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
+	"testing/quick"
 	"time"
 )
 
-// Returns a $src of "chan Message" and $done chan of "chan *struct{}".
-// Every Message extracted from $src has a monotonically increasing id.
-func createInfiniteMessageChan() (<-chan Message, chan struct{}) {
-	done := make(chan struct{}, 1)
-	src := make(chan Message, 1)
-	go func() {
-		count := 0
-		for {
-			select {
-			case <-done:
-				log.Info("[Test] Channel closing")
-				close(src)
-				return
-			default:
-				count++
-				src <- &fakeMsg{id: strconv.Itoa(count)}
-			}
-		}
-	}()
-	return src, done
-}
-
 func TestRateLimitedStream_Get(t *testing.T) {
-	// 1 msg/sec
+	// Get() is rate limited.
 	requestsInterval := 100 * time.Millisecond
 	src, done := createInfiniteMessageChan()
 	defer func() { done <- struct{}{} }()
-	var chanStream SimpleStream = func() (Message, error) {
+	var chanStream SimpleStream = func(ctx2 context.Context) (Message, error) {
 		return <-src, nil
 	}
 	stream := NewRateLimitedStream(
@@ -52,337 +32,435 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
+	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := stream.Get()
+			_, err := stream.Get(ctx)
 			assert.NoError(t, err)
 			wg.Done()
 		}()
 	}
 	wg.Wait()
 	dura := time.Now().Sub(begin)
-	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
+	log.Info("[Test] spent >= minimum?", "spent", dura, "minimum", minimum)
 	assert.True(t, dura >= minimum)
 }
 
-func TestRetryStream_Get(t *testing.T) {
-	// Test against mocked BackOff
-	mfactory := &MockBackOffFactory{}
-	mback := &MockBackOff{}
-	// mock clock so that we don't need to wait for the real timer to move
-	// forward
-	mclock := clock.NewMock()
-	opts := NewRetryStreamOpts("", "test", mfactory)
-	opts.Clock = mclock
-	mstream := &MockStream{}
-	stream := NewRetryStream(opts, mstream)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mstream.On("Get")
-	call.Return(mm, nil)
-	_, err := stream.Get()
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-	// create a backoff that fires 1 second for $count times
-	count := 3
-	timespanMinimum := time.Duration(count) * time.Second
-	mfactory.On("NewBackOff").Return(mback)
-	mback.On("Next").Return(func() time.Duration {
-		if count == 0 {
-			return BackOffStop
+func TestRateLimitedStream_Get_Timeout(t *testing.T) {
+	// Context timeout while Get() is waiting for rate-limiter or upstream.
+	timeout := 100 * time.Millisecond
+	run := func(intervalMs int) bool {
+		requestsInterval := time.Duration(intervalMs) * time.Millisecond
+		block := make(chan struct{}, 1)
+		_, done := createInfiniteMessageChan()
+		defer func() { done <- struct{}{} }()
+		mstream := &MockStream{}
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx2 context.Context) error {
+				select {
+				case <-ctx2.Done():
+					log.Debug("[test] Context.Done()", "err", ctx2.Err())
+					return ctx2.Err()
+				case <-block:
+					panic("never here")
+				}
+			})
+		stream := NewRateLimitedStream(
+			NewRateLimitedStreamOpts("", "test",
+				NewTokenBucketRateLimit(requestsInterval, 1)),
+			mstream)
+		count := 4
+		var wg sync.WaitGroup
+		wg.Add(count)
+		begin := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		for i := 0; i < count; i++ {
+			go func() {
+				_, err := stream.Get(ctx)
+				if err == context.DeadlineExceeded {
+					// It's interrupted when waiting either for the permission
+					// from the rate-limiter or for mstream.Get()
+					wg.Done()
+					return
+				}
+				panic("never here")
+			}()
 		}
-		count--
-		return 1 * time.Second
-	})
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = stream.Get()
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
+		wg.Wait()
+		log.Info("[Test] time spent", "timespan", time.Since(begin).Seconds())
+		return true
+	}
+	config := &quick.Config{
+		// [1ms, 200ms)
+		Values: genBoundInt(1, 200),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestRetryStream_Get2(t *testing.T) {
-	// Test against ConstantBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
-	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mstream := &MockStream{}
-	stream := NewRetryStream(opts, mstream)
+func TestRetryStream_Get_MockBackOff(t *testing.T) {
+	// Get() retries with mocked BackOff
+	run := func(backOffCount int) bool {
+		mfactory := &MockBackOffFactory{}
+		mback := &MockBackOff{}
+		mfactory.On("NewBackOff").Return(mback)
+		// mock clock so that we don't need to wait for the real timer to move forward.
+		mclock := clock.NewMock()
+		opts := NewRetryStreamOpts("", "test", mfactory)
+		opts.Clock = mclock
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
 
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mstream.On("Get")
-	call.Return(mm, nil)
-	_, err := stream.Get()
-	assert.NoError(t, err)
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		// create a backoff that fires 1 second for $backOffCount times
+		timespanMinimum := time.Duration(backOffCount) * time.Second
+		mback.On("Next").Return(func() time.Duration {
+			if backOffCount == 0 {
+				return BackOffStop
+			}
+			backOffCount--
+			return 1 * time.Second
+		})
 
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = stream.Get()
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
-	}
-}
-
-func TestRetryStream_Get3(t *testing.T) {
-	// Test against ExponentialBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0,
-		256*time.Second, timespanMinimum)
-	// No randomization to make the growth of backoff time approximately
-	// exponential.
-	backOffOpts.RandomizationFactor = 0
-	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mstream := &MockStream{}
-	stream := NewRetryStream(opts, mstream)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mstream.On("Get")
-	call.Return(mm, nil)
-	_, err := stream.Get()
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	timespan := make(chan time.Duration, 1)
-	go func() {
-		begin := mclock.Now()
-		_, err = stream.Get()
-		// backoffs exhausted
-		assert.EqualError(t, err, fakeErr.Error())
-		timespan <- mclock.Now().Sub(begin)
-	}()
-
-	for {
-		select {
-		case dura := <-timespan:
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
-		}
-	}
-}
-
-func TestRetryStream_Get4(t *testing.T) {
-	// Test against concurrent retryStream.Get() and ConstantBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 16 * time.Second
-	backOffOpts := NewConstantBackOffFactoryOpts(time.Second, timespanMinimum)
-	backOffOpts.Clock = mclock
-	backOffFactory := NewConstantBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mstream := &MockStream{}
-	stream := NewRetryStream(opts, mstream)
-
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mstream.On("Get")
-	call.Return(mm, nil)
-	_, err := stream.Get()
-	assert.NoError(t, err)
-
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	count := 2
-	wg := sync.WaitGroup{}
-	wg.Add(count)
-	done := make(chan struct{}, 1)
-
-	for i := 0; i < count; i++ {
+		ctx := context.Background()
+		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
-			_, err = stream.Get()
-			// backoffs exhausted
-			assert.EqualError(t, err, fakeErr.Error())
-			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			wg.Done()
+			_, err := stream.Get(ctx)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
 		}()
 
-	}
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
-
-	begin := mclock.Now()
-	for {
-		select {
-		case <-done:
-			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
+				return dura >= timespanMinimum
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
 		}
+	}
+
+	config := &quick.Config{
+		Values: genBoundInt(1, 50),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestRetryStream_Get5(t *testing.T) {
-	// Test against concurrent retryStream.Get() and ExponentialBackOff
-	mclock := clock.NewMock()
-	timespanMinimum := 1024 * time.Second
-	backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2.0,
-		256*time.Second, timespanMinimum)
-	// No randomization to make the growth of backoff time approximately
-	// exponential.
-	backOffOpts.RandomizationFactor = 0
-	backOffOpts.Clock = mclock
-	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	opts.Clock = mclock
-	mstream := &MockStream{}
-	stream := NewRetryStream(opts, mstream)
+func TestRetryStream_Get_ConstantBackOff(t *testing.T) {
+	// Get() retries with ConstantBackOff
+	run := func(maxElapsedSec int) bool {
+		mclock := clock.NewMock()
+		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
+		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
+		backOffOpts.Clock = mclock
+		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		opts := NewRetryStreamOpts("", "test", backOffFactory)
+		opts.Clock = mclock
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
 
-	// 1st: ok
-	mm := &fakeMsg{id: "123"}
-	call := mstream.On("Get")
-	call.Return(mm, nil)
-	_, err := stream.Get()
-	assert.NoError(t, err)
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
 
-	// 2ed: err, trigger retry with backoffs
-	fakeErr := errors.New("A fake error")
-	call.Return((*fakeMsg)(nil), fakeErr)
-
-	count := 2
-	wg := sync.WaitGroup{}
-	wg.Add(count)
-	done := make(chan struct{}, 1)
-
-	for i := 0; i < count; i++ {
+		ctx := context.Background()
+		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
-			_, err = stream.Get()
-			// backoffs exhausted
-			assert.EqualError(t, err, fakeErr.Error())
-			dura := mclock.Now().Sub(begin)
-			log.Info("[Test] spent >= minmum?", "spent", dura, "timespanMinimum", timespanMinimum)
-			assert.True(t, dura >= timespanMinimum)
-			wg.Done()
+			_, err := stream.Get(ctx)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
 		}()
 
-	}
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
-
-	begin := mclock.Now()
-	for {
-		select {
-		case <-done:
-			log.Info("[Test] all done", "spent", mclock.Now().Sub(begin))
-			return
-		default:
-			// advance an arbitrary time to pass all backoffs
-			mclock.Add(1 * time.Second)
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "maxElapsedTime", maxElapsedTime)
+				return dura >= maxElapsedTime
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
 		}
 	}
-}
-
-func TestBulkheadStream_Get(t *testing.T) {
-	maxConcurrency := 4
-	mstream := &MockStream{}
-	stream := NewBulkheadStream(
-		NewBulkheadStreamOpts("", "test", maxConcurrency),
-		mstream)
-	mm := &fakeMsg{id: "123"}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(maxConcurrency)
-	block := make(chan struct{}, 0)
-	mstream.On("Get").Return(
-		func() Message {
-			wg.Done()
-			// every Get() would be blocked here
-			block <- struct{}{}
-			return mm
-		}, nil)
-
-	for i := 0; i < maxConcurrency; i++ {
-		go stream.Get()
+	config := &quick.Config{
+		Values: genBoundInt(1, 50),
 	}
-
-	// Wait() until $maxConcurrency of Get() are blocked
-	wg.Wait()
-	// one more Get() would cause ErrMaxConcurrency
-	msg, err := stream.Get()
-	assert.Equal(t, msg, nil)
-	assert.EqualError(t, err, ErrMaxConcurrency.Error())
-	// Release blocked
-	for i := 0; i < maxConcurrency; i++ {
-		<-block
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestCircuitBreakerStream_Get(t *testing.T) {
+func TestRetryStream_Get_ExponentialBackOff(t *testing.T) {
+	// Get() retries with ExponentialBackOff
+	run := func(maxElapsedSec int) bool {
+		mclock := clock.NewMock()
+		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
+		backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2,
+			128*time.Second, maxElapsedTime)
+		// No randomization to make the backoff time really exponential. Easier
+		// to examine log.
+		backOffOpts.RandomizationFactor = 0
+		backOffOpts.Clock = mclock
+		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		opts := NewRetryStreamOpts("", "test", backOffFactory)
+		opts.Clock = mclock
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
+
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+
+		ctx := context.Background()
+		timespan := make(chan time.Duration, 1)
+		go func() {
+			begin := mclock.Now()
+			_, err := stream.Get(ctx)
+			// back-offs exhausted
+			if err != fakeErr {
+				panic("never here")
+			}
+			timespan <- mclock.Now().Sub(begin)
+		}()
+
+		for {
+			select {
+			case dura := <-timespan:
+				log.Info("[Test] spent >= minmum?", "spent", dura, "maxElapsedTime", maxElapsedTime)
+				return dura >= maxElapsedTime
+			default:
+				// advance an arbitrary time to pass all backoffs
+				mclock.Add(1 * time.Second)
+			}
+		}
+	}
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1s, 20m)
+		Values: genBoundInt(1, 1200),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryStream_Get_MockBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Get() with mocked BackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		mfactory := &MockBackOffFactory{}
+		mback := &MockBackOff{}
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		mfactory.On("NewBackOff").Return(func() BackOff {
+			// 1/10 chances that NewBackOff() would sleep over timeout
+			if rand.Intn(timeoutMs)%10 == 1 {
+				time.Sleep(timeout + 10*time.Second)
+			}
+			return mback
+		})
+		opts := NewRetryStreamOpts("", "test", mfactory)
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
+
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx2 context.Context) error {
+				log.Debug("[test] Get()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		// Never run out of back-offs
+		mback.On("Next").Return(func() time.Duration {
+			log.Debug("[test] Next() sleep")
+			time.Sleep(suspend)
+			return suspend
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		_, err := stream.Get(ctx)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryStream_Get_ConstantBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Get() with ConstantBackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		backOffOpts := NewConstantBackOffFactoryOpts(suspend, 0)
+		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		opts := NewRetryStreamOpts("", "test", backOffFactory)
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
+
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx2 context.Context) error {
+				log.Debug("[test] Get()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		_, err := stream.Get(ctx)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRetryStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Get() with ExponentialBackOff
+	suspend := 10 * time.Millisecond
+	run := func(timeoutMs int) bool {
+		backOffOpts := NewExponentialBackOffFactoryOpts(suspend, 2,
+			128*time.Second, 0)
+		// No randomization to make the backoff time really exponential. Easier
+		// to examine log.
+		backOffOpts.RandomizationFactor = 0
+		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		timeout := time.Duration(timeoutMs) * time.Millisecond
+		opts := NewRetryStreamOpts("", "test", backOffFactory)
+		mstream := &MockStream{}
+		stream := NewRetryStream(opts, mstream)
+
+		fakeErr := errors.New("A fake error")
+		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+			func(ctx2 context.Context) error {
+				log.Debug("[test] Get()...")
+				tm := time.NewTimer(suspend)
+				select {
+				case <-ctx2.Done():
+					tm.Stop()
+					err := ctx2.Err()
+					log.Debug("[test] interrupted", "err", err)
+					return err
+				case <-tm.C:
+				}
+				return fakeErr
+			})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		_, err := stream.Get(ctx)
+		return err == context.DeadlineExceeded
+	}
+
+	config := &quick.Config{
+		MaxCount: 10,
+		// [1ms, 2000ms)
+		Values: genBoundInt(1, 2000),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestBulkheadStream_Get_MaxConcurrency(t *testing.T) {
+	// BulkheadStream returns ErrMaxConcurrency when passing the threshold
+	run := func(maxConcurrency int) bool {
+		mstream := &MockStream{}
+		stream := NewBulkheadStream(
+			NewBulkheadStreamOpts("", "test", maxConcurrency),
+			mstream)
+		mm := &fakeMsg{id: "123"}
+
+		wg := &sync.WaitGroup{}
+		wg.Add(maxConcurrency)
+		block := make(chan struct{}, 1)
+		defer close(block)
+		mstream.On("Get", mock.Anything).Return(
+			func(ctx2 context.Context) Message {
+				wg.Done()
+				// every Get() would be blocked here
+				<-block
+				return mm
+			}, nil)
+
+		ctx := context.Background()
+		for i := 0; i < maxConcurrency; i++ {
+			go stream.Get(ctx)
+		}
+
+		// Wait() until $maxConcurrency of Get() are blocked
+		wg.Wait()
+		// one more Get() would cause ErrMaxConcurrency
+		msg, err := stream.Get(ctx)
+		return msg == nil && err == ErrMaxConcurrency
+	}
+
+	config := &quick.Config{
+		Values: genBoundInt(1, 100),
+	}
+	if err := quick.Check(run, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCircuitBreakerStream_Get_MaxConcurrency(t *testing.T) {
+	// CircuitBreakerStream returns ErrCbMaxConcurrency when
+	// CircuitBreakerConf.MaxConcurrent is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
 	defer hystrix.Flush()
-	maxConcurrency := 4
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	// requests exceeding MaxConcurrentRequests would get
-	// ErrCbMaxConcurrency provided that Timeout is large enough for this
-	// test case
 	conf := NewDefaultCircuitBreakerConf()
-	conf.MaxConcurrent = maxConcurrency
-	conf.Timeout = 10 * time.Second
+	conf.MaxConcurrent = 4
+	// Set properly to not affect this test:
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerStream(
@@ -391,144 +469,109 @@ func TestCircuitBreakerStream_Get(t *testing.T) {
 	mm := &fakeMsg{id: "123"}
 
 	var wg sync.WaitGroup
-	wg.Add(maxConcurrency)
-	cond := sync.NewCond(&sync.Mutex{})
-	mstream.On("Get").Return(func() Message {
-		// wg.Done() here instead of in the loop guarantees Get() is
-		// running by the circuit
-		wg.Done()
-		cond.L.Lock()
-		cond.Wait()
-		return mm
-	}, nil)
-
-	for i := 0; i < maxConcurrency; i++ {
-		go func() {
-			stream.Get()
-		}()
-	}
-	// Make sure previous Get() are all running before the next
-	wg.Wait()
-	// One more call while all previous calls sticking in the circuit
-	_, err := stream.Get()
-	assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
-	cond.Broadcast()
-}
-
-func TestCircuitBreakerStream_Get2(t *testing.T) {
-	// Test ErrCbTimeout and subsequent ErrCbOpen
-	defer hystrix.Flush()
-	circuit := xid.New().String()
-	mstream := &MockStream{}
-
-	conf := NewDefaultCircuitBreakerConf()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request hits timeout would make the subsequent
-	// requests coming within SleepWindow see ErrCbOpen
-	conf.VolumeThreshold = 1
-	conf.ErrorPercentThreshold = 1
-	conf.SleepWindow = time.Second
-	// A short Timeout to speed up the test
-	conf.Timeout = time.Millisecond
-	conf.RegisterFor(circuit)
-
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", circuit),
-		mstream)
-	var nth int64
-	newMsg := func() Message {
-		tmp := atomic.AddInt64(&nth, 1)
-		return &fakeMsg{id: strconv.FormatInt(tmp, 10)}
-	}
-
-	// Suspend longer than Timeout
-	var toSuspend int64
-	suspend := conf.Timeout + time.Millisecond
-	mstream.On("Get").Return(
-		func() Message {
-			if atomic.LoadInt64(&toSuspend) == 0 {
-				time.Sleep(suspend)
-			}
-			return newMsg()
+	wg.Add(conf.MaxConcurrent)
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mstream.On("Get", mock.Anything).Return(
+		func(ctx2 context.Context) Message {
+			wg.Done()
+			// block to saturate concurrent requests
+			<-block
+			return mm
 		}, nil)
 
-	// ErrCbTimeout then the subsequent requests within SleepWindow eventually
-	// see ErrCbOpen "Eventually" because hystrix updates metrics asynchronously.
-	for {
-		log.Debug("[Test] try again for ErrCbOpen")
-		_, err := stream.Get()
-		if err == ErrCbOpen {
-			break
-		}
-		// err could be nil if $suspend is short and scheduler is slow.
-		// if that's the case, we'll try until threshold is reached.
+	ctx := context.Background()
+	for i := 0; i < conf.MaxConcurrent; i++ {
+		go func() {
+			stream.Get(ctx)
+		}()
 	}
+	// Make sure previous Get() are all running
+	wg.Wait()
 
-	// Disable toSuspend
-	atomic.StoreInt64(&toSuspend, 1)
 	for {
-		time.Sleep(conf.SleepWindow)
-		log.Debug("[Test] try again for no err")
-		_, err := stream.Get()
-		if err == nil {
-			// In the end, circuit is closed because of no error.
+		_, err := stream.Get(ctx)
+		if err == ErrCbOpen {
+			log.Debug("[Test] circuit opened")
 			break
 		}
-		// err could be ErrCbOpen or even ErrCbTimeout if scheduling
-		// is slow. If that's the case, we'll try until circuit is closed.
+		assert.EqualError(t, err, ErrCbMaxConcurrency.Error())
 	}
 }
 
-func TestCircuitBreakerStream_Get3(t *testing.T) {
-	// Test fakeErr and subsequent ErrCbOpen
+func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
+	// CircuitBreakerStream returns ErrCbTimeout when
+	// CircuitBreakerConf.Timeout is reached.
+	// It then returns ErrCbOpen when error threshold is reached.
 	defer hystrix.Flush()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
 	conf := NewDefaultCircuitBreakerConf()
-	// Set RequestVolumeThreshold/ErrorPercentThreshold to be the most
-	// sensitive. One request returns error would make the subsequent
-	// requests coming within SleepWindow see ErrCbOpen
-	conf.VolumeThreshold = 1
-	conf.ErrorPercentThreshold = 1
-	conf.SleepWindow = time.Second
+	conf.Timeout = time.Millisecond
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
 	stream := NewCircuitBreakerStream(
 		NewCircuitBreakerStreamOpts("", "test", circuit),
 		mstream)
 	mm := &fakeMsg{id: "123"}
-	fakeErr := errors.New("A fake error")
 
-	call := mstream.On("Get")
-	call.Return((*fakeMsg)(nil), fakeErr)
+	// Suspend longer than Timeout
+	block := make(chan struct{}, 1)
+	defer close(block)
+	mstream.On("Get", mock.Anything).Return(
+		func(ctx2 context.Context) Message {
+			// block to hit timeout
+			<-block
+			return mm
+		}, nil)
 
-	// 1st call gets fakeErr
-	_, err := stream.Get()
-	assert.EqualError(t, err, fakeErr.Error())
-
-	// Subsequent requests within SleepWindow eventually see ErrCbOpen.
-	// "Eventually" because hystrix updates metrics asynchronously.
+	ctx := context.Background()
 	for {
-		log.Debug("[Test] try again")
-		_, err := stream.Get()
+		_, err := stream.Get(ctx)
 		if err == ErrCbOpen {
 			break
-		} else {
-			assert.EqualError(t, err, fakeErr.Error())
 		}
+		assert.EqualError(t, err, ErrCbTimeout.Error())
 	}
+}
 
-	call.Return(mm, nil)
+func TestCircuitBreakerStream_Get_Error(t *testing.T) {
+	// CircuitBreakerStream returns the designated error.
+	// It then returns ErrCbOpen when error threshold is reached.
+	defer hystrix.Flush()
+	circuit := xid.New().String()
+	mstream := &MockStream{}
+
+	conf := NewDefaultCircuitBreakerConf()
+	// Set properly to not affect this test:
+	conf.MaxConcurrent = 4096
+	conf.Timeout = time.Minute
+	conf.SleepWindow = time.Minute
+	// Set to quickly open the circuit
+	conf.VolumeThreshold = 3
+	conf.ErrorPercentThreshold = 20
+	conf.RegisterFor(circuit)
+
+	stream := NewCircuitBreakerStream(
+		NewCircuitBreakerStreamOpts("", "test", circuit),
+		mstream)
+	fakeErr := errors.New("fake error")
+
+	mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+
+	ctx := context.Background()
 	for {
-		time.Sleep(conf.SleepWindow)
-		log.Debug("[Test] try again for no err")
-		_, err := stream.Get()
-		if err == nil {
-			// In the end, circuit is closed because of no error.
+		_, err := stream.Get(ctx)
+		if err == ErrCbOpen {
 			break
-		} else {
-			assert.EqualError(t, err, ErrCbOpen.Error())
 		}
+		assert.EqualError(t, err, fakeErr.Error())
 	}
 }

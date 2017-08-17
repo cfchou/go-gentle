@@ -14,20 +14,20 @@ type MockStream struct {
 	mock.Mock
 }
 
-// Get provides a mock function with given fields:
-func (_m *MockStream) Get() (Message, error) {
-	ret := _m.Called()
+// Get provides a mock function with given fields: _a0
+func (_m *MockStream) Get(_a0 context.Context) (Message, error) {
+	ret := _m.Called(_a0)
 
 	var r0 Message
-	if rf, ok := ret.Get(0).(func() Message); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) Message); ok {
+		r0 = rf(_a0)
 	} else {
 		r0 = ret.Get(0).(Message)
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(_a0)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -40,20 +40,20 @@ type MockHandler struct {
 	mock.Mock
 }
 
-// Handle provides a mock function with given fields: msg
-func (_m *MockHandler) Handle(msg Message) (Message, error) {
-	ret := _m.Called(msg)
+// Handle provides a mock function with given fields: _a0, _a1
+func (_m *MockHandler) Handle(_a0 context.Context, _a1 Message) (Message, error) {
+	ret := _m.Called(_a0, _a1)
 
 	var r0 Message
-	if rf, ok := ret.Get(0).(func(Message) Message); ok {
-		r0 = rf(msg)
+	if rf, ok := ret.Get(0).(func(context.Context, Message) Message); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Get(0).(Message)
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(Message) error); ok {
-		r1 = rf(msg)
+	if rf, ok := ret.Get(1).(func(context.Context, Message) error); ok {
+		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -97,54 +97,4 @@ func (_m *MockBackOffFactory) NewBackOff() BackOff {
 	}
 
 	return r0
-}
-
-type MockCStream struct {
-	mock.Mock
-}
-
-// Get provides a mock function with given fields: _a0
-func (_m *MockCStream) Get(_a0 context.Context) (Message, error) {
-	ret := _m.Called(_a0)
-
-	var r0 Message
-	if rf, ok := ret.Get(0).(func(context.Context) Message); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Get(0).(Message)
-	}
-
-	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(_a0)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-type MockCHandler struct {
-	mock.Mock
-}
-
-// Handle provides a mock function with given fields: _a0, _a1
-func (_m *MockCHandler) Handle(_a0 context.Context, _a1 Message) (Message, error) {
-	ret := _m.Called(_a0, _a1)
-
-	var r0 Message
-	if rf, ok := ret.Get(0).(func(context.Context, Message) Message); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		r0 = ret.Get(0).(Message)
-	}
-
-	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, Message) error); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
 }
