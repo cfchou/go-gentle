@@ -17,7 +17,7 @@ format:
 .PHONY: cover
 cover:
 	@rm -rf cover.out
-	go test -coverprofile cover.out $(PACKAGE) -quickchecks 10
+	go test -v -coverprofile=cover.out $(PACKAGE) -quickchecks 10 -level crit
 	go tool cover -html=cover.out -o cover.html
 
 .PHONY: lint
@@ -28,4 +28,10 @@ lint:
 	@# Run again with magic to exit non-zero if golint outputs anything.
 	@! (golint ./gentle/... | read dummy)
 	go vet $(PACKAGE)
+
+.PHONY: coveralls
+coveralls:
+	@rm -rf cover.out
+	go test -v -covermode=count -coverprofile=cover.out $(PACKAGE) -quickchecks 50 -level crit
+	goveralls -coverprofile=cover.out -service=travis-ci
 
