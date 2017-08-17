@@ -1,37 +1,31 @@
-PACKAGES := . ./gentle/...
+PACKAGE := $(shell glide nv)
 
-.DEFAULT_GOAL := test-and-lint
+.DEFAULT_GOAL := format-and-test
 
-.PHONE: test-and-lint
-
-test-and-lint: test lint
+.PHONY: format-and-test
+format-and-test: format test
 
 .PHONY: test
-test:   format
-	go test -v -race -cover ./gentle/...  -quickchecks 50 | grep '\-\-\-'
+test:
+	go test -v -race -cover $(PACKAGE) -quickchecks 50 -level crit
 
+.PHONY: format
 format:
-	go fmt ./gentle/...
-	go vet ./gentle/...
+	go fmt $(PACKAGE)
+	go vet $(PACKAGE)
 
+.PHONY: cover
 cover:
-	@rm -rf cover-all.out
-	$(foreach pkg, $(PACKAGES), $(MAKE) cover-pkg PKG=$(pkg) || true;)
-	@grep mode: cover.out > coverage.out
-	@cat cover-all.out >> coverage.out
-	go tool cover -html=coverage.out -o cover.html
-	@rm -rf cover.out cover-all.out coverage.out
-
-cover-pkg:
-	go test -coverprofile cover.out $(PKG)
-	@grep -v mode: cover.out >> cover-all.out
+	@rm -rf cover.out
+	go test -coverprofile cover.out $(PACKAGE) -quickchecks 10
+	go tool cover -html=cover.out -o cover.html
 
 .PHONY: lint
 lint:
-	go fmt ./gentle/...
-	go vet ./gentle/...
-	golint ./gentle/...
+	go fmt $(PACKAGE)
+	go vet $(PACKAGE)
+	golint $(PACKAGE)
 	@# Run again with magic to exit non-zero if golint outputs anything.
 	@! (golint ./gentle/... | read dummy)
-	#go vet ./gentle/...
+	go vet $(PACKAGE)
 

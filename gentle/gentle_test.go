@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,18 +25,34 @@ func (m *fakeMsg) ID() string {
 }
 
 func TestMain(m *testing.M) {
-	// TODO flags for log config
+	var level string
+	flag.StringVar(&level, "level", "info", "log level")
 	flag.Parse()
 	rand.Seed(time.Now().UTC().UnixNano())
 	//h := log15.LvlFilterHandler(log15.LvlDebug, log15.CallerFuncHandler(log15.StdoutHandler))
 	//h := log15.LvlFilterHandler(log15.LvlDebug, callerFuncHandler(log15.StdoutHandler))
-	h := log15.LvlFilterHandler(log15.LvlDebug, log15.StdoutHandler)
+	h := log15.LvlFilterHandler(mapLogLevel(level), log15.StdoutHandler)
 	//h := log15.LvlFilterHandler(log15.LvlDebug,
 	//	log15.MultiHandler(
 	//		log15.StdoutHandler,
 	//		log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
 	Log.SetHandler(h)
 	m.Run()
+}
+
+func mapLogLevel(level string) log15.Lvl {
+	switch strings.ToLower(level) {
+	case "debug":
+		return log15.LvlDebug
+	case "warn", "warning":
+		return log15.LvlWarn
+	case "error":
+		return log15.LvlError
+	case "crit", "fatal":
+		return log15.LvlCrit
+	default:
+		return log15.LvlInfo
+	}
 }
 
 // log15.CallerFuncHandler prints import-path-qualified function name whereas

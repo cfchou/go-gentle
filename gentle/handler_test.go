@@ -158,7 +158,6 @@ func TestRetryHandler_Handle_MockBackOff(t *testing.T) {
 func TestRetryHandler_Handle_ConstantBackOff(t *testing.T) {
 	// Handle() retries with ConstantBackOff
 	run := func(maxElapsedSec int) bool {
-		log.Debug("=============", "sec", maxElapsedSec)
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
 		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
