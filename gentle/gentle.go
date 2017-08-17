@@ -111,11 +111,6 @@ type Clock interface {
 	Sleep(d time.Duration)
 }
 
-// Converts $millis of int to time.Duration.
-func IntToMillis(millis int) time.Duration {
-	return time.Duration(millis) * time.Millisecond
-}
-
 type CircuitBreakerConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
