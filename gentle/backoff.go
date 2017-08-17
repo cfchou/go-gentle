@@ -6,7 +6,28 @@ import (
 	"time"
 )
 
-// ConstantBackOffFactoryOpts is default options for ConstantBackOffFactory.
+// BackOffFactory creates one-off BackOff objects for RetryStream.Get() and
+// RetryHandler.Handle().
+type BackOffFactory interface {
+	NewBackOff() BackOff
+}
+
+// BackOffStop is a sentinel that BackOff.Next() should return to stop backing
+// off.
+const BackOffStop time.Duration = -1
+
+// BackOff provides durations of back-offs.
+type BackOff interface {
+	// Next() returns duration-to-wait.
+	Next() time.Duration
+}
+
+type Clock interface {
+	Now() time.Time
+	Sleep(d time.Duration)
+}
+
+// ConstantBackOffFactoryOpts is options for ConstantBackOffFactory.
 type ConstantBackOffFactoryOpts struct {
 	Interval time.Duration
 
@@ -19,6 +40,7 @@ type ConstantBackOffFactoryOpts struct {
 	Clock          Clock
 }
 
+// NewConstantBackOffFactoryOpts creates a default ConstantBackOffFactoryOpts.
 func NewConstantBackOffFactoryOpts(interval time.Duration,
 	maxElapsedTime time.Duration) *ConstantBackOffFactoryOpts {
 	return &ConstantBackOffFactoryOpts{
@@ -37,6 +59,7 @@ type ConstantBackOffFactory struct {
 	clock          Clock
 }
 
+// NewConstantBackOffFactory creates ConstantBackOffFactory's
 func NewConstantBackOffFactory(opts *ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
 	if opts.Interval < 0 || opts.MaxElapsedTime < 0 || opts.MaxNumBackOffs < 0 {
 		panic("Invalid arguments")

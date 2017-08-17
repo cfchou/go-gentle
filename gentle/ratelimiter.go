@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// RateLimit is an interface for a "token bucket" algorithm.
+type RateLimit interface {
+	// Wait for $count tokens to be granted(return true) or timeout(return
+	// false). If $timeout == 0, it would block as long as it needs.
+	Wait(count int, timeout time.Duration) bool
+}
+
 type TokenBucketRateLimit struct {
 	bucket *ratelimit.Bucket
 }

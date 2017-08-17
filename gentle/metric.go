@@ -15,7 +15,8 @@ const (
 	MxHandlerHandle = "handle"
 
 	// Observation supported by RetryStreams.Get(), it observes the total
-	// number tries with the label "result" of possible values "ok" or "err"
+	// number tries(retries+1) with the label "result" of possible values "ok"
+	// or "err"
 	MxStreamRetryTry = "try"
 
 	// Observation supported by retryHandler.Handle(), it observes the total
@@ -37,7 +38,12 @@ const (
 )
 
 var (
+	// metric labels
+	labelOk  = map[string]string{"result": "ok"}
+	labelErr = map[string]string{"result": "err"}
+
 	ErrMxNotFound = errors.New("Metric Not found")
+
 	gentleMetrics = &metricRegistry{
 		metrics: make(map[RegistryKey]Metric),
 		lock:    &sync.RWMutex{},

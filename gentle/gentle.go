@@ -42,10 +42,6 @@ var (
 	// ErrMaxConcurrency suggests BulkheadStream/BulkheadHandler has reached
 	// its maximum concurrency of operations.
 	ErrMaxConcurrency = errors.New("Reached Max Concurrency")
-
-	// Metrics
-	labelOk  = map[string]string{"result": "ok"}
-	labelErr = map[string]string{"result": "err"}
 )
 
 func init() {
@@ -86,31 +82,6 @@ type Identity interface {
 	GetNames() *Names
 }
 
-// RateLimit is an interface for a "token bucket" algorithm.
-type RateLimit interface {
-	// Wait for $count tokens to be granted(return true) or timeout(return
-	// false). If $timeout == 0, it would block as long as it needs.
-	Wait(count int, timeout time.Duration) bool
-}
-
-type BackOffFactory interface {
-	NewBackOff() BackOff
-}
-
-// BackOffStop is a sentinel that BackOff.Next() should return to stop backing
-// off.
-const BackOffStop time.Duration = -1
-
-type BackOff interface {
-	// Next() should immediately return
-	Next() time.Duration
-}
-
-type Clock interface {
-	Now() time.Time
-	Sleep(d time.Duration)
-}
-
 type CircuitBreakerConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
@@ -146,9 +117,4 @@ func (c *CircuitBreakerConf) RegisterFor(circuit string) {
 		SleepWindow:            int(c.SleepWindow / time.Millisecond),
 		ErrorPercentThreshold:  c.ErrorPercentThreshold,
 	})
-}
-
-type tuple struct {
-	fst interface{}
-	snd interface{}
 }
