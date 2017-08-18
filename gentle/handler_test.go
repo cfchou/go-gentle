@@ -581,3 +581,47 @@ func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
 		assert.EqualError(t, err, fakeErr.Error())
 	}
 }
+
+func TestHandle_MsgOut(t *testing.T) {
+	// Handler.Handle() may return a different msg
+	msgOut := &fakeMsg{id:"123"}
+	mhandler := &MockHandler{}
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return(msgOut, nil)
+
+	handlers := []Handler{
+		func() Handler {
+			return NewRateLimitedHandler(
+				NewRateLimitedHandlerOpts("", "test",
+					NewTokenBucketRateLimit(time.Millisecond, 1)),
+				mhandler)
+		}(),
+		func() Handler {
+			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond, time.Second)
+			backOffFactory := NewConstantBackOffFactory(backOffOpts)
+			opts := NewRetryHandlerOpts("", "test", backOffFactory)
+			return NewRetryHandler(opts, mhandler)
+		}(),
+		func() Handler {
+			backOffOpts := NewExponentialBackOffFactoryOpts(200*time.Millisecond, 2, time.Second, time.Second)
+			backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+			opts := NewRetryHandlerOpts("", "test", backOffFactory)
+			return NewRetryHandler(opts, mhandler)
+		}(),
+		func() Handler {
+			return NewBulkheadHandler(
+				NewBulkheadHandlerOpts("", "test", 1024),
+				mhandler)
+		}(),
+		func() Handler {
+			return NewCircuitBreakerHandler(
+				NewCircuitBreakerHandlerOpts("", "test", xid.New().String()),
+				mhandler)
+		}(),
+	}
+
+	for _, handler := range handlers {
+		msgIn := &fakeMsg{id: "abc"}
+		msg, _ := handler.Handle(context.Background(), msgIn)
+		assert.Equal(t, msgOut.ID(), msg.ID())
+	}
+}
