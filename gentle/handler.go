@@ -189,7 +189,7 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 		r.log.For(ctx).Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
 			"timespan", timespan, "retry", retry)
 		r.retryMetric.ObserveOk(timespan, retry)
-		return msg, nil
+		return msgOut, nil
 	}
 	returnNotOk := func(lvl, info string, msgIn Message, err error, retry int) (Message, error) {
 		timespan := r.clock.Now().Sub(begin).Seconds()
@@ -472,7 +472,7 @@ func (r *circuitBreakerHandler) Handle(ctx context.Context, msg Message) (Messag
 	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan)
 	r.cbMetric.ObserveOk(timespan)
-	return msg, nil
+	return msgOut, nil
 }
 
 func (r *circuitBreakerHandler) GetNames() *Names {
