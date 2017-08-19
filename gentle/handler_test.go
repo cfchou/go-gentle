@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
-	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -454,7 +453,7 @@ func TestCircuitBreakerHandler_Handle_MaxConcurrency(t *testing.T) {
 	// CircuitBreakerHandler returns ErrCbMaxConcurrency when
 	// CircuitBreakerConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -508,7 +507,7 @@ func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
 	// CircuitBreakerHandler returns ErrCbTimeout when
 	// CircuitBreakerConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -550,7 +549,7 @@ func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
 func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
 	// CircuitBreakerHandler returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -583,8 +582,8 @@ func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
 }
 
 func TestHandle_MsgOut(t *testing.T) {
-	// Handler.Handle() may return a different msg
-	msgOut := &fakeMsg{id:"123"}
+	// Handler.Handle() can return a different msg
+	msgOut := &fakeMsg{id: "123"}
 	mhandler := &MockHandler{}
 	mhandler.On("Handle", mock.Anything, mock.Anything).Return(msgOut, nil)
 
@@ -596,13 +595,15 @@ func TestHandle_MsgOut(t *testing.T) {
 				mhandler)
 		}(),
 		func() Handler {
-			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond, time.Second)
+			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond,
+				time.Second)
 			backOffFactory := NewConstantBackOffFactory(backOffOpts)
 			opts := NewRetryHandlerOpts("", "test", backOffFactory)
 			return NewRetryHandler(opts, mhandler)
 		}(),
 		func() Handler {
-			backOffOpts := NewExponentialBackOffFactoryOpts(200*time.Millisecond, 2, time.Second, time.Second)
+			backOffOpts := NewExponentialBackOffFactoryOpts(
+				200*time.Millisecond, 2, time.Second, time.Second)
 			backOffFactory := NewExponentialBackOffFactory(backOffOpts)
 			opts := NewRetryHandlerOpts("", "test", backOffFactory)
 			return NewRetryHandler(opts, mhandler)

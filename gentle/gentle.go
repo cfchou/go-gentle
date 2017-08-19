@@ -33,9 +33,11 @@ var (
 
 	// ErrCbOpen suggests the circuit is opened.
 	ErrCbOpen = errors.New(hystrix.ErrCircuitOpen.Error())
+
 	// ErrCbMaxConcurrency suggests the circuit has reached its maximum
 	// concurrency of operations.
 	ErrCbMaxConcurrency = errors.New(hystrix.ErrMaxConcurrency.Error())
+
 	// ErrCbTimeout suggests the operation has run for too long.
 	ErrCbTimeout = errors.New(hystrix.ErrTimeout.Error())
 
@@ -82,6 +84,13 @@ type Identity interface {
 	GetNames() *Names
 }
 
+// CircuitBreakerReset resets all states(incl. metrics) of all circuits.
+// TODO:
+// only flush the given circuit
+func CircuitBreakerReset() {
+	hystrix.Flush()
+}
+
 type CircuitBreakerConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
@@ -99,13 +108,22 @@ type CircuitBreakerConf struct {
 	SleepWindow time.Duration
 }
 
+const (
+	// Default configuration for a circuitbreaker
+	DefaultCbTimeout             = 10 * time.Second
+	DefaultCbMaxConcurrent       = 1024
+	DefaultCbVolumeThreshold     = 20
+	DefaultCbErrPercentThreshold = 50
+	DefaultCbSleepWindow         = 5 * time.Second
+)
+
 func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
 	return &CircuitBreakerConf{
-		Timeout:               10 * time.Second,
-		MaxConcurrent:         1024,
-		VolumeThreshold:       20,
-		ErrorPercentThreshold: 50,
-		SleepWindow:           5 * time.Second,
+		Timeout:               DefaultCbTimeout,
+		MaxConcurrent:         DefaultCbMaxConcurrent,
+		VolumeThreshold:       DefaultCbVolumeThreshold,
+		ErrorPercentThreshold: DefaultCbErrPercentThreshold,
+		SleepWindow:           DefaultCbSleepWindow,
 	}
 }
 

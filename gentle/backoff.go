@@ -6,25 +6,29 @@ import (
 	"time"
 )
 
-// BackOffFactory creates one-off BackOff objects for RetryStream.Get() and
-// RetryHandler.Handle().
+// BackOffFactory creates a BackOff every time when RetryStream.Get()
+// or RetryHandler.Handle() needs a series of back-offs.
 type BackOffFactory interface {
 	NewBackOff() BackOff
 }
 
-// BackOffStop is a sentinel that BackOff.Next() should return to stop backing
-// off.
-const BackOffStop time.Duration = -1
+const (
+	// BackOffStop is a sentinel return by BackOff.Next() indicating that no
+	// more retry should be made.
+	BackOffStop time.Duration = -1
 
-// BackOff provides durations of back-offs.
+	// DefaultMaxNumBackOffs is the default for ContantBackOffFactoryOpts.MaxNumBackOffs
+	// and ExponentialBackOffFactoryOpts.MaxNumBackOffs
+	DefaultMaxNumBackOffs = 0
+
+	// DefaultRandomizationFactor is the default for ExponentialBackOffFactoryOpts.RandomizationFactor
+	DefaultRandomizationFactor = 0.5
+)
+
+// BackOff provides a series of back-offs.
 type BackOff interface {
 	// Next() returns duration-to-wait.
 	Next() time.Duration
-}
-
-type Clock interface {
-	Now() time.Time
-	Sleep(d time.Duration)
 }
 
 // ConstantBackOffFactoryOpts is options for ConstantBackOffFactory.
@@ -37,7 +41,8 @@ type ConstantBackOffFactoryOpts struct {
 	// If only one of them is 0, then the other is checked.
 	MaxElapsedTime time.Duration
 	MaxNumBackOffs int64
-	Clock          Clock
+	// Clock provides a way to mock time. Mainly used in tests.
+	Clock clock.Clock
 }
 
 // NewConstantBackOffFactoryOpts creates a default ConstantBackOffFactoryOpts.
@@ -46,17 +51,17 @@ func NewConstantBackOffFactoryOpts(interval time.Duration,
 	return &ConstantBackOffFactoryOpts{
 		Interval:       interval,
 		MaxElapsedTime: maxElapsedTime,
-		MaxNumBackOffs: 0,
+		MaxNumBackOffs: DefaultMaxNumBackOffs,
 		Clock:          clock.New(),
 	}
 }
 
-// ConstantBackOffFactory creates non-thread-safe constant BackOff objects.
+// ConstantBackOffFactory creates non-thread-safe constant BackOff.
 type ConstantBackOffFactory struct {
 	interval       time.Duration
 	maxElapsedTime time.Duration
 	maxNumBackOffs int64
-	clock          Clock
+	clock          clock.Clock
 }
 
 // NewConstantBackOffFactory creates ConstantBackOffFactory's
@@ -89,7 +94,7 @@ type constantBackOff struct {
 	interval          time.Duration
 	maxElapsedTime    time.Duration
 	remainingBackOffs int64
-	clock             Clock
+	clock             clock.Clock
 	startTime         time.Time
 }
 
@@ -128,23 +133,24 @@ type ExponentialBackOffFactoryOpts struct {
 	// If only one of them is 0, then the other is checked.
 	MaxElapsedTime time.Duration
 	MaxNumBackOffs int64
-	Clock          Clock
+	// Clock provides a way to mock time. Mainly used in tests.
+	Clock clock.Clock
 }
 
 func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
 	multiplier float64, maxInterval time.Duration, maxElapsedTime time.Duration) *ExponentialBackOffFactoryOpts {
 	return &ExponentialBackOffFactoryOpts{
 		InitialInterval:     initInterval,
-		RandomizationFactor: 0.5,
+		RandomizationFactor: DefaultRandomizationFactor,
 		Multiplier:          multiplier,
 		MaxInterval:         maxInterval,
 		MaxElapsedTime:      maxElapsedTime,
-		MaxNumBackOffs:      0,
+		MaxNumBackOffs:      DefaultMaxNumBackOffs,
 		Clock:               clock.New(),
 	}
 }
 
-// ExponentialBackOffFactory creates non-thread-safe exponential BackOff objects
+// ExponentialBackOffFactory creates non-thread-safe exponential BackOff
 type ExponentialBackOffFactory struct {
 	initialInterval     time.Duration
 	randomizationFactor float64
@@ -152,7 +158,7 @@ type ExponentialBackOffFactory struct {
 	maxInterval         time.Duration
 	maxElapsedTime      time.Duration
 	maxNumBackOffs      int64
-	clock               Clock
+	clock               clock.Clock
 }
 
 func NewExponentialBackOffFactory(opts *ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {

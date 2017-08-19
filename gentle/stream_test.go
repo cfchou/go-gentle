@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/benbjohnson/clock"
-	"github.com/cfchou/hystrix-go/hystrix"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -449,7 +448,7 @@ func TestCircuitBreakerStream_Get_MaxConcurrency(t *testing.T) {
 	// CircuitBreakerStream returns ErrCbMaxConcurrency when
 	// CircuitBreakerConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -503,7 +502,7 @@ func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
 	// CircuitBreakerStream returns ErrCbTimeout when
 	// CircuitBreakerConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -545,7 +544,7 @@ func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
 func TestCircuitBreakerStream_Get_Error(t *testing.T) {
 	// CircuitBreakerStream returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer hystrix.Flush()
+	defer CircuitBreakerReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -573,5 +572,49 @@ func TestCircuitBreakerStream_Get_Error(t *testing.T) {
 			break
 		}
 		assert.EqualError(t, err, fakeErr.Error())
+	}
+}
+
+func TestStream_MsgIntact(t *testing.T) {
+	// Resilient Streams don't modify msg from upstreams.
+	msgOut := &fakeMsg{id: "123"}
+	mstream := &MockStream{}
+	mstream.On("Get", mock.Anything).Return(msgOut, nil)
+
+	streams := []Stream{
+		func() Stream {
+			return NewRateLimitedStream(
+				NewRateLimitedStreamOpts("", "test",
+					NewTokenBucketRateLimit(time.Millisecond, 1)),
+				mstream)
+		}(),
+		func() Stream {
+			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond, time.Second)
+			backOffFactory := NewConstantBackOffFactory(backOffOpts)
+			opts := NewRetryStreamOpts("", "test", backOffFactory)
+			return NewRetryStream(opts, mstream)
+		}(),
+		func() Stream {
+			backOffOpts := NewExponentialBackOffFactoryOpts(
+				200*time.Millisecond, 2, time.Second, time.Second)
+			backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+			opts := NewRetryStreamOpts("", "test", backOffFactory)
+			return NewRetryStream(opts, mstream)
+		}(),
+		func() Stream {
+			return NewBulkheadStream(
+				NewBulkheadStreamOpts("", "test", 1024),
+				mstream)
+		}(),
+		func() Stream {
+			return NewCircuitBreakerStream(
+				NewCircuitBreakerStreamOpts("", "test", xid.New().String()),
+				mstream)
+		}(),
+	}
+
+	for _, stream := range streams {
+		msg, _ := stream.Get(context.Background())
+		assert.Equal(t, msgOut.ID(), msg.ID())
 	}
 }
