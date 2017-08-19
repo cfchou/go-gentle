@@ -449,15 +449,15 @@ func TestBulkheadHandler_Handle_MaxConcurrency(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerHandler_Handle_MaxConcurrency(t *testing.T) {
-	// CircuitBreakerHandler returns ErrCbMaxConcurrency when
-	// CircuitBreakerConf.MaxConcurrent is reached.
+func TestCircuitHandler_Handle_MaxConcurrency(t *testing.T) {
+	// CircuitHandler returns ErrCbMaxConcurrency when
+	// CircuitConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	conf.MaxConcurrent = 4
 	// Set properly to not affect this test:
 	conf.Timeout = time.Minute
@@ -467,8 +467,8 @@ func TestCircuitBreakerHandler_Handle_MaxConcurrency(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	handler := NewCircuitBreakerHandler(
-		NewCircuitBreakerHandlerOpts("", "test", circuit),
+	handler := NewCircuitHandler(
+		NewCircuitHandlerOpts("", "test", circuit),
 		mhandler)
 	var wg sync.WaitGroup
 	wg.Add(conf.MaxConcurrent)
@@ -503,15 +503,15 @@ func TestCircuitBreakerHandler_Handle_MaxConcurrency(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
-	// CircuitBreakerHandler returns ErrCbTimeout when
-	// CircuitBreakerConf.Timeout is reached.
+func TestCircuitHandler_Handle_Timeout(t *testing.T) {
+	// CircuitHandler returns ErrCbTimeout when
+	// CircuitConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	conf.Timeout = time.Millisecond
 	// Set properly to not affect this test:
 	conf.MaxConcurrent = 4096
@@ -521,8 +521,8 @@ func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	handler := NewCircuitBreakerHandler(
-		NewCircuitBreakerHandlerOpts("", "test", circuit),
+	handler := NewCircuitHandler(
+		NewCircuitHandlerOpts("", "test", circuit),
 		mhandler)
 
 	// Suspend longer than Timeout
@@ -546,14 +546,14 @@ func TestCircuitBreakerHandler_Handle_Timeout(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
-	// CircuitBreakerHandler returns the designated error.
+func TestCircuitHandler_Handle_Error(t *testing.T) {
+	// CircuitHandler returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	// Set properly to not affect this test:
 	conf.MaxConcurrent = 4096
 	conf.Timeout = time.Minute
@@ -563,8 +563,8 @@ func TestCircuitBreakerHandler_Handle_Error(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	handler := NewCircuitBreakerHandler(
-		NewCircuitBreakerHandlerOpts("", "test", circuit),
+	handler := NewCircuitHandler(
+		NewCircuitHandlerOpts("", "test", circuit),
 		mhandler)
 	fakeErr := errors.New("fake error")
 
@@ -614,8 +614,8 @@ func TestHandle_MsgOut(t *testing.T) {
 				mhandler)
 		}(),
 		func() Handler {
-			return NewCircuitBreakerHandler(
-				NewCircuitBreakerHandlerOpts("", "test", xid.New().String()),
+			return NewCircuitHandler(
+				NewCircuitHandlerOpts("", "test", xid.New().String()),
 				mhandler)
 		}(),
 	}

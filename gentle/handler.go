@@ -369,19 +369,19 @@ func (r *bulkheadHandler) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
-type CircuitBreakerHandlerOpts struct {
+type CircuitHandlerOpts struct {
 	handlerOpts
 	CbMetric CbMetric
 	Circuit  string
 }
 
-func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreakerHandlerOpts {
-	return &CircuitBreakerHandlerOpts{
+func NewCircuitHandlerOpts(namespace, name, circuit string) *CircuitHandlerOpts {
+	return &CircuitHandlerOpts{
 		handlerOpts: handlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"gentle", HandlerCircuitBreaker,
+				"gentle", HandlerCircuit,
 				"name", name, "circuit", circuit),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
@@ -391,7 +391,7 @@ func NewCircuitBreakerHandlerOpts(namespace, name, circuit string) *CircuitBreak
 	}
 }
 
-type circuitBreakerHandler struct {
+type circuitHandler struct {
 	*handlerFields
 	cbMetric CbMetric
 	circuit  string
@@ -399,10 +399,10 @@ type circuitBreakerHandler struct {
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitBreakerStream() creates a circuitBreakerStream with a
+// NewCircuitStream() creates a circuitStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) Handler {
-	return &circuitBreakerHandler{
+func NewCircuitHandler(opts *CircuitHandlerOpts, handler Handler) Handler {
+	return &circuitHandler{
 		handlerFields: newHandlerFields(&opts.handlerOpts),
 		cbMetric:      opts.CbMetric,
 		circuit:       opts.Circuit,
@@ -410,7 +410,7 @@ func NewCircuitBreakerHandler(opts *CircuitBreakerHandlerOpts, handler Handler) 
 	}
 }
 
-func (r *circuitBreakerHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
@@ -445,7 +445,7 @@ func (r *circuitBreakerHandler) Handle(ctx context.Context, msg Message) (Messag
 	// Capturing error from handler.Handle() or from hystrix if criteria met.
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
-		// To prevent misinterpreting when wrapping one circuitBreakerStream
+		// To prevent misinterpreting when wrapping one circuitStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
 		switch err {
@@ -475,14 +475,14 @@ func (r *circuitBreakerHandler) Handle(ctx context.Context, msg Message) (Messag
 	return msgOut, nil
 }
 
-func (r *circuitBreakerHandler) GetNames() *Names {
+func (r *circuitHandler) GetNames() *Names {
 	return &Names{
 		Namespace:  r.namespace,
-		Resilience: HandlerCircuitBreaker,
+		Resilience: HandlerCircuit,
 		Name:       r.name,
 	}
 }
 
-func (r *circuitBreakerHandler) GetCircuitName() string {
+func (r *circuitHandler) GetCircuitName() string {
 	return r.circuit
 }

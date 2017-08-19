@@ -375,19 +375,19 @@ func (r *bulkheadStream) GetCurrentConcurrency() int {
 	return len(r.semaphore)
 }
 
-type CircuitBreakerStreamOpts struct {
+type CircuitStreamOpts struct {
 	streamOpts
 	CbMetric CbMetric
 	Circuit  string
 }
 
-func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreakerStreamOpts {
-	return &CircuitBreakerStreamOpts{
+func NewCircuitStreamOpts(namespace, name, circuit string) *CircuitStreamOpts {
+	return &CircuitStreamOpts{
 		streamOpts: streamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
-				"gentle", StreamCircuitBreaker,
+				"gentle", StreamCircuit,
 				"name", name, "circuit", circuit),
 			Tracer:     opentracing.GlobalTracer(),
 			TracingRef: TracingChildOf,
@@ -397,8 +397,8 @@ func NewCircuitBreakerStreamOpts(namespace, name, circuit string) *CircuitBreake
 	}
 }
 
-// circuitBreakerStream is a Stream equipped with a circuit-breaker.
-type circuitBreakerStream struct {
+// circuitStream is a Stream equipped with a circuit-breaker.
+type circuitStream struct {
 	*streamFields
 	cbMetric CbMetric
 	circuit  string
@@ -406,18 +406,18 @@ type circuitBreakerStream struct {
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitBreakerStream() creates a circuitBreakerStream with a
+// NewCircuitStream() creates a circuitStream with a
 // circuit-breaker named $circuit.
-func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) Stream {
+func NewCircuitStream(opts *CircuitStreamOpts, stream Stream) Stream {
 
 	// Note that if it might overwrite or be overwritten by concurrently
 	// registering the same circuit.
 	allCircuits := hystrix.GetCircuitSettings()
 	if _, ok := allCircuits[opts.Circuit]; !ok {
-		NewDefaultCircuitBreakerConf().RegisterFor(opts.Circuit)
+		NewDefaultCircuitConf().RegisterFor(opts.Circuit)
 	}
 
-	return &circuitBreakerStream{
+	return &circuitStream{
 		streamFields: newStreamFields(&opts.streamOpts),
 		cbMetric:     opts.CbMetric,
 		circuit:      opts.Circuit,
@@ -425,7 +425,7 @@ func NewCircuitBreakerStream(opts *CircuitBreakerStreamOpts, stream Stream) Stre
 	}
 }
 
-func (r *circuitBreakerStream) Get(ctx context.Context) (Message, error) {
+func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Stream] Get() ...")
@@ -458,7 +458,7 @@ func (r *circuitBreakerStream) Get(ctx context.Context) (Message, error) {
 	// Capturing error from stream.Get() or from hystrix if criteria met.
 	if err != nil {
 		timespan := time.Since(begin).Seconds()
-		// To prevent misinterpreting when wrapping one circuitBreakerStream
+		// To prevent misinterpreting when wrapping one circuitStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
 		switch err {
@@ -488,14 +488,14 @@ func (r *circuitBreakerStream) Get(ctx context.Context) (Message, error) {
 	return msgOut, nil
 }
 
-func (r *circuitBreakerStream) GetNames() *Names {
+func (r *circuitStream) GetNames() *Names {
 	return &Names{
 		Namespace:  r.namespace,
-		Resilience: StreamCircuitBreaker,
+		Resilience: StreamCircuit,
 		Name:       r.name,
 	}
 }
 
-func (r *circuitBreakerStream) GetCircuitName() string {
+func (r *circuitStream) GetCircuitName() string {
 	return r.circuit
 }

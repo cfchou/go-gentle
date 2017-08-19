@@ -103,8 +103,8 @@ func ExampleNewBulkheadStream() {
 	wg.Wait()
 }
 
-func ExampleNewCircuitBreakerStream() {
-	defer CircuitBreakerReset()
+func ExampleNewCircuitStream() {
+	defer CircuitReset()
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
@@ -120,8 +120,8 @@ func ExampleNewCircuitBreakerStream() {
 		return &fakeMsg{xid.New().String()}, nil
 	}
 
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", xid.New().String()),
+	stream := NewCircuitStream(
+		NewCircuitStreamOpts("", "test", xid.New().String()),
 		fakeStream)
 
 	count := 100
@@ -150,8 +150,8 @@ func ExampleNewCircuitBreakerStream() {
 	wg.Wait()
 }
 
-func ExampleNewCircuitBreakerStream_customCircuit() {
-	defer CircuitBreakerReset()
+func ExampleNewCircuitStream_customCircuit() {
+	defer CircuitReset()
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
@@ -168,12 +168,12 @@ func ExampleNewCircuitBreakerStream_customCircuit() {
 	}
 
 	circuit := xid.New().String()
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	conf.MaxConcurrent = 20
 	conf.RegisterFor(circuit)
 
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", circuit),
+	stream := NewCircuitStream(
+		NewCircuitStreamOpts("", "test", circuit),
 		fakeStream)
 
 	count := 100

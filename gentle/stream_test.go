@@ -444,15 +444,15 @@ func TestBulkheadStream_Get_MaxConcurrency(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerStream_Get_MaxConcurrency(t *testing.T) {
-	// CircuitBreakerStream returns ErrCbMaxConcurrency when
-	// CircuitBreakerConf.MaxConcurrent is reached.
+func TestCircuitStream_Get_MaxConcurrency(t *testing.T) {
+	// CircuitStream returns ErrCbMaxConcurrency when
+	// CircuitConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	conf.MaxConcurrent = 4
 	// Set properly to not affect this test:
 	conf.Timeout = time.Minute
@@ -462,8 +462,8 @@ func TestCircuitBreakerStream_Get_MaxConcurrency(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", circuit),
+	stream := NewCircuitStream(
+		NewCircuitStreamOpts("", "test", circuit),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
@@ -498,15 +498,15 @@ func TestCircuitBreakerStream_Get_MaxConcurrency(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
-	// CircuitBreakerStream returns ErrCbTimeout when
-	// CircuitBreakerConf.Timeout is reached.
+func TestCircuitStream_Get_Timeout(t *testing.T) {
+	// CircuitStream returns ErrCbTimeout when
+	// CircuitConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	conf.Timeout = time.Millisecond
 	// Set properly to not affect this test:
 	conf.MaxConcurrent = 4096
@@ -516,8 +516,8 @@ func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", circuit),
+	stream := NewCircuitStream(
+		NewCircuitStreamOpts("", "test", circuit),
 		mstream)
 	mm := &fakeMsg{id: "123"}
 
@@ -541,14 +541,14 @@ func TestCircuitBreakerStream_Get_Timeout(t *testing.T) {
 	}
 }
 
-func TestCircuitBreakerStream_Get_Error(t *testing.T) {
-	// CircuitBreakerStream returns the designated error.
+func TestCircuitStream_Get_Error(t *testing.T) {
+	// CircuitStream returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitBreakerReset()
+	defer CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitBreakerConf()
+	conf := NewDefaultCircuitConf()
 	// Set properly to not affect this test:
 	conf.MaxConcurrent = 4096
 	conf.Timeout = time.Minute
@@ -558,8 +558,8 @@ func TestCircuitBreakerStream_Get_Error(t *testing.T) {
 	conf.ErrorPercentThreshold = 20
 	conf.RegisterFor(circuit)
 
-	stream := NewCircuitBreakerStream(
-		NewCircuitBreakerStreamOpts("", "test", circuit),
+	stream := NewCircuitStream(
+		NewCircuitStreamOpts("", "test", circuit),
 		mstream)
 	fakeErr := errors.New("fake error")
 
@@ -607,8 +607,8 @@ func TestStream_MsgIntact(t *testing.T) {
 				mstream)
 		}(),
 		func() Stream {
-			return NewCircuitBreakerStream(
-				NewCircuitBreakerStreamOpts("", "test", xid.New().String()),
+			return NewCircuitStream(
+				NewCircuitStreamOpts("", "test", xid.New().String()),
 				mstream)
 		}(),
 	}

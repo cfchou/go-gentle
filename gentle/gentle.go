@@ -13,14 +13,14 @@ const (
 	// key.
 	// Since there's only one method for Stream/Handler, they are also used as
 	// operation names for opentracing spans.
-	StreamRateLimited     = "sRate"
-	StreamRetry           = "sRetry"
-	StreamBulkhead        = "sBulk"
-	StreamCircuitBreaker  = "sCircuit"
-	HandlerRateLimited    = "hRate"
-	HandlerRetry          = "hRetry"
-	HandlerBulkhead       = "hBulk"
-	HandlerCircuitBreaker = "hCircuit"
+	StreamRateLimited  = "sRate"
+	StreamRetry        = "sRetry"
+	StreamBulkhead     = "sBulk"
+	StreamCircuit      = "sCircuit"
+	HandlerRateLimited = "hRate"
+	HandlerRetry       = "hRetry"
+	HandlerBulkhead    = "hBulk"
+	HandlerCircuit     = "hCircuit"
 )
 
 var (
@@ -28,7 +28,7 @@ var (
 	// by resilience Streams/Handlers defined in this package.
 	Log = log15.New()
 
-	// Errors related to CircuitBreakerStream/CircuitBreakerHandler. They are
+	// Errors related to CircuitStream/CircuitHandler. They are
 	// the replacement of underlying errors of package hystrix.
 
 	// ErrCbOpen suggests the circuit is opened.
@@ -84,14 +84,14 @@ type Identity interface {
 	GetNames() *Names
 }
 
-// CircuitBreakerReset resets all states(incl. metrics) of all circuits.
+// CircuitReset resets all states(incl. metrics) of all circuits.
 // TODO:
 // only flush the given circuit
-func CircuitBreakerReset() {
+func CircuitReset() {
 	hystrix.Flush()
 }
 
-type CircuitBreakerConf struct {
+type CircuitConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
 	// MaxConcurrent is how many commands of the same type can run
@@ -117,8 +117,8 @@ const (
 	DefaultCbSleepWindow         = 5 * time.Second
 )
 
-func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
-	return &CircuitBreakerConf{
+func NewDefaultCircuitConf() *CircuitConf {
+	return &CircuitConf{
 		Timeout:               DefaultCbTimeout,
 		MaxConcurrent:         DefaultCbMaxConcurrent,
 		VolumeThreshold:       DefaultCbVolumeThreshold,
@@ -127,7 +127,7 @@ func NewDefaultCircuitBreakerConf() *CircuitBreakerConf {
 	}
 }
 
-func (c *CircuitBreakerConf) RegisterFor(circuit string) {
+func (c *CircuitConf) RegisterFor(circuit string) {
 	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{
 		Timeout:                int(c.Timeout / time.Millisecond),
 		MaxConcurrentRequests:  c.MaxConcurrent,

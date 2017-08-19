@@ -30,12 +30,12 @@ Streams/Handlers as one sees fit.
   rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
   retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
   bulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadStream)
-  circuitBreakerStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitBreakerStream)
+  circuitStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitStream)
 
   rateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedHandler)
   retryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
   bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
-  circuitBreakerHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitBreakerHandler)
+  circuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
 Composability
 

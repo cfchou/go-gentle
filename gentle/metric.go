@@ -17,7 +17,7 @@ type RetryMetric interface {
 	ObserveErr(timespan float64, retry int)
 }
 
-// CbMetric is an interface for collecting metrics by CircuitBreakerStream/CircuitBreakerHandler
+// CbMetric is an interface for collecting metrics by CircuitStream/CircuitHandler
 type CbMetric interface {
 	// Successful Stream.Get()/Handler.Handle() with timespan in seconds
 	ObserveOk(timespan float64)
