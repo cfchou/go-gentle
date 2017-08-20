@@ -31,7 +31,7 @@ type BackOff interface {
 	Next() time.Duration
 }
 
-// ConstantBackOffFactoryOpts is options for ConstantBackOffFactory.
+// ConstantBackOffFactoryOpts is settings for ConstantBackOffFactory.
 type ConstantBackOffFactoryOpts struct {
 	Interval time.Duration
 
@@ -56,7 +56,7 @@ func NewConstantBackOffFactoryOpts(interval time.Duration,
 	}
 }
 
-// ConstantBackOffFactory creates non-thread-safe constant BackOff.
+// ConstantBackOffFactory creates non-thread-safe constant BackOffs.
 type ConstantBackOffFactory struct {
 	interval       time.Duration
 	maxElapsedTime time.Duration
@@ -64,7 +64,7 @@ type ConstantBackOffFactory struct {
 	clock          clock.Clock
 }
 
-// NewConstantBackOffFactory creates ConstantBackOffFactory's
+// NewConstantBackOffFactory creates a ConstantBackOffFactory.
 func NewConstantBackOffFactory(opts *ConstantBackOffFactoryOpts) *ConstantBackOffFactory {
 	if opts.Interval < 0 || opts.MaxElapsedTime < 0 || opts.MaxNumBackOffs < 0 {
 		panic("Invalid arguments")
@@ -77,6 +77,7 @@ func NewConstantBackOffFactory(opts *ConstantBackOffFactoryOpts) *ConstantBackOf
 	}
 }
 
+// NewBackOff creates a constant BackOff object.
 func (f *ConstantBackOffFactory) NewBackOff() BackOff {
 	remainingBackOffs := int64(-1)
 	if f.maxNumBackOffs > 0 {
@@ -116,6 +117,7 @@ func (b *constantBackOff) Next() time.Duration {
 	return b.interval
 }
 
+// ExponentialBackOffFactoryOpts is settings for ExponentialBackOffFactory.
 type ExponentialBackOffFactoryOpts struct {
 	// Next() returns a randomizedInterval which is:
 	// currentInterval * rand(range [1-RandomizationFactor, 1+RandomizationFactor])
@@ -137,6 +139,7 @@ type ExponentialBackOffFactoryOpts struct {
 	Clock clock.Clock
 }
 
+// NewExponentialBackOffFactoryOpts creates a default ExponentialBackOffFactoryOpts.
 func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
 	multiplier float64, maxInterval time.Duration, maxElapsedTime time.Duration) *ExponentialBackOffFactoryOpts {
 	return &ExponentialBackOffFactoryOpts{
@@ -150,7 +153,7 @@ func NewExponentialBackOffFactoryOpts(initInterval time.Duration,
 	}
 }
 
-// ExponentialBackOffFactory creates non-thread-safe exponential BackOff
+// ExponentialBackOffFactory creates non-thread-safe exponential BackOffs.
 type ExponentialBackOffFactory struct {
 	initialInterval     time.Duration
 	randomizationFactor float64
@@ -161,6 +164,7 @@ type ExponentialBackOffFactory struct {
 	clock               clock.Clock
 }
 
+// NewExponentialBackOffFactory creates a ExponentialBackOffFactory
 func NewExponentialBackOffFactory(opts *ExponentialBackOffFactoryOpts) *ExponentialBackOffFactory {
 	if opts.InitialInterval < 0 ||
 		opts.RandomizationFactor < 0 || opts.RandomizationFactor > 1 ||
@@ -177,9 +181,9 @@ func NewExponentialBackOffFactory(opts *ExponentialBackOffFactoryOpts) *Exponent
 		maxNumBackOffs:      opts.MaxNumBackOffs,
 		clock:               opts.Clock,
 	}
-
 }
 
+// NewBackOff creates an exponential BackOff object.
 func (f *ExponentialBackOffFactory) NewBackOff() BackOff {
 	remainingBackOffs := int64(-1)
 	if f.maxNumBackOffs > 0 {

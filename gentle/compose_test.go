@@ -12,7 +12,7 @@ import (
 )
 
 func TestAppendHandlersStream(t *testing.T) {
-	// Append multiple Handlers to a Stream. Handlers should run in sequence.
+	// Append multiple Handlers to a Stream. Handlers run in sequence.
 	// The first handler accepts Message returned by the upstream, and then
 	// every subsequent handler accepts a Message returned by the previous
 	// handler.
@@ -148,8 +148,8 @@ func TestAppendHandlersStream_FallThrough_Handlers(t *testing.T) {
 }
 
 func TestAppendFallbacksStream(t *testing.T) {
-	// Append multiple StreamFallbacks to a Stream. StreamFallbacks should run
-	// in sequence.
+	// Append multiple StreamFallbacks to a Stream. StreamFallbacks run in
+	// sequence.
 	// The first fallback accepts Message returned by the upstream, and then
 	// every subsequent fallback accepts an error returned by the previous
 	// fallback.
@@ -309,7 +309,7 @@ func TestAppendFallbacksStream_FallThrough_Fallbacks(t *testing.T) {
 }
 
 func TestAppendHandlersHandler(t *testing.T) {
-	// Append multiple Handlers to a Handler. Handlers should run in sequence.
+	// Append multiple Handlers to a Handler. Handlers run in sequence.
 	// Every handler accepts a Message returned by the previous handler.
 	mhandler := &MockHandler{}
 	mhandlers := []Handler{&MockHandler{}, &MockHandler{}, &MockHandler{}}
@@ -423,8 +423,8 @@ func TestAppendHandlersHandler_FallThrough(t *testing.T) {
 }
 
 func TestAppendFallbacksHandler(t *testing.T) {
-	// Append multiple HandlerFallbacks to a Handler. HandlerFallbacks should
-	// run in sequence.
+	// Append multiple HandlerFallbacks to a Handler. HandlerFallbacks run in
+	// sequence.
 	// handler.Handle() and every fallback takes the same Message.
 	// The first fallback takes the error from handler.Handle().
 	// Every subsequent fallback accepts an error returned by the previous one.

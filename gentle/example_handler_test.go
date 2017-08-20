@@ -103,11 +103,11 @@ func ExampleNewBulkheadHandler() {
 
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
-	var msgId int64
+	var msgID int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			id := atomic.AddInt64(&msgId, 1)
+			id := atomic.AddInt64(&msgID, 1)
 			msg, err := handler.Handle(context.Background(),
 				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {
@@ -150,11 +150,11 @@ func ExampleNewCircuitHandler() {
 	count := 100
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
-	var msgId int64
+	var msgID int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			id := atomic.AddInt64(&msgId, 1)
+			id := atomic.AddInt64(&msgID, 1)
 			msg, err := handler.Handle(context.Background(),
 				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {
@@ -207,11 +207,11 @@ func ExampleNewCircuitHandler_customCircuit() {
 	count := 100
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
-	var msgId int64
+	var msgID int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			id := atomic.AddInt64(&msgId, 1)
+			id := atomic.AddInt64(&msgID, 1)
 			msg, err := handler.Handle(context.Background(),
 				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {

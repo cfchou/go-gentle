@@ -13,10 +13,10 @@ import (
 )
 
 func ExampleSimpleStream() {
-	msgId := 1
+	msgID := 1
 	var stream SimpleStream = func(_ context.Context) (Message, error) {
-		defer func() { msgId++ }()
-		return SimpleMessage(strconv.Itoa(msgId)), nil
+		defer func() { msgID++ }()
+		return SimpleMessage(strconv.Itoa(msgID)), nil
 	}
 
 	for i := 0; i < 5; i++ {
@@ -32,9 +32,9 @@ func ExampleSimpleStream() {
 }
 
 func ExampleNewRateLimitedStream() {
-	var msgId int64
+	var msgID int64
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
+		id := atomic.AddInt64(&msgID, 1)
 		return SimpleMessage(strconv.FormatInt(id, 10)), nil
 	}
 
@@ -101,9 +101,9 @@ func ExampleNewRetryStream_exponentialBackOff() {
 }
 
 func ExampleNewBulkheadStream() {
-	var msgId int64
+	var msgID int64
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
+		id := atomic.AddInt64(&msgID, 1)
 		return SimpleMessage(strconv.FormatInt(id, 10)), nil
 	}
 
@@ -136,14 +136,14 @@ func ExampleNewBulkheadStream() {
 func ExampleNewCircuitStream() {
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
-	var msgId int64
+	var msgID int64
 	// fakeStream with randomized outcome
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
 		if rand.Intn(10)%10 == 0 {
 			// 1/10 chances to return fakeErr
 			return nil, fakeErr
 		}
-		id := atomic.AddInt64(&msgId, 1)
+		id := atomic.AddInt64(&msgID, 1)
 		if rand.Intn(10)%10 == 1 {
 			// 1/10 chances to sleep until circuit's timeout
 			time.Sleep(DefaultCbTimeout + 10*time.Millisecond)
@@ -187,14 +187,14 @@ func ExampleNewCircuitStream() {
 func ExampleNewCircuitStream_customCircuit() {
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
-	var msgId int64
+	var msgID int64
 	// fakeStream with randomized outcome
 	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
 		if rand.Intn(10)%10 == 0 {
 			// 1/10 chances to return fakeErr
 			return nil, fakeErr
 		}
-		id := atomic.AddInt64(&msgId, 1)
+		id := atomic.AddInt64(&msgID, 1)
 		if rand.Intn(10)%10 == 1 {
 			// 1/10 chances to sleep until circuit's timeout
 			time.Sleep(DefaultCbTimeout + 10*time.Millisecond)

@@ -12,20 +12,56 @@ given Messages.
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
 
+  // query a restful api
+  var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
+  	resp, err := http.Get("https://some_api_endpoint")
+  	if err != nil {
+  		return nil, err
+  	}
+  	defer resp.Body.Close()
+  	content, err := ioutil.ReadAll(resp.Body)
+  	if err != nil {
+  		return nil, err
+  	}
+  	return gentle.SimpleMessage(string(content)), nil
+  }
+
+  var appendToFile gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
+  	f, err := os.OpenFile("some_file", os.O_APPEND|os.O_WRONLY, 0600)
+  	if err != nil {
+  		return nil, err
+  	}
+  	defer f.Close()
+  	content := string(msg.(gentle.SimpleMessage))
+  	if _, err = f.WriteString(content); err != nil {
+  		return nil, err
+  	}
+  	return msg, nil
+  }
+
+  stream := gentle.AppendHandlersStream(query, appendToFile)
+
+  for {
+  	_, err := stream.Get(context.Background())
+  	if err != nil {
+  		fmt.Println(err)
+	}
+  }
+
 Developers should implement their own logic in the forms of Stream/Handler.
 For simple cases, named types SimpleStream and SimpleHandler help to directly
 use a function as a Stream/Handler.
 
-  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#example_SimpleStream)
-  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#example_SimpleHandler)
+  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
+  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
 
 Our Resilience Streams and Handlers
 
 Resiliency patterns are indispensable in distributed systems because external
-services are not reliable at all time. We provide some useful patterns in the
-forms of Streams/Handlers. They include rate-limiting, retry(also known as back-off),
-bulkhead and circuit-breaker. Each of them can be freely composed with other
-Streams/Handlers as one sees fit.
+services are not always reliable. Some useful patterns in the forms of
+Streams/Handlers are provided in this package. They include rate-limiting,
+retry(also known as back-off), bulkhead and circuit-breaker. Each of them can be
+freely composed with other Streams/Handlers as one sees fit.
 
   NewRateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
   NewRetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
@@ -37,6 +73,27 @@ Streams/Handlers as one sees fit.
   NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
+  // rate-limit the queries
+  rlQuery := gentle.NewRateLimitedStream(
+  	gentle.NewRateLimitedStreamOpts("", "myApp",
+  		gentle.NewTokenBucketRateLimit(300*time.Millisecond, 1)),
+  	query)
+
+  // no concurrent appendToFile
+  exclusiveAppend := gentle.NewBulkheadHandler(
+  	gentle.NewBulkheadHandlerOpts("", "myApp", 1),
+	appendToFile)
+
+  stream := gentle.AppendHandlersStream(rlQuery, exclusiveAppend)
+
+  for {
+  	_, err := stream.Get(context.Background())
+  	if err != nil {
+  		fmt.Println(err)
+	}
+  }
+
+
 Composability
 
 A Stream/Handler can chain with an arbitrary number of Handlers. Their semantic
@@ -46,9 +103,13 @@ that any element can also be a nested chain itself.
   AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
   AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
 
-If simply appending Streams/Handlers is not enough, developers can define
-Streams/Handlers with advanced flow controls, like these resilience Streams/Handlers
-defined in this package
+There are also helpers for chaining fallbacks.
+
+  AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
+  AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)
+
+If those helpers are not enough, developers can define Streams/Handlers with
+advanced flow controls, like how we define resilience Streams/Handlers.
 
 Note
 
@@ -56,6 +117,12 @@ The implementations of Stream.Get() and Handler.Handle() should be thread-safe.
 A good practice is to make Stream/Handler state-less. A Message needs not to be
 immutable but it's good to be so. That said, our resilience Streams/Handlers are
 all thread-safe and don't mutate Messages.
+
+Stream.Get() and Handler.Handle() both take context.Context. Its most common
+usage is to achieve request-scoped timeout. Our resilience Streams/Handlers
+respect timeout as much as possible and loyally pass the context to the
+user-defined upstreams or up-handlers which should also respect context's
+timeout.
 
 External References
 
