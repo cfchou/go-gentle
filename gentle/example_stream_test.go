@@ -13,10 +13,10 @@ import (
 )
 
 func ExampleSimpleStream() {
-	var msgId int64
+	msgId := 1
 	var stream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+		defer func() { msgId++ }()
+		return SimpleMessage(strconv.Itoa(msgId)), nil
 	}
 
 	for i := 0; i < 5; i++ {

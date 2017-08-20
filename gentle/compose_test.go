@@ -96,36 +96,6 @@ func TestAppendHandlersStream_Timeout(t *testing.T) {
 	}
 }
 
-/*
-func TestAppendHandlersStream_SimpleHandler(t *testing.T) {
-	// AppendHandlerStream accepts SimpleHandlers and functions converted to
-	// SimpleHandler
-	mstream := &MockStream{}
-	id := "0"
-	id2 := "1"
-	id3 := "2"
-
-	var h1 SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
-		assert.Equal(t, id, msg.ID())
-		return &fakeMsg{id2}, nil
-	}
-
-	h2 := func(_ context.Context, msg Message) (Message, error) {
-		assert.Equal(t, id2, msg.ID())
-		return &fakeMsg{id3}, nil
-	}
-
-	stream := AppendHandlersStream(mstream, h1, (SimpleHandler)(h2))
-
-	mm := &fakeMsg{id}
-	mstream.On("Get", mock.Anything).Return(mm, nil)
-
-	msg, err := stream.Get(context.Background())
-	assert.NoError(t, err)
-	assert.Equal(t, id3, msg.ID())
-}
-*/
-
 func TestAppendHandlersStream_FallThrough_Upstream(t *testing.T) {
 	// Failed Stream.Get() would not trigger subsequent Handlers.
 	mstream := &MockStream{}
@@ -419,36 +389,6 @@ func TestAppendHandlersHandler_Timeout(t *testing.T) {
 		t.Error(err)
 	}
 }
-
-/*
-func TestAppendHandlersHandler_SimpleHandler(t *testing.T) {
-	// AppendHandlerHandler accepts SimpleHandlers and functions converted to
-	// SimpleHandler
-	mhandler := &MockHandler{}
-	id := "0"
-	id2 := "1"
-	id3 := "2"
-
-	var h1 SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
-		assert.Equal(t, id, msg.ID())
-		return &fakeMsg{id2}, nil
-	}
-
-	h2 := func(_ context.Context, msg Message) (Message, error) {
-		assert.Equal(t, id2, msg.ID())
-		return &fakeMsg{id3}, nil
-	}
-
-	handler := AppendHandlersHandler(mhandler, h1, (SimpleHandler)(h2))
-
-	mm := &fakeMsg{id}
-	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
-
-	msg, err := handler.Handle(context.Background(), mm)
-	assert.NoError(t, err)
-	assert.Equal(t, id3, msg.ID())
-}
-*/
 
 func TestAppendHandlersHandler_FallThrough(t *testing.T) {
 	// One failed Handler.Handle() would bypass all subsequent handlers.

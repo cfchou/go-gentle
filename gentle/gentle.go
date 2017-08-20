@@ -54,7 +54,7 @@ func init() {
 
 // Message is passed around Streams/Handlers.
 type Message interface {
-	// ID() returns a unique string that identifies this Message.
+	// ID() should return a unique string representing this Message.
 	ID() string
 }
 
