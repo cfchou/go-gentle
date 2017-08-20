@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// SimpleHandler turns a function into a Handler
+type SimpleHandler func(context.Context, Message) (Message, error)
+
+func (r SimpleHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+	return r(ctx, msg)
+}
+
 // Common options for XXXHandlerOpts
 type handlerOpts struct {
 	Namespace  string

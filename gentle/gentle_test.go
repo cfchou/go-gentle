@@ -16,14 +16,6 @@ import (
 // Parent logger for tests
 var log = Log.New()
 
-type fakeMsg struct {
-	id string
-}
-
-func (m *fakeMsg) ID() string {
-	return m.id
-}
-
 func TestMain(m *testing.M) {
 	var level string
 	flag.StringVar(&level, "level", "info", "log level")
@@ -95,7 +87,7 @@ func createInfiniteMessageChan() (<-chan Message, chan struct{}) {
 				return
 			default:
 				count++
-				src <- &fakeMsg{id: strconv.Itoa(count)}
+				src <- SimpleMessage(strconv.Itoa(count))
 			}
 		}
 	}()

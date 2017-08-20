@@ -54,7 +54,7 @@ func TestRateLimitedStream_Get_Timeout(t *testing.T) {
 		_, done := createInfiniteMessageChan()
 		defer func() { done <- struct{}{} }()
 		mstream := &MockStream{}
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil),
 			func(ctx2 context.Context) error {
 				select {
 				case <-ctx2.Done():
@@ -113,7 +113,7 @@ func TestRetryStream_Get_MockBackOff(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 		// create a backoff that fires 1 second for $backOffCount times
 		timespanMinimum := time.Duration(backOffCount) * time.Second
 		mback.On("Next").Return(func() time.Duration {
@@ -170,7 +170,7 @@ func TestRetryStream_Get_ConstantBackOff(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 
 		ctx := context.Background()
 		timespan := make(chan time.Duration, 1)
@@ -221,7 +221,7 @@ func TestRetryStream_Get_ExponentialBackOff(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 
 		ctx := context.Background()
 		timespan := make(chan time.Duration, 1)
@@ -275,7 +275,7 @@ func TestRetryStream_Get_MockBackOff_Timeout(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
 				tm := time.NewTimer(suspend)
@@ -325,7 +325,7 @@ func TestRetryStream_Get_ConstantBackOff_Timeout(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
 				tm := time.NewTimer(suspend)
@@ -372,7 +372,7 @@ func TestRetryStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
 		stream := NewRetryStream(opts, mstream)
 
 		fakeErr := errors.New("A fake error")
-		mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil),
+		mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil),
 			func(ctx2 context.Context) error {
 				log.Debug("[test] Get()...")
 				tm := time.NewTimer(suspend)
@@ -410,7 +410,7 @@ func TestBulkheadStream_Get_MaxConcurrency(t *testing.T) {
 		stream := NewBulkheadStream(
 			NewBulkheadStreamOpts("", "test", maxConcurrency),
 			mstream)
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 
 		wg := &sync.WaitGroup{}
 		wg.Add(maxConcurrency)
@@ -448,7 +448,7 @@ func TestCircuitStream_Get_MaxConcurrency(t *testing.T) {
 	// CircuitStream returns ErrCbMaxConcurrency when
 	// CircuitConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -465,7 +465,7 @@ func TestCircuitStream_Get_MaxConcurrency(t *testing.T) {
 	stream := NewCircuitStream(
 		NewCircuitStreamOpts("", "test", circuit),
 		mstream)
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 
 	var wg sync.WaitGroup
 	wg.Add(conf.MaxConcurrent)
@@ -502,7 +502,7 @@ func TestCircuitStream_Get_Timeout(t *testing.T) {
 	// CircuitStream returns ErrCbTimeout when
 	// CircuitConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -519,7 +519,7 @@ func TestCircuitStream_Get_Timeout(t *testing.T) {
 	stream := NewCircuitStream(
 		NewCircuitStreamOpts("", "test", circuit),
 		mstream)
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 
 	// Suspend longer than Timeout
 	block := make(chan struct{}, 1)
@@ -544,7 +544,7 @@ func TestCircuitStream_Get_Timeout(t *testing.T) {
 func TestCircuitStream_Get_Error(t *testing.T) {
 	// CircuitStream returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
@@ -563,7 +563,7 @@ func TestCircuitStream_Get_Error(t *testing.T) {
 		mstream)
 	fakeErr := errors.New("fake error")
 
-	mstream.On("Get", mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 
 	ctx := context.Background()
 	for {
@@ -577,7 +577,7 @@ func TestCircuitStream_Get_Error(t *testing.T) {
 
 func TestStream_MsgIntact(t *testing.T) {
 	// Resilient Streams don't modify msg from upstreams.
-	msgOut := &fakeMsg{id: "123"}
+	msgOut := SimpleMessage("123")
 	mstream := &MockStream{}
 	mstream.On("Get", mock.Anything).Return(msgOut, nil)
 

@@ -58,6 +58,13 @@ type Message interface {
 	ID() string
 }
 
+// SimpleMessage essentially wraps a string to be a Message.
+type SimpleMessage string
+
+func (m SimpleMessage) ID() string {
+	return string(m)
+}
+
 // Stream emits Message.
 type Stream interface {
 	// Get() returns either a Message or an error exclusively.
@@ -85,9 +92,9 @@ type Identity interface {
 }
 
 // CircuitReset resets all states(incl. metrics) of all circuits.
-// TODO:
-// only flush the given circuit
 func CircuitReset() {
+	// TODO:
+	// only flush the given circuit
 	hystrix.Flush()
 }
 

@@ -12,30 +12,20 @@ import (
 	"time"
 )
 
-func ExampleSimpleStream() {
-	var msgId int64
-	var stream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+func ExampleSimpleHandler() {
+	var handler SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
+		return msg, nil
 	}
 
-	for i := 0; i < 5; i++ {
-		msg, _ := stream.Get(context.Background())
-		fmt.Println("msg:", msg.ID())
-	}
+	msg, _ := handler.Handle(context.Background(), SimpleMessage("abc"))
+	fmt.Println("msg:", msg.ID())
 	// Output:
-	// msg: 1
-	// msg: 2
-	// msg: 3
-	// msg: 4
-	// msg: 5
+	// msg: abc
 }
 
-func ExampleNewRateLimitedStream() {
-	var msgId int64
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+func ExampleNewRateLimitedHandler() {
+	var fakeHandler SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
+		return msg, nil
 	}
 
 	count := 5
@@ -43,10 +33,10 @@ func ExampleNewRateLimitedStream() {
 	minimum := time.Duration(count-1) * interval
 
 	// limit the rate to access fakeStream
-	stream := NewRateLimitedStream(
-		NewRateLimitedStreamOpts("", "test",
+	handler := NewRateLimitedHandler(
+		NewRateLimitedHandlerOpts("", "test",
 			NewTokenBucketRateLimit(interval, 1)),
-		fakeStream)
+		fakeHandler)
 
 	begin := time.Now()
 	wg := &sync.WaitGroup{}
@@ -54,7 +44,7 @@ func ExampleNewRateLimitedStream() {
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			stream.Get(context.Background())
+			handler.Handle(context.Background(), SimpleMessage("abc"))
 		}()
 	}
 	wg.Wait()
@@ -63,28 +53,28 @@ func ExampleNewRateLimitedStream() {
 	// Output: Spend more than 400ms? true
 }
 
-func ExampleNewRetryStream_contantBackOff() {
+func ExampleNewRetryHandler_contantBackOff() {
 	fakeErr := errors.New("fake err")
-	// fakeStream keeps triggering back-offs.
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
+	// fakeHandler keeps triggering back-offs.
+	var fakeHandler SimpleHandler = func(_ context.Context, _ Message) (Message, error) {
 		return nil, fakeErr
 	}
 
 	// No more back-off when total execution + back-offs elapsed more than 1s.
 	backOffOpts := NewConstantBackOffFactoryOpts(100*time.Millisecond, time.Second)
 	backOffFactory := NewConstantBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	// Retry with back-offs to access fakeStream
-	stream := NewRetryStream(opts, fakeStream)
-	_, err := stream.Get(context.Background())
+	opts := NewRetryHandlerOpts("", "test", backOffFactory)
+	// Retry with back-offs to access fakeHandler
+	handler := NewRetryHandler(opts, fakeHandler)
+	_, err := handler.Handle(context.Background(), SimpleMessage("abc"))
 	fmt.Println(err)
 	// Output: fake err
 }
 
-func ExampleNewRetryStream_exponentialBackOff() {
+func ExampleNewRetryHandler_exponentialBackOff() {
 	fakeErr := errors.New("fake err")
-	// fakeStream keeps triggering back-offs.
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
+	// fakeHandler keeps triggering back-offs.
+	var fakeHandler SimpleHandler = func(_ context.Context, _ Message) (Message, error) {
 		return nil, fakeErr
 	}
 
@@ -92,33 +82,34 @@ func ExampleNewRetryStream_exponentialBackOff() {
 	backOffOpts := NewExponentialBackOffFactoryOpts(100*time.Millisecond, 2,
 		time.Second, 2*time.Second)
 	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
-	opts := NewRetryStreamOpts("", "test", backOffFactory)
-	// Retry with back-offs to access fakeStream
-	stream := NewRetryStream(opts, fakeStream)
-	_, err := stream.Get(context.Background())
+	opts := NewRetryHandlerOpts("", "test", backOffFactory)
+	// Retry with back-offs to access fakeHandler
+	handler := NewRetryHandler(opts, fakeHandler)
+	_, err := handler.Handle(context.Background(), SimpleMessage("abc"))
 	fmt.Println(err)
 	// Output: fake err
 }
 
-func ExampleNewBulkheadStream() {
-	var msgId int64
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
-		id := atomic.AddInt64(&msgId, 1)
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+func ExampleNewBulkheadHandler() {
+	var fakeHandler SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
+		return msg, nil
 	}
 
 	count := 10
-	// limit concurrent access to fakeStream
-	stream := NewBulkheadStream(
-		NewBulkheadStreamOpts("", "test", 2),
-		fakeStream)
+	// limit concurrent access to fakeHandler
+	handler := NewBulkheadHandler(
+		NewBulkheadHandlerOpts("", "test", 2),
+		fakeHandler)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
+	var msgId int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			msg, err := stream.Get(context.Background())
+			id := atomic.AddInt64(&msgId, 1)
+			msg, err := handler.Handle(context.Background(),
+				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {
 				if err == ErrMaxConcurrency {
 					fmt.Println("Reached MaxConcurrency")
@@ -133,38 +124,39 @@ func ExampleNewBulkheadStream() {
 	wg.Wait()
 }
 
-func ExampleNewCircuitStream() {
+func ExampleNewCircuitHandler() {
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
-	var msgId int64
-	// fakeStream with randomized outcome
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
+	// fakeHandler with randomized outcome
+	var fakeHandler SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
 		if rand.Intn(10)%10 == 0 {
 			// 1/10 chances to return fakeErr
 			return nil, fakeErr
 		}
-		id := atomic.AddInt64(&msgId, 1)
 		if rand.Intn(10)%10 == 1 {
 			// 1/10 chances to sleep until circuit's timeout
 			time.Sleep(DefaultCbTimeout + 10*time.Millisecond)
 		}
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+		return msg, nil
 	}
 
 	// resets all states(incl. metrics) of all circuits.
 	CircuitReset()
-	// create CircuitStream to protect fakeStream
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", xid.New().String()),
-		fakeStream)
+	// create CircuitHandler to protect fakeHandler
+	handler := NewCircuitHandler(
+		NewCircuitHandlerOpts("", "test", xid.New().String()),
+		fakeHandler)
 
 	count := 100
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
+	var msgId int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			msg, err := stream.Get(context.Background())
+			id := atomic.AddInt64(&msgId, 1)
+			msg, err := handler.Handle(context.Background(),
+				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {
 				switch err {
 				case ErrCbMaxConcurrency:
@@ -184,22 +176,20 @@ func ExampleNewCircuitStream() {
 	wg.Wait()
 }
 
-func ExampleNewCircuitStream_customCircuit() {
+func ExampleNewCircuitHandler_customCircuit() {
 	rand.Seed(time.Now().UnixNano())
 	fakeErr := errors.New("fake err")
-	var msgId int64
-	// fakeStream with randomized outcome
-	var fakeStream SimpleStream = func(_ context.Context) (Message, error) {
+	// fakeHandler with randomized outcome
+	var fakeHandler SimpleHandler = func(_ context.Context, msg Message) (Message, error) {
 		if rand.Intn(10)%10 == 0 {
 			// 1/10 chances to return fakeErr
 			return nil, fakeErr
 		}
-		id := atomic.AddInt64(&msgId, 1)
 		if rand.Intn(10)%10 == 1 {
 			// 1/10 chances to sleep until circuit's timeout
 			time.Sleep(DefaultCbTimeout + 10*time.Millisecond)
 		}
-		return SimpleMessage(strconv.FormatInt(id, 10)), nil
+		return msg, nil
 	}
 
 	// customize circuit's setting
@@ -209,18 +199,21 @@ func ExampleNewCircuitStream_customCircuit() {
 	conf.RegisterFor(circuit)
 	// resets all states(incl. metrics) of all circuits.
 	CircuitReset()
-	// create CircuitStream to protect fakeStream
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", circuit),
-		fakeStream)
+	// create CircuitHandler to protect fakeHandler
+	handler := NewCircuitHandler(
+		NewCircuitHandlerOpts("", "test", circuit),
+		fakeHandler)
 
 	count := 100
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
+	var msgId int64
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			msg, err := stream.Get(context.Background())
+			id := atomic.AddInt64(&msgId, 1)
+			msg, err := handler.Handle(context.Background(),
+				SimpleMessage(strconv.FormatInt(id, 10)))
 			if err != nil {
 				switch err {
 				case ErrCbMaxConcurrency:

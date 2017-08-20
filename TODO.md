@@ -20,13 +20,13 @@
   * warn: context.Done()
   * debug: others
 
+* Improve API for CircuitBreaker config, register, flush.
+
 * Remove/export noopLogger
 
 * Package-wise setLogger()
 
-* Improve Observe(value, labels, optional data). remove Unused MX_XXXX.
-
-* Exported symbols make clients also depend on external packages like clock.
+* Reduce dependencies(exported symbols) to external packages like clock.
 
 * Alternative circuitbreaker implementation https://github.com/rubyist/circuitbreaker
 
@@ -36,8 +36,9 @@
 * Opts passed by addr
 * Make XXXStream/Handler xXXStgream/Handler
 * NewMockHandler/Stream(*mock.Mock)
-* Remove Semaphore because it blocks so it's not resilient.
-    or move it to package extra
+* Remove Semaphore because it blocks so it's not resilient. Or move it to package extra
+* Improve Observe(value, labels, optional data). remove Unused MX_XXXX.
+
 
 ## Dropped
 * Rename Bulkhead. Currently it employs semaphore isolation, because the calling

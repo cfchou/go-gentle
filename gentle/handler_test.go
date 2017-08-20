@@ -22,7 +22,7 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 		NewRateLimitedHandlerOpts("", "test",
 			NewTokenBucketRateLimit(requestsInterval, 1)),
 		mhandler)
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 	mhandler.On("Handle", mock.Anything, mock.Anything).Return(mm, nil)
 	count := 4
 	minimum := time.Duration(count-1) * requestsInterval
@@ -51,7 +51,7 @@ func TestRateLimitedHandler_Handle_Timeout(t *testing.T) {
 		block := make(chan struct{}, 1)
 		mhandler := &MockHandler{}
 		mhandler.On("Handle", mock.Anything, mock.Anything).Return(
-			(*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+			(*SimpleMessage)(nil), func(ctx2 context.Context, _ Message) error {
 				select {
 				case <-ctx2.Done():
 					log.Debug("[test] Context.Done()", "err", ctx2.Err())
@@ -64,7 +64,7 @@ func TestRateLimitedHandler_Handle_Timeout(t *testing.T) {
 			NewRateLimitedHandlerOpts("", "test",
 				NewTokenBucketRateLimit(requestsInterval, 1)),
 			mhandler)
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 		count := 4
 		var wg sync.WaitGroup
 		wg.Add(count)
@@ -110,7 +110,7 @@ func TestRetryHandler_Handle_MockBackOff(t *testing.T) {
 		handler := NewRetryHandler(opts, mhandler)
 
 		fakeErr := errors.New("A fake error")
-		mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+		mhandler.On("Handle", mock.Anything, mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 		// create a backoff that fires 1 second for $backOffCount times
 		timespanMinimum := time.Duration(backOffCount) * time.Second
 		mback.On("Next").Return(func() time.Duration {
@@ -122,7 +122,7 @@ func TestRetryHandler_Handle_MockBackOff(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		mm := &fakeMsg{}
+		mm := SimpleMessage("123")
 		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
@@ -169,10 +169,10 @@ func TestRetryHandler_Handle_ConstantBackOff(t *testing.T) {
 
 		fakeErr := errors.New("A fake error")
 		mhandler.On("Handle", mock.Anything, mock.Anything).
-			Return((*fakeMsg)(nil), fakeErr)
+			Return((*SimpleMessage)(nil), fakeErr)
 
 		ctx := context.Background()
-		mm := &fakeMsg{}
+		mm := SimpleMessage("123")
 		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
@@ -222,10 +222,10 @@ func TestRetryHandler_Handle_ExponentialBackOff(t *testing.T) {
 
 		fakeErr := errors.New("A fake error")
 		mhandler.On("Handle", mock.Anything, mock.Anything).
-			Return((*fakeMsg)(nil), fakeErr)
+			Return((*SimpleMessage)(nil), fakeErr)
 
 		ctx := context.Background()
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 		timespan := make(chan time.Duration, 1)
 		go func() {
 			begin := mclock.Now()
@@ -278,7 +278,7 @@ func TestRetryHandler_Handle_MockBackOff_Timeout(t *testing.T) {
 
 		fakeErr := errors.New("A fake error")
 		mhandler.On("Handle", mock.Anything, mock.Anything).
-			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+			Return((*SimpleMessage)(nil), func(ctx2 context.Context, _ Message) error {
 				log.Debug("[test] Handle()...")
 				tm := time.NewTimer(suspend)
 				select {
@@ -300,7 +300,7 @@ func TestRetryHandler_Handle_MockBackOff_Timeout(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 
 		_, err := handler.Handle(ctx, mm)
 		return err == context.DeadlineExceeded
@@ -329,7 +329,7 @@ func TestRetryHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
 
 		fakeErr := errors.New("A fake error")
 		mhandler.On("Handle", mock.Anything, mock.Anything).
-			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+			Return((*SimpleMessage)(nil), func(ctx2 context.Context, _ Message) error {
 				log.Debug("[test] Handle()...")
 				tm := time.NewTimer(suspend)
 				select {
@@ -344,7 +344,7 @@ func TestRetryHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
 			})
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 
 		_, err := handler.Handle(ctx, mm)
 		return err == context.DeadlineExceeded
@@ -377,7 +377,7 @@ func TestRetryHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
 
 		fakeErr := errors.New("A fake error")
 		mhandler.On("Handle", mock.Anything, mock.Anything).
-			Return((*fakeMsg)(nil), func(ctx2 context.Context, _ Message) error {
+			Return((*SimpleMessage)(nil), func(ctx2 context.Context, _ Message) error {
 				log.Debug("[test] Handle()...")
 				tm := time.NewTimer(suspend)
 				select {
@@ -392,7 +392,7 @@ func TestRetryHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
 			})
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 
 		_, err := handler.Handle(ctx, mm)
 		return err == context.DeadlineExceeded
@@ -428,7 +428,7 @@ func TestBulkheadHandler_Handle_MaxConcurrency(t *testing.T) {
 			}, nil)
 
 		ctx := context.Background()
-		mm := &fakeMsg{id: "123"}
+		mm := SimpleMessage("123")
 
 		for i := 0; i < maxConcurrency; i++ {
 			go handler.Handle(ctx, mm)
@@ -453,7 +453,7 @@ func TestCircuitHandler_Handle_MaxConcurrency(t *testing.T) {
 	// CircuitHandler returns ErrCbMaxConcurrency when
 	// CircuitConf.MaxConcurrent is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -483,7 +483,7 @@ func TestCircuitHandler_Handle_MaxConcurrency(t *testing.T) {
 		}, nil)
 
 	ctx := context.Background()
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 
 	for i := 0; i < conf.MaxConcurrent; i++ {
 		go func() {
@@ -507,7 +507,7 @@ func TestCircuitHandler_Handle_Timeout(t *testing.T) {
 	// CircuitHandler returns ErrCbTimeout when
 	// CircuitConf.Timeout is reached.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -536,7 +536,7 @@ func TestCircuitHandler_Handle_Timeout(t *testing.T) {
 		}, nil)
 
 	ctx := context.Background()
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 	for {
 		_, err := handler.Handle(ctx, mm)
 		if err == ErrCbOpen {
@@ -549,7 +549,7 @@ func TestCircuitHandler_Handle_Timeout(t *testing.T) {
 func TestCircuitHandler_Handle_Error(t *testing.T) {
 	// CircuitHandler returns the designated error.
 	// It then returns ErrCbOpen when error threshold is reached.
-	defer CircuitReset()
+	CircuitReset()
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
@@ -568,10 +568,10 @@ func TestCircuitHandler_Handle_Error(t *testing.T) {
 		mhandler)
 	fakeErr := errors.New("fake error")
 
-	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*fakeMsg)(nil), fakeErr)
+	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*SimpleMessage)(nil), fakeErr)
 
 	ctx := context.Background()
-	mm := &fakeMsg{id: "123"}
+	mm := SimpleMessage("123")
 	for {
 		_, err := handler.Handle(ctx, mm)
 		if err == ErrCbOpen {
@@ -581,9 +581,10 @@ func TestCircuitHandler_Handle_Error(t *testing.T) {
 	}
 }
 
-func TestHandle_MsgOut(t *testing.T) {
+func TestHandle_MsgDifferent(t *testing.T) {
 	// Handler.Handle() can return a different msg
-	msgOut := &fakeMsg{id: "123"}
+	CircuitReset()
+	msgOut := SimpleMessage("123")
 	mhandler := &MockHandler{}
 	mhandler.On("Handle", mock.Anything, mock.Anything).Return(msgOut, nil)
 
@@ -621,7 +622,7 @@ func TestHandle_MsgOut(t *testing.T) {
 	}
 
 	for _, handler := range handlers {
-		msgIn := &fakeMsg{id: "abc"}
+		msgIn := SimpleMessage("123")
 		msg, _ := handler.Handle(context.Background(), msgIn)
 		assert.Equal(t, msgOut.ID(), msg.ID())
 	}

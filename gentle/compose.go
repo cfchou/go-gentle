@@ -2,12 +2,6 @@ package gentle
 
 import "context"
 
-type SimpleStream func(context.Context) (Message, error)
-
-func (r SimpleStream) Get(ctx context.Context) (Message, error) {
-	return r(ctx)
-}
-
 type StreamFallback func(context.Context, error) (Message, error)
 
 func AppendHandlersStream(stream Stream, handlers ...Handler) Stream {
@@ -62,12 +56,6 @@ func AppendFallbacksStream(stream Stream, fallbacks ...StreamFallback) Stream {
 		return nil, err
 	}
 	return simple
-}
-
-type SimpleHandler func(context.Context, Message) (Message, error)
-
-func (r SimpleHandler) Handle(ctx context.Context, msg Message) (Message, error) {
-	return r(ctx, msg)
 }
 
 // HandlerFallback is a fallback function of an error and the causal Message of

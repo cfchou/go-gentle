@@ -13,11 +13,11 @@ given Messages.
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
 
 Developers should implement their own logic in the forms of Stream/Handler.
-For simple cases, these named types SimpleStream and SimpleHandler help to
-directly use a function as a Stream/Handler.
+For simple cases, named types SimpleStream and SimpleHandler help to directly
+use a function as a Stream/Handler.
 
-  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
-  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
+  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#example_SimpleStream)
+  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#example_SimpleHandler)
 
 Our Resilience Streams and Handlers
 
@@ -27,15 +27,15 @@ forms of Streams/Handlers. They include rate-limiting, retry(also known as back-
 bulkhead and circuit-breaker. Each of them can be freely composed with other
 Streams/Handlers as one sees fit.
 
-  rateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
-  retryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
-  bulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadStream)
-  circuitStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitStream)
+  NewRateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
+  NewRetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
+  NewBulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadStream)
+  NewCircuitStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitStream)
 
-  rateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedHandler)
-  retryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
-  bulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
-  circuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
+  NewRateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedHandler)
+  NewRetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
+  NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
+  NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
 Composability
 
@@ -52,17 +52,18 @@ defined in this package
 
 Note
 
-The implementation of Stream.Get() and Handler.Handle() should be thread-safe.
+The implementations of Stream.Get() and Handler.Handle() should be thread-safe.
 A good practice is to make Stream/Handler state-less. A Message needs not to be
-immutable but it's good to be so. Our resilience Streams/Handlers are all
-thread-safe and don't mutate Messages.
+immutable but it's good to be so. That said, our resilience Streams/Handlers are
+all thread-safe and don't mutate Messages.
 
 External References
 
-Some of our implementations make heavy use of third-party packages. It helps to checkout their documents.
+Some of our implementations make heavy use of third-party packages. It helps to
+checkout their documents.
 
   Circuit-breaker is based on hystrix-go(https://godoc.org/github.com/afex/hystrix-go/hystrix).
-  Rate-limiting is based on ratelimit(https://godoc.org/github.com/juju/ratelimit).
+  Rate-limiting is based on juju/ratelimit(https://godoc.org/github.com/juju/ratelimit).
   Logging is based on log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
 
 */

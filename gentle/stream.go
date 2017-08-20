@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// SimpleStream turns a function into a Stream
+type SimpleStream func(context.Context) (Message, error)
+
+func (r SimpleStream) Get(ctx context.Context) (Message, error) {
+	return r(ctx)
+}
+
 // Common options for XXXStreamOpts
 type streamOpts struct {
 	Namespace  string

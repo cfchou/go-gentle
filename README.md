@@ -16,7 +16,7 @@ Resiliency patterns are indispensable in distributed systems because external se
 
 ## Composability
 Developers should implement their own logic in the forms of Streams/Handlers and then
-compose them, possibly with our resilient counterpart. This package provides basic helpers like [AppendHandlersStream](https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream), [AppendHandlersHandler](https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler), etc, to simplify composition.
+compose them, possibly with our resilient counterpart. This package provides basic helpers like [AppendHandlersStream](https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream), [AppendHandlersHandler](https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler), etc., to simplify composition.
 
 If simply appending Streams/Handlers is not enough, developers can define Streams/Handlers
 with advanced flow controls, like these resilience Streams/Handlers provided in this package.
