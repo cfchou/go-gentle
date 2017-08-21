@@ -12,48 +12,39 @@ given Messages.
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
 
-  // query a restful api
+  // Example:
+  // GameScore implements gentle.Message interface
+  type GameScore struct {
+    id string // better to be unique for tracing the log
+    score int
+  }
+
+  func (s GameScore) ID() string {
+    return s.id
+  }
+
+  func parseGameScore(bs []byte) *GameScore {
+    // ...
+  }
+
+  // query a restful api to get game score
   var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
-  	resp, err := http.Get("https://some_api_endpoint")
-  	if err != nil {
-  		return nil, err
-  	}
-  	defer resp.Body.Close()
-  	content, err := ioutil.ReadAll(resp.Body)
-  	if err != nil {
-  		return nil, err
-  	}
-  	return gentle.SimpleMessage(string(content)), nil
+    resp, _ := http.Get("https://get_game_score_api")
+    defer resp.Body.Close()
+    score := parseGameScore(resp.Body)
+    return score, nil
   }
 
-  var writeToDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
-	db, err := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	stmt, err := db.Prepare("INSERT INTO game(score) VALUES(?)")
-	if err != nil {
-		return nil, err
-	}
-	content := string(msg.(gentle.SimpleMessage))
-	_, err = stmt.Exec(content)
-	if err != nil {
-		return nil, err
-	}
-	return msg, nil
+  // save game score
+  var writeDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
+    score := strconv.Itoa(msg.(*GameScore).score)
+    db, _ := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
+    defer db.Close()
+    stmt, _ := db.Prepare("UPDATE games SET score = $1 WHERE name = mygame")
+    stmt.Exec(score)
+    return msg, nil
   }
 
-  stream := gentle.AppendHandlersStream(query, writeToDb)
-
-  for {
-  	_, err := stream.Get(context.Background())
-  	if err != nil {
-  		fmt.Println(err)
-	}
-	// we will get rid of this
-	time.sleep(300*time.Millisecond)
-  }
 
 Developers should implement their own logic in the forms of Stream/Handler.
 For simple cases, named types SimpleStream and SimpleHandler help to directly
@@ -80,26 +71,25 @@ freely composed with other Streams/Handlers as one sees fit.
   NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
-  // rate-limit the queries, allow burst
-  rlQuery := gentle.NewRateLimitedStream(
-  	gentle.NewRateLimitedStreamOpts("", "myApp",
-  		gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
-  	query)
+  // Example(cont.):
+  // rate-limit the queries while allowing burst
+  gentleQuery := gentle.NewRateLimitedStream(
+    gentle.NewRateLimitedStreamOpts("", "myApp",
+      gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
+    query)
 
-  // limit concurrent writeToDb
-  gentleWrite := gentle.NewBulkheadHandler(
-  	gentle.NewBulkheadHandlerOpts("", "myApp", 16),
-	writeToDb)
+  // limit concurrent writeDb
+  gentleWriteDb := gentle.NewBulkheadHandler(
+    gentle.NewBulkheadHandlerOpts("", "myApp", 16),
+    writeDb)
 
-  stream := gentle.AppendHandlersStream(rlQuery, exclusiveAppend)
+  stream := gentle.AppendHandlersStream(gentleQuery, gentleWriteDb)
 
-  for {
-  	_, err := stream.Get(context.Background())
-  	if err != nil {
-  		fmt.Println(err)
-	}
-	// we don't sleep anymore while not overwhelming query and writeToDb
-  }
+  http.Handle("/refresh", func(w http.ResponseWriter, r *http.Request) {
+    msg, err := stream.Get(r.context)
+    ...
+  })
+  http.ListenAndServe(":12345", nil)
 
 
 Composability
