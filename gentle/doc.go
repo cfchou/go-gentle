@@ -104,9 +104,11 @@ freely composed with other Streams/Handlers as one sees fit.
 
 Composability
 
-A Stream/Handler can chain with an arbitrary number of Handlers. Their semantic
-is that any failing element in the chain would skip the rest of all. Also note
-that any element can also be a nested chain itself.
+Users may define Streams/Handlers to compose other ones the way they want(like
+how we define resilience Streams/Handlers). For simple cases, there are helpers
+to chain Streams/Handlers. Their semantic is that any failing element in the
+chain would skip the rest of all. Also note that any element can also be a
+nested chain itself.
 
   AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
   AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
@@ -116,13 +118,11 @@ There are also helpers for chaining fallbacks.
   AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
   AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)
 
-If those helpers are not enough, developers can define Streams/Handlers with
-advanced flow controls, like how we define resilience Streams/Handlers.
 
 Note
 
-The implementations of Stream.Get() and Handler.Handle() should be thread-safe.
-A good practice is to make Stream/Handler state-less. A Message needs not to be
+User-defined Stream.Get() and Handler.Handle() should be thread-safe. A good
+practice is to make Stream/Handler state-less. A Message needs not to be
 immutable but it's good to be so. That said, our resilience Streams/Handlers are
 all thread-safe and don't mutate Messages.
 

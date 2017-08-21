@@ -22,7 +22,7 @@ If simply appending Streams/Handlers is not enough, developers can define Stream
 with advanced flow controls, like these resilience Streams/Handlers provided in this package.
 
 ## Document
-[GoDoc](https://godoc.org/github.com/cfchou/go-gentle/gentle)
+[GoDoc](https://godoc.org/gopkg.in/cfchou/go-gentle.v3/gentle)
 
 ## Install
 
@@ -30,13 +30,13 @@ The master branch is considered unstable. Always depend on [semantic versioning]
 
 If you're using [glide](https://glide.sh/), simply run:
 ```
-glide get gopkg.in/cfchou/go-gentle.v2
+glide get gopkg.in/cfchou/go-gentle.v3/gentle
 glide update
 ```
 
 If you're not using package management tools, then
 ```
-go get http://gopkg.in/cfchou/go-gentle.v2/gentle
+go get http://gopkg.in/cfchou/go-gentle.v3/gentle
 ```
 
 
