@@ -126,14 +126,6 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	return msgOut, nil
 }
 
-func (r *rateLimitedHandler) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: HandlerRateLimited,
-		Name:       r.name,
-	}
-}
-
 type RetryHandlerOpts struct {
 	handlerOpts
 	RetryMetric RetryMetric
@@ -270,14 +262,6 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	}
 }
 
-func (r *retryHandler) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: HandlerRetry,
-		Name:       r.name,
-	}
-}
-
 type BulkheadHandlerOpts struct {
 	handlerOpts
 	Metric         Metric
@@ -357,14 +341,6 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 			"err", ErrMaxConcurrency, "timespan", timespan)
 		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
-	}
-}
-
-func (r *bulkheadHandler) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: HandlerBulkhead,
-		Name:       r.name,
 	}
 }
 
@@ -480,14 +456,6 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		"msgOut", msgOut.ID(), "timespan", timespan)
 	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
-}
-
-func (r *circuitHandler) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: HandlerCircuit,
-		Name:       r.name,
-	}
 }
 
 func (r *circuitHandler) GetCircuitName() string {

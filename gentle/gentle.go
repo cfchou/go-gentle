@@ -78,19 +78,6 @@ type Handler interface {
 	Handle(context.Context, Message) (Message, error)
 }
 
-// Names identifies resilience Streams/Handlers defined in this package.
-type Names struct {
-	Namespace  string
-	Resilience string
-	Name       string
-}
-
-// Identity is supported by resilience Streams/Handlers defined in this
-// packages.
-type Identity interface {
-	GetNames() *Names
-}
-
 // CircuitReset resets all states(incl. metrics) of all circuits.
 func CircuitReset() {
 	// TODO:

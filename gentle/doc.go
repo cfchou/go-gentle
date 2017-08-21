@@ -126,7 +126,7 @@ A good practice is to make Stream/Handler state-less. A Message needs not to be
 immutable but it's good to be so. That said, our resilience Streams/Handlers are
 all thread-safe and don't mutate Messages.
 
-Stream.Get() and Handler.Handle() both take context.Context. Its most common
+Stream.Get() and Handler.Handle() both take context.Context. Context's common
 usage is to achieve request-scoped timeout. Our resilience Streams/Handlers
 respect timeout as much as possible and loyally pass the context to the
 user-defined upstreams or up-handlers which should also respect context's

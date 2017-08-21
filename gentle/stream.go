@@ -131,14 +131,6 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 	return msg, nil
 }
 
-func (r *rateLimitedStream) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: StreamRateLimited,
-		Name:       r.name,
-	}
-}
-
 type RetryStreamOpts struct {
 	streamOpts
 	RetryMetric RetryMetric
@@ -274,14 +266,6 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 	}
 }
 
-func (r *retryStream) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: StreamRetry,
-		Name:       r.name,
-	}
-}
-
 type BulkheadStreamOpts struct {
 	streamOpts
 	Metric         Metric
@@ -363,14 +347,6 @@ func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
 			"timespan", timespan)
 		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
-	}
-}
-
-func (r *bulkheadStream) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: StreamBulkhead,
-		Name:       r.name,
 	}
 }
 
@@ -493,14 +469,6 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 		"timespan", timespan)
 	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
-}
-
-func (r *circuitStream) GetNames() *Names {
-	return &Names{
-		Namespace:  r.namespace,
-		Resilience: StreamCircuit,
-		Name:       r.name,
-	}
 }
 
 func (r *circuitStream) GetCircuitName() string {
