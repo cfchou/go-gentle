@@ -26,26 +26,33 @@ given Messages.
   	return gentle.SimpleMessage(string(content)), nil
   }
 
-  var appendToFile gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
-  	f, err := os.OpenFile("some_file", os.O_APPEND|os.O_WRONLY, 0600)
-  	if err != nil {
-  		return nil, err
-  	}
-  	defer f.Close()
-  	content := string(msg.(gentle.SimpleMessage))
-  	if _, err = f.WriteString(content); err != nil {
-  		return nil, err
-  	}
-  	return msg, nil
+  var writeToDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
+	db, err := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	stmt, err := db.Prepare("INSERT INTO game(score) VALUES(?)")
+	if err != nil {
+		return nil, err
+	}
+	content := string(msg.(gentle.SimpleMessage))
+	_, err = stmt.Exec(content)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
   }
 
-  stream := gentle.AppendHandlersStream(query, appendToFile)
+  stream := gentle.AppendHandlersStream(query, writeToDb)
 
   for {
   	_, err := stream.Get(context.Background())
   	if err != nil {
   		fmt.Println(err)
 	}
+	// we will get rid of this
+	time.sleep(300*time.Millisecond)
   }
 
 Developers should implement their own logic in the forms of Stream/Handler.
@@ -73,16 +80,16 @@ freely composed with other Streams/Handlers as one sees fit.
   NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
-  // rate-limit the queries
+  // rate-limit the queries, allow burst
   rlQuery := gentle.NewRateLimitedStream(
   	gentle.NewRateLimitedStreamOpts("", "myApp",
-  		gentle.NewTokenBucketRateLimit(300*time.Millisecond, 1)),
+  		gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
   	query)
 
-  // no concurrent appendToFile
-  exclusiveAppend := gentle.NewBulkheadHandler(
-  	gentle.NewBulkheadHandlerOpts("", "myApp", 1),
-	appendToFile)
+  // limit concurrent writeToDb
+  gentleWrite := gentle.NewBulkheadHandler(
+  	gentle.NewBulkheadHandlerOpts("", "myApp", 16),
+	writeToDb)
 
   stream := gentle.AppendHandlersStream(rlQuery, exclusiveAppend)
 
@@ -91,6 +98,7 @@ freely composed with other Streams/Handlers as one sees fit.
   	if err != nil {
   		fmt.Println(err)
 	}
+	// we don't sleep anymore while not overwhelming query and writeToDb
   }
 
 
