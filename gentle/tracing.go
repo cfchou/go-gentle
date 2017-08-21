@@ -55,6 +55,7 @@ func (l *bgLogger) Info(msg string, fields ...interface{})  { l.logger.Info(msg,
 func (l *bgLogger) Warn(msg string, fields ...interface{})  { l.logger.Warn(msg, fields...) }
 func (l *bgLogger) Error(msg string, fields ...interface{}) { l.logger.Error(msg, fields...) }
 func (l *bgLogger) Crit(msg string, fields ...interface{})  { l.logger.Crit(msg, fields...) }
+func (l *bgLogger) New(fields ...interface{}) Logger        { return l }
 
 type spanLogger struct {
 	logger Logger
@@ -154,6 +155,8 @@ func (l *spanLogger) Crit(msg string, fields ...interface{}) {
 		l.logger.Crit(msg, append([]interface{}{"traced", "ok"}, fields)...)
 	}
 }
+
+func (l *spanLogger) New(fields ...interface{}) Logger { return l }
 
 func contextWithNewSpan(ctx context.Context, tracer opentracing.Tracer,
 	ref TracingRef) (context.Context, error) {

@@ -12,7 +12,15 @@ given Messages.
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)
   Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Handler)
 
-  // Example:
+Developers should implement their own logic in the forms of Stream/Handler.
+For simple cases, named types SimpleStream and SimpleHandler help to directly
+use a function as a Stream/Handler.
+
+  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
+  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
+
+Example(error handling is omitted for brevity):
+
   // GameScore implements gentle.Message interface
   type GameScore struct {
     id string // better to be unique for tracing the log
@@ -27,7 +35,7 @@ given Messages.
     // ...
   }
 
-  // query a restful api to get game score
+  // query is a Stream that calls a restful api to get game score
   var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
     resp, _ := http.Get("https://get_game_score_api")
     defer resp.Body.Close()
@@ -35,7 +43,7 @@ given Messages.
     return score, nil
   }
 
-  // save game score
+  // writeDB is a Handler that saves game score to the database
   var writeDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
     score := strconv.Itoa(msg.(*GameScore).score)
     db, _ := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
@@ -45,13 +53,7 @@ given Messages.
     return msg, nil
   }
 
-
-Developers should implement their own logic in the forms of Stream/Handler.
-For simple cases, named types SimpleStream and SimpleHandler help to directly
-use a function as a Stream/Handler.
-
-  SimpleStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleStream)
-  SimpleHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#SimpleHandler)
+  // example continues in the next section
 
 Our Resilience Streams and Handlers
 
@@ -71,7 +73,7 @@ freely composed with other Streams/Handlers as one sees fit.
   NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
-  // Example(cont.):
+Example(cont.):
   // rate-limit the queries while allowing burst
   gentleQuery := gentle.NewRateLimitedStream(
     gentle.NewRateLimitedStreamOpts("", "myApp",
@@ -95,8 +97,8 @@ freely composed with other Streams/Handlers as one sees fit.
 Composability
 
 Users may define Streams/Handlers to compose other ones the way they want(like
-how we define resilience Streams/Handlers). For simple cases, there are helpers
-to chain Streams/Handlers. Their semantic is that any failing element in the
+how resilience Streams/Handlers are defined). For simple cases, there are helpers
+for chaining Streams/Handlers. Their semantic is that any failing element in the
 chain would skip the rest of all. Also note that any element can also be a
 nested chain itself.
 
@@ -108,19 +110,37 @@ There are also helpers for chaining fallbacks.
   AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
   AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)
 
-
-Note
-
-User-defined Stream.Get() and Handler.Handle() should be thread-safe. A good
-practice is to make Stream/Handler state-less. A Message needs not to be
-immutable but it's good to be so. That said, our resilience Streams/Handlers are
-all thread-safe and don't mutate Messages.
+Context Support
 
 Stream.Get() and Handler.Handle() both take context.Context. Context's common
 usage is to achieve request-scoped timeout. Our resilience Streams/Handlers
 respect timeout as much as possible and loyally pass the context to the
 user-defined upstreams or up-handlers which should also respect context's
 timeout.
+
+Thread Safety
+
+User-defined Stream.Get() and Handler.Handle() should be thread-safe. A good
+practice is to make Stream/Handler state-less. A Message needs not to be
+immutable but it's good to be so. That said, our resilience Streams/Handlers are
+all thread-safe and don't mutate Messages.
+
+Logging
+
+Every logger must support the Logger interface.
+
+There's a root logger Log. Moreover, every XxxxxOpts has a
+logger which conceptually is a child logger returned by Log.New("namespace",
+"namespace_specified", "name", "name_specified", "gentle",
+"Stream/Handler_type").
+
+Logger interface doesn't have methods like SetHandler or SetLevel, because
+that's often implementation-dependent. Instead, you set up the logger and then
+assign it to gentle.Log or XxxxxOpts.Log. That way, we have fine-grained control
+over every Logger.
+
+Internally we use log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
+However, users may replace it with whatever library that supports Logger interface.
 
 External References
 
