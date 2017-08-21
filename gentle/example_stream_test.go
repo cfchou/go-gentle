@@ -13,9 +13,9 @@ import (
 )
 
 func ExampleSimpleStream() {
-	msgID := 1
+	msgID := 0
 	var stream SimpleStream = func(_ context.Context) (Message, error) {
-		defer func() { msgID++ }()
+		msgID++
 		return SimpleMessage(strconv.Itoa(msgID)), nil
 	}
 
