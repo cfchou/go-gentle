@@ -1,7 +1,7 @@
 # Document is a work-in-progress
 
 ## Go-gentle
-[![Build Status](https://travis-ci.org/cfchou/go-gentle.png?branch=master)](https://travis-ci.org/cfchou/go-gentle) [![goreport](https://goreportcard.com/badge/github.com/cfchou/go-gentle)](https://goreportcard.com/report/github.com/cfchou/go-gentle) [![Coverage Status](https://coveralls.io/repos/github/cfchou/go-gentle/badge.svg?branch=dev_context)](https://coveralls.io/github/cfchou/go-gentle?branch=dev_context)
+[![Build Status](https://travis-ci.org/cfchou/go-gentle.png?branch=master)](https://travis-ci.org/cfchou/go-gentle) [![goreport](https://goreportcard.com/badge/github.com/cfchou/go-gentle)](https://goreportcard.com/report/github.com/cfchou/go-gentle) [![Coverage Status](https://coveralls.io/repos/github/cfchou/go-gentle/badge.svg?branch=master)](https://coveralls.io/github/cfchou/go-gentle?branch=master)
 
 Talk to external services like a gentleman.
 
