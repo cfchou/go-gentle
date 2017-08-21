@@ -91,7 +91,7 @@ freely composed with other Streams/Handlers as one sees fit.
   	gentle.NewBulkheadHandlerOpts("", "myApp", 16),
 	writeToDb)
 
-  stream := gentle.AppendHandlersStream(rlQuery, exclusiveAppend)
+  stream := gentle.AppendHandlersStream(rlQuery, gentleWrite)
 
   for {
   	_, err := stream.Get(context.Background())
