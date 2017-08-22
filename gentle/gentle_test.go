@@ -14,7 +14,7 @@ import (
 )
 
 // Parent logger for tests
-var log = Log.New()
+var log Logger
 
 func TestMain(m *testing.M) {
 	var level string
@@ -28,7 +28,13 @@ func TestMain(m *testing.M) {
 	//	log15.MultiHandler(
 	//		log15.StdoutHandler,
 	//		log15.Must.FileHandler("./test.log", log15.LogfmtFormat())))
-	Log.SetHandler(h)
+
+	// replace package-global logger
+	logger := log15.New()
+	logger.SetHandler(h)
+	Log = &log15Logger{Logger: logger}
+	log = Log.New()
+
 	m.Run()
 }
 

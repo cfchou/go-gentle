@@ -90,7 +90,7 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
 			"err", err)
 	}
 	begin := time.Now()
@@ -178,7 +178,7 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
 			"err", err)
 	}
 	begin := r.clock.Now()
@@ -313,7 +313,7 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
 			"err", err)
 	}
 	begin := time.Now()
@@ -400,7 +400,7 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Handler] New span err", "msgIn", msg.ID(),
+		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
 			"err", err)
 	}
 	begin := time.Now()

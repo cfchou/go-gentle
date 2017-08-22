@@ -24,10 +24,6 @@ const (
 )
 
 var (
-	// Log is a package level logger. It's the parent logger of all loggers used
-	// by resilience Streams/Handlers defined in this package.
-	Log = log15.New()
-
 	// Errors related to CircuitStream/CircuitHandler. They are
 	// the replacement of underlying errors of package hystrix.
 
@@ -49,7 +45,9 @@ var (
 func init() {
 	// Discard handler when package is being loaded. You may set up the
 	// exported Log later.
-	Log.SetHandler(log15.DiscardHandler())
+	logger := log15.New()
+	logger.SetHandler(log15.DiscardHandler())
+	Log = &log15Logger{Logger: logger}
 }
 
 // Message is passed around Streams/Handlers.

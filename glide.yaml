@@ -37,6 +37,8 @@ import:
 - package: github.com/benbjohnson/clock
 - package: github.com/opentracing/opentracing-go
   version: ~1.0.2
+- package: gopkg.in/sirupsen/logrus.v1
+  version: ^1.0.3
 testImport:
 - package: github.com/stretchr/testify
 - package: github.com/rs/xid

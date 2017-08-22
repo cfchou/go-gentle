@@ -1,5 +1,9 @@
 package gentle
 
+import (
+	"gopkg.in/inconshreveable/log15.v2"
+)
+
 // Logger provides structural logging interface.
 type Logger interface {
 	// Log a message at the given level with key/value pairs. The number of
@@ -9,16 +13,23 @@ type Logger interface {
 	Warn(msg string, fields ...interface{})
 	Error(msg string, fields ...interface{})
 	Crit(msg string, fields ...interface{})
+
+	// Logger may support structured/contextual logging. Our Streams/Handlers
+	// will call package global logger.New("namespace", "namespace_specified",
+	// "name", "name_specified", "gentle", "stream/handler_type")
+	New(fields ...interface{}) Logger
 }
 
-// noOpLogger logs nothing
-type noOpLogger struct{}
+// Log is a package level logger. It's the parent logger of all loggers used
+// by resilience Streams/Handlers defined in this package.
+var Log Logger
 
-func (l *noOpLogger) Debug(msg string, fields ...interface{}) {}
-func (l *noOpLogger) Info(msg string, fields ...interface{})  {}
-func (l *noOpLogger) Warn(msg string, fields ...interface{})  {}
-func (l *noOpLogger) Error(msg string, fields ...interface{}) {}
-func (l *noOpLogger) Crit(msg string, fields ...interface{})  {}
+type log15Logger struct {
+	log15.Logger
+}
 
-// noopLogger is a single instance of noOpLogger.
-var noopLogger = &noOpLogger{}
+func (l *log15Logger) New(fields ...interface{}) Logger {
+	return &log15Logger{
+		Logger: l.Logger.New(fields...),
+	}
+}

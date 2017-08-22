@@ -90,7 +90,7 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.Bg().Info("[Stream] Get(), no span", "err", err)
 	}
 	begin := time.Now()
 
@@ -183,7 +183,7 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.Bg().Info("[Stream] Get(), no span", "err", err)
 	}
 	begin := r.clock.Now()
 
@@ -320,7 +320,7 @@ func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.Bg().Info("[Stream] Get(), no span", "err", err)
 	}
 	begin := time.Now()
 
@@ -415,7 +415,7 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Debug("[Stream] New span err", "err", err)
+		r.log.Bg().Info("[Stream] Get(), no span", "err", err)
 	}
 	begin := time.Now()
 
