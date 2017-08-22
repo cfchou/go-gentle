@@ -74,6 +74,7 @@ freely composed with other Streams/Handlers as one sees fit.
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
 
 Example(cont.):
+
   // rate-limit the queries while allowing burst
   gentleQuery := gentle.NewRateLimitedStream(
     gentle.NewRateLimitedStreamOpts("", "myApp",
@@ -132,21 +133,20 @@ A logger must support the Logger interface.
 There's a root logger gentle.Log. Moreover, every Stream/Handler has its own
 logger. It can be get/set via its options. Conceptually, each of these loggers
 is a child returned by gentle.Log.New(fields) where fields are key-value pairs:
- "namespace": "namespace specified"
- "name": "name specified"
- "gentle": "Stream/Handler type"
+ "namespace": "namespace of this Stream/Handler"
+ "name": "name of this Stream/Handler"
+ "gentle": "type of this Stream/Handler"
 
-Internally we use log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
+By default we use log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
 However, users may replace it with whatever library that supports Logger interface.
-Check out examples of how to use logrus(https://github.com/sirupsen/logrus)
-instead.
+Check out examples(https://github.com/cfchou/go-gentle/blob/master/gentle/example_logger_test.go)
+of how to use logrus logger.
 
 Logger interface doesn't have methods like SetHandler or SetLevel, because
 they are often implementation-dependent. Instead, you set up the logger and then
 assign it to gentle.Log or XxxxxOpts.Log. That way, we have fine-grained control
-over every Logger. Check out examples of how to setup logging level of the
-default loggers(log15).
-
+over every Logger. Check out examples(https://github.com/cfchou/go-gentle/blob/master/gentle/example_logger_test.go)
+of how to setup logging level of the default log15 loggers.
 
 
 External References
@@ -156,7 +156,6 @@ checkout their documents.
 
   Circuit-breaker is based on hystrix-go(https://godoc.org/github.com/afex/hystrix-go/hystrix).
   Rate-limiting is based on juju/ratelimit(https://godoc.org/github.com/juju/ratelimit).
-  Logging is based on log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
 
 */
 package gentle
