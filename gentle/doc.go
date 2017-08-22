@@ -127,20 +127,27 @@ all thread-safe and don't mutate Messages.
 
 Logging
 
-Every logger must support the Logger interface.
+A logger must support the Logger interface.
 
-There's a root logger Log. Moreover, every XxxxxOpts has a
-logger which conceptually is a child logger returned by Log.New("namespace",
-"namespace_specified", "name", "name_specified", "gentle",
-"Stream/Handler_type").
-
-Logger interface doesn't have methods like SetHandler or SetLevel, because
-that's often implementation-dependent. Instead, you set up the logger and then
-assign it to gentle.Log or XxxxxOpts.Log. That way, we have fine-grained control
-over every Logger.
+There's a root logger gentle.Log. Moreover, every Stream/Handler has its own
+logger. It can be get/set via its options. Conceptually, each of these loggers
+is a child returned by gentle.Log.New(fields) where fields are key-value pairs:
+ "namespace": "namespace specified"
+ "name": "name specified"
+ "gentle": "Stream/Handler type"
 
 Internally we use log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
 However, users may replace it with whatever library that supports Logger interface.
+Check out examples of how to use logrus(https://github.com/sirupsen/logrus)
+instead.
+
+Logger interface doesn't have methods like SetHandler or SetLevel, because
+they are often implementation-dependent. Instead, you set up the logger and then
+assign it to gentle.Log or XxxxxOpts.Log. That way, we have fine-grained control
+over every Logger. Check out examples of how to setup logging level of the
+default loggers(log15).
+
+
 
 External References
 

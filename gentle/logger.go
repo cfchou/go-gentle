@@ -1,6 +1,8 @@
 package gentle
 
-import "gopkg.in/inconshreveable/log15.v2"
+import (
+	"gopkg.in/inconshreveable/log15.v2"
+)
 
 // Logger provides structural logging interface.
 type Logger interface {
