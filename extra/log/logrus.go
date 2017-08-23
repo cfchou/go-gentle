@@ -1,18 +1,24 @@
 package log
 
 import (
-	"gopkg.in/sirupsen/logrus.v1"
-	"github.com/cfchou/go-gentle"
 	"errors"
+	"gopkg.in/cfchou/go-gentle.v3/gentle"
+	"gopkg.in/sirupsen/logrus.v1"
 )
 
 var (
-	errNotEvenFields    = errors.New("Number of log fields is not even")
-	errFieldType        = errors.New("Not valid log field type")
+	errNotEvenFields = errors.New("Number of log fields is not even")
+	errFieldType     = errors.New("Not valid log field type")
 )
 
 type LogrusLogger struct {
 	*logrus.Entry
+}
+
+func NewLogusLogger(logger *logrus.Logger) gentle.Logger {
+	return &LogrusLogger{
+		Entry: logrus.NewEntry(logger),
+	}
 }
 
 func toFields(fields ...interface{}) (logrus.Fields, error) {
@@ -80,7 +86,7 @@ func (l *LogrusLogger) Crit(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) New(fields ...interface{}) go_gentle.Logger {
+func (l *LogrusLogger) New(fields ...interface{}) gentle.Logger {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"err": err,

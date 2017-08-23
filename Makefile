@@ -7,7 +7,8 @@ format-and-test: format test
 
 .PHONY: test
 test:
-	go test -v -race -cover $(PACKAGE) -quickchecks 50 -level crit
+	go test -v -race -cover ./extra/...
+	go test -v -race -cover ./gentle/... -quickchecks 50 -level crit
 
 .PHONY: format
 format:
@@ -17,7 +18,7 @@ format:
 .PHONY: cover
 cover:
 	@rm -rf cover.out
-	go test -v -coverprofile=cover.out $(PACKAGE) -quickchecks 10 -level crit
+	go test -v -coverprofile=cover.out ./gentle/... -quickchecks 10 -level crit
 	go tool cover -html=cover.out -o cover.html
 
 .PHONY: lint
@@ -32,6 +33,6 @@ lint:
 .PHONY: coveralls
 coveralls:
 	@rm -rf cover.out
-	go test -v -covermode=count -coverprofile=cover.out $(PACKAGE) -quickchecks 50 -level crit
+	go test -v -covermode=count -coverprofile=cover.out ./gentle/... -quickchecks 50 -level crit
 	goveralls -coverprofile=cover.out -service=travis-ci
 

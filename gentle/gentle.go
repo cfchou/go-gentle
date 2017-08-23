@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/cfchou/hystrix-go/hystrix"
-	"gopkg.in/inconshreveable/log15.v2"
 	"time"
 )
 
@@ -43,11 +42,7 @@ var (
 )
 
 func init() {
-	// Discard handler when package is being loaded. You may set up the
-	// exported Log later.
-	logger := log15.New()
-	logger.SetHandler(log15.DiscardHandler())
-	Log = &log15Logger{Logger: logger}
+	Log = &noopLogger{}
 }
 
 // Message is passed around Streams/Handlers.
