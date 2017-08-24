@@ -14,8 +14,10 @@ test: clean
 	#go test -v -race -cover ./extra/...
 	#go test -v -race -cover ./gentle/... -quickchecks 50 -level crit
 	@rm -rf cover_*.out
-	go test -v -race -covermode=atomic -coverprofile=cover_all.out ./extra/...
-	go test -v -race -covermode=atomic -coverprofile=cover_gentle.out ./gentle/... -quickchecks 50 -level crit
+	go test -v -race -covermode=atomic -coverprofile=cover_all.out ./extra/log
+	go test -v -race -covermode=atomic -coverprofile=cover_extra_metric.out ./extra/metric
+	@env grep -v mode cover_extra_metric.out >>cover_all.out
+	go test -v -race -covermode=atomic -coverprofile=cover_gentle.out ./gentle -quickchecks 50 -level crit
 	@env grep -v mode cover_gentle.out >>cover_all.out
 
 .PHONY: format

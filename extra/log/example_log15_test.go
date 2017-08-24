@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-func ExampleNewLog15Logger_package() {
+func ExampleNewLog15Adapter_package() {
 	// set up log level for package-global logger
 	logger := log15.New()
 	h := log15.LvlFilterHandler(log15.LvlDebug, log15.StdoutHandler)
 	logger.SetHandler(h)
-	gentle.Log = NewLog15Logger(logger)
+	gentle.Log = NewLog15Adapter(logger)
 
 	msgID := 0
 	var fakeStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
@@ -33,7 +33,7 @@ func ExampleNewLog15Logger_package() {
 	// Output:
 }
 
-func ExampleNewLog15Logger_stream() {
+func ExampleNewLog15Adapter_stream() {
 	// set up log level for stream logger
 	msgID := 0
 	var fakeStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
@@ -46,7 +46,7 @@ func ExampleNewLog15Logger_stream() {
 	opts := gentle.NewRateLimitedStreamOpts("", "test2", limiter)
 	ll := log15.New()
 	ll.SetHandler(log15.LvlFilterHandler(log15.LvlDebug, log15.StdoutHandler))
-	opts.Log = NewLog15Logger(ll)
+	opts.Log = NewLog15Adapter(ll)
 	stream := gentle.NewRateLimitedStream(opts, fakeStream)
 
 	// log:

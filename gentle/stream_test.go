@@ -73,7 +73,8 @@ func TestRateLimitedStream_Get_Timeout(t *testing.T) {
 		begin := time.Now()
 		for i := 0; i < count; i++ {
 			go func() {
-				ctx, _ := context.WithTimeout(context.Background(), timeout)
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
+				defer cancel()
 				_, err := stream.Get(ctx)
 				if err == context.DeadlineExceeded {
 					// It's interrupted when waiting either for the permission

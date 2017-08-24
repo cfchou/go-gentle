@@ -11,12 +11,12 @@ var (
 	errFieldType     = errors.New("Not valid log field type")
 )
 
-type LogrusLogger struct {
+type LogrusAdapter struct {
 	*logrus.Entry
 }
 
 func NewLogusLogger(logger *logrus.Logger) gentle.Logger {
-	return &LogrusLogger{
+	return &LogrusAdapter{
 		Entry: logrus.NewEntry(logger),
 	}
 }
@@ -36,7 +36,7 @@ func toFields(fields ...interface{}) (logrus.Fields, error) {
 	return fs, nil
 }
 
-func (l *LogrusLogger) Debug(msg string, fields ...interface{}) {
+func (l *LogrusAdapter) Debug(msg string, fields ...interface{}) {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"origMsg": msg,
@@ -46,7 +46,7 @@ func (l *LogrusLogger) Debug(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) Info(msg string, fields ...interface{}) {
+func (l *LogrusAdapter) Info(msg string, fields ...interface{}) {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"origMsg": msg,
@@ -56,7 +56,7 @@ func (l *LogrusLogger) Info(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) Warn(msg string, fields ...interface{}) {
+func (l *LogrusAdapter) Warn(msg string, fields ...interface{}) {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"origMsg": msg,
@@ -66,7 +66,7 @@ func (l *LogrusLogger) Warn(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) Error(msg string, fields ...interface{}) {
+func (l *LogrusAdapter) Error(msg string, fields ...interface{}) {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"origMsg": msg,
@@ -76,7 +76,7 @@ func (l *LogrusLogger) Error(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) Crit(msg string, fields ...interface{}) {
+func (l *LogrusAdapter) Crit(msg string, fields ...interface{}) {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"origMsg": msg,
@@ -86,18 +86,18 @@ func (l *LogrusLogger) Crit(msg string, fields ...interface{}) {
 	}
 }
 
-func (l *LogrusLogger) New(fields ...interface{}) gentle.Logger {
+func (l *LogrusAdapter) New(fields ...interface{}) gentle.Logger {
 	if fs, err := toFields(fields...); err != nil {
 		l.WithFields(logrus.Fields{
 			"err": err,
 		}).Error("Logger.New() with invalid fields")
-		return &LogrusLogger{
+		return &LogrusAdapter{
 			// a new Entry with no new Fields
 			//Entry: logrus.WithFields(logrus.Fields{}),
 			Entry: logrus.NewEntry(l.Entry.Logger),
 		}
 	} else {
-		return &LogrusLogger{
+		return &LogrusAdapter{
 			Entry: logrus.NewEntry(l.Entry.Logger).WithFields(fs),
 		}
 	}

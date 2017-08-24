@@ -104,24 +104,24 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	}()
 	select {
 	case <-ctx.Done():
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		err := ctx.Err()
 		r.log.For(ctx).Warn("[Handler] Handle() err", "msgIn", msg.ID(),
-			"err", err, "timespan", timespan)
+			"err", err, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
 	case <-c:
 	}
 	msgOut, err := r.handler.Handle(ctx, msg)
-	timespan := time.Since(begin).Seconds()
+	timespan := time.Since(begin)
 	if err != nil {
 		r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
-			"err", err, "timespan", timespan)
+			"err", err, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
 	}
 	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
-		"msgOut", msgOut.ID(), "timespan", timespan)
+		"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 	r.metric.ObserveOk(timespan)
 	return msgOut, nil
 }
@@ -184,20 +184,20 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	begin := r.clock.Now()
 
 	returnOk := func(info string, msgIn, msgOut Message, retry int) (Message, error) {
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := r.clock.Now().Sub(begin)
 		r.log.For(ctx).Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
-			"timespan", timespan, "retry", retry)
+			"timespan", timespan.Seconds(), "retry", retry)
 		r.retryMetric.ObserveOk(timespan, retry)
 		return msgOut, nil
 	}
 	returnNotOk := func(lvl, info string, msgIn Message, err error, retry int) (Message, error) {
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := r.clock.Now().Sub(begin)
 		if lvl == "warn" {
 			r.log.For(ctx).Warn(info, "msgIn", msgIn.ID(), "err", err,
-				"timespan", timespan, "retry", retry)
+				"timespan", timespan.Seconds(), "retry", retry)
 		} else {
 			r.log.For(ctx).Error(info, "msgIn", msgIn.ID(), "err", err,
-				"timespan", timespan, "retry", retry)
+				"timespan", timespan.Seconds(), "retry", retry)
 		}
 		r.retryMetric.ObserveErr(timespan, retry)
 		return nil, err
@@ -324,21 +324,21 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 			<-r.semaphore
 		}()
 		msgOut, err := r.handler.Handle(ctx, msg)
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		if err != nil {
 			r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
-				"err", err, "timespan", timespan)
+				"err", err, "timespan", timespan.Seconds())
 			r.metric.ObserveErr(timespan)
 			return nil, err
 		}
 		r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
-			"msgOut", msgOut.ID(), "timespan", timespan)
+			"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 		r.metric.ObserveOk(timespan)
 		return msgOut, nil
 	default:
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		r.log.For(ctx).Error("[Hander] Handle() err", "msgIn", msg.ID(),
-			"err", ErrMaxConcurrency, "timespan", timespan)
+			"err", ErrMaxConcurrency, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
 	}
@@ -427,7 +427,7 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 	// NOTE:
 	// Capturing error from handler.Handle() or from hystrix if criteria met.
 	if err != nil {
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		// To prevent misinterpreting when wrapping one circuitStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
@@ -435,15 +435,15 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		case hystrix.ErrCircuitOpen:
 			err = ErrCbOpen
 			r.log.For(ctx).Error("[Handler] Circuit err",
-				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		case hystrix.ErrMaxConcurrency:
 			err = ErrCbMaxConcurrency
 			r.log.For(ctx).Error("[Handler] Circuit err",
-				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		case hystrix.ErrTimeout:
 			err = ErrCbTimeout
 			r.log.For(ctx).Error("[Handler] Circuit err",
-				"msgIn", msg.ID(), "err", err, "timespan", timespan)
+				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		default:
 			// Captured error from handler.Get()
 		}
@@ -451,9 +451,9 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		return nil, err
 	}
 	msgOut := (<-result).(Message)
-	timespan := time.Since(begin).Seconds()
+	timespan := time.Since(begin)
 	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
-		"msgOut", msgOut.ID(), "timespan", timespan)
+		"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
 }
