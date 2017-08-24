@@ -29,10 +29,9 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
-	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := handler.Handle(ctx, mm)
+			_, err := handler.Handle(context.Background(), mm)
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -69,10 +68,9 @@ func TestRateLimitedHandler_Handle_Timeout(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(count)
 		begin := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 		for i := 0; i < count; i++ {
 			go func() {
+				ctx, _ := context.WithTimeout(context.Background(), timeout)
 				_, err := stream.Handle(ctx, mm)
 				if err == context.DeadlineExceeded {
 					// It's interrupted when waiting either for the permission

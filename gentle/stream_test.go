@@ -31,10 +31,9 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
-	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := stream.Get(ctx)
+			_, err := stream.Get(context.Background())
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -72,10 +71,9 @@ func TestRateLimitedStream_Get_Timeout(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(count)
 		begin := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 		for i := 0; i < count; i++ {
 			go func() {
+				ctx, _ := context.WithTimeout(context.Background(), timeout)
 				_, err := stream.Get(ctx)
 				if err == context.DeadlineExceeded {
 					// It's interrupted when waiting either for the permission
