@@ -17,10 +17,6 @@ import:
   version: ^0.8.0
   subpackages:
   - prometheus
-- package: gopkg.in/cfchou/go-gentle.v2
-  version: ^2.1.0
-  subpackages:
-  - gentle
 - package: golang.org/x/net
   subpackages:
   - context

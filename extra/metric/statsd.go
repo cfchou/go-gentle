@@ -2,7 +2,7 @@ package metric
 
 import (
 	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/cfchou/go-gentle/gentle"
+	"gopkg.in/cfchou/go-gentle.v3/gentle"
 	"time"
 )
 
@@ -30,12 +30,12 @@ type StatsdMetric struct {
 	statter statsd.SubStatter
 }
 
-func NewStatsdMetric(subPath string, client *statsd.Client) *StatsdMetric {
+func NewStatsdMetric(subPath string, statter statsd.Statter) *StatsdMetric {
 	return &StatsdMetric{
 		Rate:    1,
 		SubOk:   "ok",
 		SubErr:  "err",
-		statter: client.NewSubStatter(subPath),
+		statter: statter.NewSubStatter(subPath),
 	}
 }
 
@@ -57,8 +57,8 @@ func (m *StatsdMetric) ObserveErr(timespan time.Duration) {
 // stats.timers.foo.ok
 // stats.timers.foo.err
 //
-// stats.foo.retry.ok
-// stats.foo.retry.err
+// stats.foo_retry.ok
+// stats.foo_retry.err
 type StatsdRetryMetric struct {
 	*StatsdMetric
 	SubOk        string
@@ -67,20 +67,14 @@ type StatsdRetryMetric struct {
 	retryStatter statsd.SubStatter
 }
 
-func NewStatsdRetryMetric(subPath string, retrySubPath string, client *statsd.Client) *StatsdRetryMetric {
-	m := NewStatsdMetric(subPath, client)
-	var retryStatter statsd.SubStatter
-	if retrySubPath == "" {
-		retryStatter = m.statter.NewSubStatter("retry")
-	} else {
-		retryStatter = client.NewSubStatter(retrySubPath)
-	}
+func NewStatsdRetryMetric(subPath string, retrySubPath string, statter statsd.Statter) *StatsdRetryMetric {
+	m := NewStatsdMetric(subPath, statter)
 	return &StatsdRetryMetric{
 		StatsdMetric: m,
 		SubOk:        m.SubOk,
 		SubErr:       m.SubErr,
 		Rate:         m.Rate,
-		retryStatter: retryStatter,
+		retryStatter: statter.NewSubStatter(retrySubPath),
 	}
 }
 
@@ -113,21 +107,15 @@ type StatsdCbMetric struct {
 	cbErrStatter      statsd.SubStatter
 }
 
-func NewStatsdCbMetric(subPath string, cbErrSubPath string, client *statsd.Client) *StatsdCbMetric {
-	m := NewStatsdMetric(subPath, client)
-	var cbErrStatter statsd.SubStatter
-	if cbErrSubPath == "" {
-		cbErrStatter = m.statter.NewSubStatter("cbErr")
-	} else {
-		cbErrStatter = client.NewSubStatter(cbErrSubPath)
-	}
+func NewStatsdCbMetric(subPath string, cbErrSubPath string, statter statsd.Statter) *StatsdCbMetric {
+	m := NewStatsdMetric(subPath, statter)
 	return &StatsdCbMetric{
 		StatsdMetric:      m,
 		SubTimeout:        "timeout",
 		SubMaxConcurrency: "maxConcurrency",
 		SubOpen:           "open",
 		Rate:              m.Rate,
-		cbErrStatter:      cbErrStatter,
+		cbErrStatter:      statter.NewSubStatter(cbErrSubPath),
 	}
 }
 
