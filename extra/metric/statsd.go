@@ -103,6 +103,7 @@ type StatsdCbMetric struct {
 	SubTimeout        string
 	SubMaxConcurrency string
 	SubOpen           string
+	SubOther          string
 	Rate              float32
 	cbErrStatter      statsd.SubStatter
 }
@@ -114,6 +115,7 @@ func NewStatsdCbMetric(subPath string, cbErrSubPath string, statter statsd.Statt
 		SubTimeout:        "timeout",
 		SubMaxConcurrency: "maxConcurrency",
 		SubOpen:           "open",
+		SubOther:          "other",
 		Rate:              m.Rate,
 		cbErrStatter:      statter.NewSubStatter(cbErrSubPath),
 	}
@@ -133,6 +135,6 @@ func (m *StatsdCbMetric) ObserveErr(timespan time.Duration, err error) {
 	case gentle.ErrCbOpen:
 		m.cbErrStatter.Inc(m.SubOpen, 1, m.Rate)
 	default:
-		// others are ignored
+		m.cbErrStatter.Inc(m.SubOther, 1, m.Rate)
 	}
 }
