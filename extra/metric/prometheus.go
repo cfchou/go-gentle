@@ -8,148 +8,152 @@ import (
 )
 
 var (
-	ErrInvalidName = errors.New("Invalid Name")
+	ErrInvalidLabel = errors.New("Invalid label")
 )
 
+type ResultLabel struct {
+	Name     string
+	ValueOk  string
+	ValueErr string
+}
+
 type PromMetric struct {
-	name      string
-	histVec   prom.HistogramVec
-	okLabels  prom.Labels
-	errLabels prom.Labels
+	name     string
+	histVec  *prom.HistogramVec
+	okLabel  prom.Labels
+	errLabel prom.Labels
 }
 
 func NewPromMetric(
 	histOpts prom.HistogramOpts,
-	okLabels, errLabels prom.Labels) *PromMetric {
+	resultLabel ResultLabel) (*PromMetric, error) {
 
-	// union label names
-	var labelSet map[string]struct{}
-	for name, _ := range okLabels {
-		labelSet[name] = struct{}{}
-	}
-	for name, _ := range errLabels {
-		labelSet[name] = struct{}{}
-	}
-	var labelNames []string
-	for name, _ := range labelSet {
-		labelNames = append(labelNames, name)
+	for name := range histOpts.ConstLabels {
+		if name == resultLabel.Name {
+			// a label can only be either constant or dynamic(ok/err)
+			return nil, ErrInvalidLabel
+		}
 	}
 
+	histVec := prom.NewHistogramVec(histOpts, []string{resultLabel.Name})
+	prom.MustRegister(histVec)
 	return &PromMetric{
-		histVec:   *prom.NewHistogramVec(histOpts, labelNames),
-		okLabels:  okLabels,
-		errLabels: errLabels,
-	}
+		histVec:  histVec,
+		okLabel:  prom.Labels{resultLabel.Name: resultLabel.ValueOk},
+		errLabel: prom.Labels{resultLabel.Name: resultLabel.ValueErr},
+	}, nil
 }
 
 func (m *PromMetric) ObserveOk(timespan time.Duration) {
-	m.histVec.With(m.okLabels).Observe(timespan.Seconds())
+	m.histVec.With(m.okLabel).Observe(timespan.Seconds())
 }
 
 func (m *PromMetric) ObserveErr(timespan time.Duration) {
-	m.histVec.With(m.errLabels).Observe(timespan.Seconds())
+	m.histVec.With(m.errLabel).Observe(timespan.Seconds())
 }
 
 type PromRetryMetric struct {
-	name       string
-	histVec    prom.HistogramVec
-	counterVec prom.CounterVec
-	okLabels   prom.Labels
-	errLabels  prom.Labels
+	name          string
+	histVec       *prom.HistogramVec
+	counterVec    *prom.CounterVec
+	okLabel       prom.Labels
+	errLabel      prom.Labels
+	retryOkLabel  prom.Labels
+	retryErrLabel prom.Labels
 }
 
 func NewPromRetryMetric(
 	histOpts prom.HistogramOpts,
 	counterOpts prom.CounterOpts,
-	okLabels, errLabels prom.Labels) *PromRetryMetric {
+	resultLabel, retryLabel ResultLabel) (*PromRetryMetric, error) {
 
-	// union label names
-	var labelSet map[string]struct{}
-	for name, _ := range okLabels {
-		labelSet[name] = struct{}{}
+	for name := range histOpts.ConstLabels {
+		if name == resultLabel.Name || name == retryLabel.Name {
+			// a label can only be either constant or dynamic(ok/err)
+			return nil, ErrInvalidLabel
+		}
 	}
-	for name, _ := range errLabels {
-		labelSet[name] = struct{}{}
-	}
-	var labelNames []string
-	for name, _ := range labelSet {
-		labelNames = append(labelNames, name)
-	}
+
+	histVec := prom.NewHistogramVec(histOpts, []string{resultLabel.Name})
+	prom.MustRegister(histVec)
+	counterVec := prom.NewCounterVec(counterOpts, []string{retryLabel.Name})
+	prom.MustRegister(counterVec)
 
 	return &PromRetryMetric{
-		histVec:    *prom.NewHistogramVec(histOpts, labelNames),
-		counterVec: *prom.NewCounterVec(counterOpts, labelNames),
-		okLabels:   okLabels,
-		errLabels:  errLabels,
-	}
+		histVec:       histVec,
+		counterVec:    counterVec,
+		okLabel:       prom.Labels{resultLabel.Name: resultLabel.ValueOk},
+		errLabel:      prom.Labels{resultLabel.Name: resultLabel.ValueErr},
+		retryOkLabel:  prom.Labels{retryLabel.Name: retryLabel.ValueOk},
+		retryErrLabel: prom.Labels{retryLabel.Name: retryLabel.ValueErr},
+	}, nil
 }
 
 func (m *PromRetryMetric) ObserveOk(timespan time.Duration, retry int) {
-	m.histVec.With(m.okLabels).Observe(timespan.Seconds())
-	m.counterVec.With(m.okLabels).Add(float64(retry))
+	m.histVec.With(m.okLabel).Observe(timespan.Seconds())
+	m.counterVec.With(m.retryOkLabel).Add(float64(retry))
 }
 
 func (m *PromRetryMetric) ObserveErr(timespan time.Duration, retry int) {
-	m.histVec.With(m.errLabels).Observe(timespan.Seconds())
-	m.counterVec.With(m.errLabels).Add(float64(retry))
+	m.histVec.With(m.errLabel).Observe(timespan.Seconds())
+	m.counterVec.With(m.retryErrLabel).Add(float64(retry))
 }
 
 type PromCbMetric struct {
-	name       string
-	histVec    prom.HistogramVec
-	counterVec prom.CounterVec
-	okLabels   prom.Labels
-	errLabels  prom.Labels
+	name        string
+	histVec     *prom.HistogramVec
+	counterVec  *prom.CounterVec
+	okLabel     prom.Labels
+	errLabel    prom.Labels
+	cbErrLabels map[string]prom.Labels
 }
 
 func NewPromCbMetric(
 	histOpts prom.HistogramOpts,
 	counterOpts prom.CounterOpts,
-	okLabels, errLabels prom.Labels) *PromCbMetric {
+	resultLabel ResultLabel, cbErrLabelName string) (*PromCbMetric, error) {
 
-	// union label names
-	var labelSet map[string]struct{}
-	for name, _ := range okLabels {
-		labelSet[name] = struct{}{}
+	for name := range histOpts.ConstLabels {
+		if name == resultLabel.Name || name == cbErrLabelName {
+			// a label can only be either constant or dynamic(ok/err)
+			return nil, ErrInvalidLabel
+		}
 	}
-	for name, _ := range errLabels {
-		// label "cbErr" will be silently overwritten
-		labelSet[name] = struct{}{}
-	}
-	var labelNames []string
-	for name, _ := range labelSet {
-		labelNames = append(labelNames, name)
-	}
+
+	histVec := prom.NewHistogramVec(histOpts, []string{resultLabel.Name})
+	prom.MustRegister(histVec)
+	counterVec := prom.NewCounterVec(counterOpts, []string{cbErrLabelName})
+	prom.MustRegister(counterVec)
 
 	return &PromCbMetric{
-		histVec:    *prom.NewHistogramVec(histOpts, labelNames),
-		counterVec: *prom.NewCounterVec(counterOpts, labelNames),
-		okLabels:   okLabels,
-		errLabels:  errLabels,
-	}
+		histVec:    histVec,
+		counterVec: counterVec,
+		okLabel:    prom.Labels{resultLabel.Name: resultLabel.ValueOk},
+		errLabel:   prom.Labels{resultLabel.Name: resultLabel.ValueErr},
+		cbErrLabels: map[string]prom.Labels{
+			"timeout": prom.Labels{cbErrLabelName: "timeout"},
+			"max":     prom.Labels{cbErrLabelName: "max"},
+			"open":    prom.Labels{cbErrLabelName: "open"},
+			"other":   prom.Labels{cbErrLabelName: "other"},
+		},
+	}, nil
 }
 
 func (m *PromCbMetric) ObserveOk(timespan time.Duration) {
-	m.histVec.With(m.okLabels).Observe(timespan.Seconds())
+	m.histVec.With(m.okLabel).Observe(timespan.Seconds())
 }
 
 func (m *PromCbMetric) ObserveErr(timespan time.Duration, err error) {
-	m.histVec.With(m.errLabels).Observe(timespan.Seconds())
+	m.histVec.With(m.errLabel).Observe(timespan.Seconds())
 
-	// If "cbErr" existed in m.errLabels, it'll be silently overwritten.
-	errLabels := m.errLabels
 	switch err {
 	case gentle.ErrCbTimeout:
-		errLabels["cbErr"] = "timeout"
-		m.counterVec.With(errLabels).Add(1)
+		m.counterVec.With(m.cbErrLabels["timeout"]).Add(1)
 	case gentle.ErrMaxConcurrency:
-		errLabels["cbErr"] = "maxConcurrency"
-		m.counterVec.With(errLabels).Add(1)
+		m.counterVec.With(m.cbErrLabels["max"]).Add(1)
 	case gentle.ErrCbOpen:
-		errLabels["cbErr"] = "open"
-		m.counterVec.With(errLabels).Add(1)
+		m.counterVec.With(m.cbErrLabels["open"]).Add(1)
 	default:
-		errLabels["cbErr"] = "other"
-		m.counterVec.With(errLabels).Add(1)
+		m.counterVec.With(m.cbErrLabels["other"]).Add(1)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cactus/go-statsd-client/statsd"
-	log2 "github.com/cfchou/go-gentle/extra/log"
+	log2 "gopkg.in/cfchou/go-gentle.v3/extra/log"
 	"gopkg.in/cfchou/go-gentle.v3/gentle"
 	"gopkg.in/inconshreveable/log15.v2"
 	"log"
@@ -29,7 +29,7 @@ func ExampleNewStatsdMetric() {
 	// listen like "nc 8125 -l -u"
 	conn, err := net.ListenPacket("udp", ":8125")
 	if err != nil {
-		log.Fatalf("ListenPacket err: %s\n", err)
+		log.Fatalf("ListenPacket() err: %s\n", err)
 	}
 	defer conn.Close()
 	wg := &sync.WaitGroup{}
@@ -42,7 +42,7 @@ func ExampleNewStatsdMetric() {
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			n, _, err := conn.ReadFrom(bs)
 			if err != nil {
-				log.Printf("ReadFrom err: %s\n", err)
+				log.Printf("ReadFrom() err: %s\n", err)
 				continue
 			}
 			// timer:
@@ -81,7 +81,7 @@ func ExampleNewStatsdRetryMetric() {
 	// listen like "nc 8125 -l -u"
 	conn, err := net.ListenPacket("udp", ":8125")
 	if err != nil {
-		log.Fatalf("ListenPacket err: %s\n", err)
+		log.Fatalf("ListenPacket() err: %s\n", err)
 	}
 	defer conn.Close()
 	wg := &sync.WaitGroup{}
@@ -94,7 +94,7 @@ func ExampleNewStatsdRetryMetric() {
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			n, _, err := conn.ReadFrom(bs)
 			if err != nil {
-				log.Printf("ReadFrom err: %s\n", err)
+				log.Printf("ReadFrom() err: %s\n", err)
 				continue
 			}
 			// timer:
@@ -129,7 +129,7 @@ func ExampleNewStatsdCbMetric() {
 	// listen like "nc 8125 -l -u"
 	conn, err := net.ListenPacket("udp", ":8125")
 	if err != nil {
-		log.Fatalf("ListenPacket err: %s\n", err)
+		log.Fatalf("ListenPacket() err: %s\n", err)
 	}
 	defer conn.Close()
 	wg := &sync.WaitGroup{}
@@ -142,7 +142,7 @@ func ExampleNewStatsdCbMetric() {
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			n, _, err := conn.ReadFrom(bs)
 			if err != nil {
-				log.Printf("ReadFrom err: %s\n", err)
+				log.Printf("ReadFrom() err: %s\n", err)
 				continue
 			}
 			// timer:
