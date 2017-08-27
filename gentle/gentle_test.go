@@ -16,6 +16,16 @@ import (
 // Parent logger for tests
 var log Logger
 
+type log15Logger struct {
+	log15.Logger
+}
+
+func (l *log15Logger) New(fields ...interface{}) Logger {
+	return &log15Logger{
+		Logger: l.Logger.New(fields...),
+	}
+}
+
 func TestMain(m *testing.M) {
 	var level string
 	flag.StringVar(&level, "level", "info", "log level")
@@ -33,6 +43,7 @@ func TestMain(m *testing.M) {
 	logger := log15.New()
 	logger.SetHandler(h)
 	Log = &log15Logger{Logger: logger}
+	// init logger for test
 	log = Log.New()
 
 	m.Run()

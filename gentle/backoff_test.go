@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-func TestConstantBackOffFactory_NewBackOff_MaxElapsedTime(t *testing.T) {
+func TestConstBackOffFactory_NewBackOff_MaxElapsedTime(t *testing.T) {
 	// MaxElapsedTime > 0 && MaxNumBackOffs == 0
 	// Stops when reached MaxElapsedTime
 	mclock := clock.NewMock()
-	opts := NewConstantBackOffFactoryOpts(time.Second, 5*time.Second)
+	opts := NewConstBackOffFactoryOpts(time.Second, 5*time.Second)
 	opts.Clock = mclock
-	factory := NewConstantBackOffFactory(opts)
+	factory := NewConstBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	assert.True(t, opts.Interval == backoff.Next())
 	// Should stop after MaxElapsedTime
@@ -21,12 +21,12 @@ func TestConstantBackOffFactory_NewBackOff_MaxElapsedTime(t *testing.T) {
 	assert.True(t, BackOffStop == backoff.Next())
 }
 
-func TestConstantBackOffFactory_NewBackOff_MaxNumBackOffs(t *testing.T) {
+func TestConstBackOffFactory_NewBackOff_MaxNumBackOffs(t *testing.T) {
 	// MaxElapsedTime == 0 && MaxNumBackOffs > 0
 	// Stops when reached MaxNumBackOffs
-	opts := NewConstantBackOffFactoryOpts(time.Second, 0)
+	opts := NewConstBackOffFactoryOpts(time.Second, 0)
 	opts.MaxNumBackOffs = 10
-	factory := NewConstantBackOffFactory(opts)
+	factory := NewConstBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	for i := int64(0); i < opts.MaxNumBackOffs; i++ {
 		assert.True(t, opts.Interval == backoff.Next())
@@ -35,27 +35,27 @@ func TestConstantBackOffFactory_NewBackOff_MaxNumBackOffs(t *testing.T) {
 	assert.True(t, BackOffStop == backoff.Next())
 }
 
-func TestConstantBackOffFactory_Forever(t *testing.T) {
+func TestConstBackOffFactory_Forever(t *testing.T) {
 	// Run forever when both MaxElapsedTime and MaxNumBackOffs are 0
 	mclock := clock.NewMock()
-	opts := NewConstantBackOffFactoryOpts(time.Second, 0)
+	opts := NewConstBackOffFactoryOpts(time.Second, 0)
 	opts.MaxNumBackOffs = 0
 	opts.Clock = mclock
-	factory := NewConstantBackOffFactory(opts)
+	factory := NewConstBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	assert.True(t, opts.Interval == backoff.Next())
 	mclock.Add(time.Hour)
 	assert.True(t, opts.Interval == backoff.Next())
 }
 
-func TestExponentialBackOffFactory_MaxElapsedTime(t *testing.T) {
+func TestExpBackOffFactory_MaxElapsedTime(t *testing.T) {
 	// MaxElapsedTime > 0 && MaxNumBackOffs == 0
 	// Stops when reached MaxElapsedTime
 	mclock := clock.NewMock()
-	opts := NewExponentialBackOffFactoryOpts(time.Second, 1, time.Second,
+	opts := NewExpBackOffFactoryOpts(time.Second, 1, time.Second,
 		5*time.Second)
 	opts.Clock = mclock
-	factory := NewExponentialBackOffFactory(opts)
+	factory := NewExpBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	assert.False(t, BackOffStop == backoff.Next())
 	// Should stop after MaxElapsedTime
@@ -63,12 +63,12 @@ func TestExponentialBackOffFactory_MaxElapsedTime(t *testing.T) {
 	assert.True(t, BackOffStop == backoff.Next())
 }
 
-func TestExponentialBackOffFactory_MaxBackOffs(t *testing.T) {
+func TestExpBackOffFactory_MaxBackOffs(t *testing.T) {
 	// MaxElapsedTime == 0 && MaxNumBackOffs > 0
 	// Stops when reached MaxNumBackOffs
-	opts := NewExponentialBackOffFactoryOpts(time.Second, 1, time.Second, 0)
+	opts := NewExpBackOffFactoryOpts(time.Second, 1, time.Second, 0)
 	opts.MaxNumBackOffs = 10
-	factory := NewExponentialBackOffFactory(opts)
+	factory := NewExpBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	for i := int64(0); i < opts.MaxNumBackOffs; i++ {
 		assert.False(t, BackOffStop == backoff.Next())
@@ -77,14 +77,14 @@ func TestExponentialBackOffFactory_MaxBackOffs(t *testing.T) {
 	assert.True(t, BackOffStop == backoff.Next())
 }
 
-func TestExponentialBackOffFactory_Forever(t *testing.T) {
+func TestExpBackOffFactory_Forever(t *testing.T) {
 	// MaxElapsedTime == 0 && MaxNumBackOffs > 0
 	// Stops when reached MaxNumBackOffs
 	mclock := clock.NewMock()
-	opts := NewExponentialBackOffFactoryOpts(time.Second, 1, time.Second, 0)
+	opts := NewExpBackOffFactoryOpts(time.Second, 1, time.Second, 0)
 	opts.MaxNumBackOffs = 0
 	opts.Clock = mclock
-	factory := NewExponentialBackOffFactory(opts)
+	factory := NewExpBackOffFactory(opts)
 	backoff := factory.NewBackOff()
 	assert.True(t, BackOffStop != backoff.Next())
 	mclock.Add(time.Hour)

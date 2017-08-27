@@ -61,8 +61,8 @@ func ExampleNewRetryHandler_contantBackOff() {
 	}
 
 	// No more back-off when total execution + back-offs elapsed more than 1s.
-	backOffOpts := NewConstantBackOffFactoryOpts(100*time.Millisecond, time.Second)
-	backOffFactory := NewConstantBackOffFactory(backOffOpts)
+	backOffOpts := NewConstBackOffFactoryOpts(100*time.Millisecond, time.Second)
+	backOffFactory := NewConstBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	// Retry with back-offs to access fakeHandler
 	handler := NewRetryHandler(opts, fakeHandler)
@@ -71,7 +71,7 @@ func ExampleNewRetryHandler_contantBackOff() {
 	// Output: fake err
 }
 
-func ExampleNewRetryHandler_exponentialBackOff() {
+func ExampleNewRetryHandler_expBackOff() {
 	fakeErr := errors.New("fake err")
 	// fakeHandler keeps triggering back-offs.
 	var fakeHandler SimpleHandler = func(_ context.Context, _ Message) (Message, error) {
@@ -79,9 +79,9 @@ func ExampleNewRetryHandler_exponentialBackOff() {
 	}
 
 	// No more back-off when total execution + back-offs elapsed more than 2s.
-	backOffOpts := NewExponentialBackOffFactoryOpts(100*time.Millisecond, 2,
+	backOffOpts := NewExpBackOffFactoryOpts(100*time.Millisecond, 2,
 		time.Second, 2*time.Second)
-	backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+	backOffFactory := NewExpBackOffFactory(backOffOpts)
 	opts := NewRetryHandlerOpts("", "test", backOffFactory)
 	// Retry with back-offs to access fakeHandler
 	handler := NewRetryHandler(opts, fakeHandler)

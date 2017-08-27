@@ -4,15 +4,12 @@ import (
 	"context"
 	"errors"
 	"github.com/cfchou/hystrix-go/hystrix"
-	"gopkg.in/inconshreveable/log15.v2"
 	"time"
 )
 
 const (
-	// Types of resilience, are most often used with namespace & name to form a
-	// key.
-	// Since there's only one method for Stream/Handler, they are also used as
-	// operation names for opentracing spans.
+	// Types of resilience, are most often used with namespace & name to form an
+	// identifier in logging/metric/tracing.
 	StreamRateLimited  = "sRate"
 	StreamRetry        = "sRetry"
 	StreamBulkhead     = "sBulk"
@@ -43,11 +40,7 @@ var (
 )
 
 func init() {
-	// Discard handler when package is being loaded. You may set up the
-	// exported Log later.
-	logger := log15.New()
-	logger.SetHandler(log15.DiscardHandler())
-	Log = &log15Logger{Logger: logger}
+	Log = &noopLogger{}
 }
 
 // Message is passed around Streams/Handlers.

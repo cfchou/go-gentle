@@ -105,10 +105,10 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 	}(c)
 	select {
 	case <-ctx.Done():
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		err := ctx.Err()
 		r.log.For(ctx).Warn("[Stream] Wait() interrupted", "err", err,
-			"timespan", timespan)
+			"timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
 	case <-c:
@@ -118,15 +118,15 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 	// stream.Get() to respect timeout/cancellation and to release resource
 	// acquired. This behaviour aligns thread-join model.
 	msg, err := r.stream.Get(ctx)
-	timespan := time.Since(begin).Seconds()
+	timespan := time.Since(begin)
 	if err != nil {
 		r.log.For(ctx).Error("[Stream] Get() err", "err", err,
-			"timespan", timespan)
+			"timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
 	}
 	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
-		"timespan", timespan)
+		"timespan", timespan.Seconds())
 	r.metric.ObserveOk(timespan)
 	return msg, nil
 }
@@ -188,20 +188,20 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 	begin := r.clock.Now()
 
 	returnOk := func(info string, msg Message, retry int) (Message, error) {
-		timespan := r.clock.Now().Sub(begin).Seconds()
-		r.log.For(ctx).Debug(info, "msgOut", msg.ID(), "timespan", timespan,
-			"retry", retry)
-		r.retryMetric.ObserveOk(float64(retry), retry)
+		timespan := r.clock.Now().Sub(begin)
+		r.log.For(ctx).Debug(info, "msgOut", msg.ID(),
+			"timespan", timespan.Seconds(), "retry", retry)
+		r.retryMetric.ObserveOk(timespan, retry)
 		return msg, nil
 	}
 	returnNotOk := func(lvl, info string, err error, retry int) (Message, error) {
-		timespan := r.clock.Now().Sub(begin).Seconds()
+		timespan := r.clock.Now().Sub(begin)
 		if lvl == "warn" {
-			r.log.For(ctx).Warn(info, "err", err, "timespan", timespan,
-				"retry", retry)
+			r.log.For(ctx).Warn(info, "err", err,
+				"timespan", timespan.Seconds(), "retry", retry)
 		} else {
-			r.log.For(ctx).Error(info, "err", err, "timespan", timespan,
-				"retry", retry)
+			r.log.For(ctx).Error(info, "err", err,
+				"timespan", timespan.Seconds(), "retry", retry)
 		}
 		r.retryMetric.ObserveErr(timespan, retry)
 		return nil, err
@@ -330,21 +330,21 @@ func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
 			<-r.semaphore
 		}()
 		msg, err := r.stream.Get(ctx)
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		if err != nil {
 			r.log.For(ctx).Error("[Stream] Get() err", "err", err,
-				"timespan", timespan)
+				"timespan", timespan.Seconds())
 			r.metric.ObserveErr(timespan)
 			return nil, err
 		}
 		r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msg.ID(),
-			"timespan", timespan)
+			"timespan", timespan.Seconds())
 		r.metric.ObserveOk(timespan)
 		return msg, nil
 	default:
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		r.log.For(ctx).Error("[Stream] Get() err", "err", ErrMaxConcurrency,
-			"timespan", timespan)
+			"timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
 	}
@@ -440,7 +440,7 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 	// NOTE:
 	// Capturing error from stream.Get() or from hystrix if criteria met.
 	if err != nil {
-		timespan := time.Since(begin).Seconds()
+		timespan := time.Since(begin)
 		// To prevent misinterpreting when wrapping one circuitStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
@@ -448,15 +448,15 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 		case hystrix.ErrCircuitOpen:
 			err = ErrCbOpen
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
-				"timespan", timespan)
+				"timespan", timespan.Seconds())
 		case hystrix.ErrMaxConcurrency:
 			err = ErrCbMaxConcurrency
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
-				"timespan", timespan)
+				"timespan", timespan.Seconds())
 		case hystrix.ErrTimeout:
 			err = ErrCbTimeout
 			r.log.For(ctx).Error("[Stream] Circuit err", "err", err,
-				"timespan", timespan)
+				"timespan", timespan.Seconds())
 		default:
 			// Captured error from stream.Get()
 		}
@@ -464,9 +464,9 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 		return nil, err
 	}
 	msgOut := (<-result).(Message)
-	timespan := time.Since(begin).Seconds()
+	timespan := time.Since(begin)
 	r.log.For(ctx).Debug("[Stream] Get() ok", "msgOut", msgOut.ID(),
-		"timespan", timespan)
+		"timespan", timespan.Seconds())
 	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
 }

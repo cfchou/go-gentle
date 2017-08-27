@@ -31,10 +31,9 @@ func TestRateLimitedStream_Get(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	begin := time.Now()
-	ctx := context.Background()
 	for i := 0; i < count; i++ {
 		go func() {
-			_, err := stream.Get(ctx)
+			_, err := stream.Get(context.Background())
 			assert.NoError(t, err)
 			wg.Done()
 		}()
@@ -72,10 +71,10 @@ func TestRateLimitedStream_Get_Timeout(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(count)
 		begin := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 		for i := 0; i < count; i++ {
 			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
+				defer cancel()
 				_, err := stream.Get(ctx)
 				if err == context.DeadlineExceeded {
 					// It's interrupted when waiting either for the permission
@@ -156,14 +155,14 @@ func TestRetryStream_Get_MockBackOff(t *testing.T) {
 	}
 }
 
-func TestRetryStream_Get_ConstantBackOff(t *testing.T) {
-	// Get() retries with ConstantBackOff
+func TestRetryStream_Get_ConstBackOff(t *testing.T) {
+	// Get() retries with ConstBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
-		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
+		backOffOpts := NewConstBackOffFactoryOpts(time.Second, maxElapsedTime)
 		backOffOpts.Clock = mclock
-		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		backOffFactory := NewConstBackOffFactory(backOffOpts)
 		opts := NewRetryStreamOpts("", "test", backOffFactory)
 		opts.Clock = mclock
 		mstream := &MockStream{}
@@ -203,18 +202,18 @@ func TestRetryStream_Get_ConstantBackOff(t *testing.T) {
 	}
 }
 
-func TestRetryStream_Get_ExponentialBackOff(t *testing.T) {
-	// Get() retries with ExponentialBackOff
+func TestRetryStream_Get_ExpBackOff(t *testing.T) {
+	// Get() retries with ExpBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
-		backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2,
+		backOffOpts := NewExpBackOffFactoryOpts(time.Second, 2,
 			128*time.Second, maxElapsedTime)
 		// No randomization to make the backoff time really exponential. Easier
 		// to examine log.
 		backOffOpts.RandomizationFactor = 0
 		backOffOpts.Clock = mclock
-		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		backOffFactory := NewExpBackOffFactory(backOffOpts)
 		opts := NewRetryStreamOpts("", "test", backOffFactory)
 		opts.Clock = mclock
 		mstream := &MockStream{}
@@ -313,12 +312,12 @@ func TestRetryStream_Get_MockBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestRetryStream_Get_ConstantBackOff_Timeout(t *testing.T) {
-	// Context timeout interrupts Get() with ConstantBackOff
+func TestRetryStream_Get_ConstBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Get() with ConstBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
-		backOffOpts := NewConstantBackOffFactoryOpts(suspend, 0)
-		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		backOffOpts := NewConstBackOffFactoryOpts(suspend, 0)
+		backOffFactory := NewConstBackOffFactory(backOffOpts)
 		timeout := time.Duration(timeoutMs) * time.Millisecond
 		opts := NewRetryStreamOpts("", "test", backOffFactory)
 		mstream := &MockStream{}
@@ -356,16 +355,16 @@ func TestRetryStream_Get_ConstantBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestRetryStream_Get_ExponentialBackOff_Timeout(t *testing.T) {
-	// Context timeout interrupts Get() with ExponentialBackOff
+func TestRetryStream_Get_ExpBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Get() with ExpBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
-		backOffOpts := NewExponentialBackOffFactoryOpts(suspend, 2,
+		backOffOpts := NewExpBackOffFactoryOpts(suspend, 2,
 			128*time.Second, 0)
 		// No randomization to make the backoff time really exponential. Easier
 		// to examine log.
 		backOffOpts.RandomizationFactor = 0
-		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		backOffFactory := NewExpBackOffFactory(backOffOpts)
 		timeout := time.Duration(timeoutMs) * time.Millisecond
 		opts := NewRetryStreamOpts("", "test", backOffFactory)
 		mstream := &MockStream{}
@@ -589,15 +588,15 @@ func TestStream_MsgIntact(t *testing.T) {
 				mstream)
 		}(),
 		func() Stream {
-			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond, time.Second)
-			backOffFactory := NewConstantBackOffFactory(backOffOpts)
+			backOffOpts := NewConstBackOffFactoryOpts(200*time.Millisecond, time.Second)
+			backOffFactory := NewConstBackOffFactory(backOffOpts)
 			opts := NewRetryStreamOpts("", "test", backOffFactory)
 			return NewRetryStream(opts, mstream)
 		}(),
 		func() Stream {
-			backOffOpts := NewExponentialBackOffFactoryOpts(
+			backOffOpts := NewExpBackOffFactoryOpts(
 				200*time.Millisecond, 2, time.Second, time.Second)
-			backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+			backOffFactory := NewExpBackOffFactory(backOffOpts)
 			opts := NewRetryStreamOpts("", "test", backOffFactory)
 			return NewRetryStream(opts, mstream)
 		}(),
