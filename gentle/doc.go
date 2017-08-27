@@ -135,7 +135,7 @@ Logging
 Users may plug in whatever logging library they like as long as it supports
 interface Logger(https://godoc.org/github.com/cfchou/go-gentle/gentle#Logger).
 Fans of log15 and logurs may check out the sibling package
-extra/log(https://godoc.org/github.com/cfchou/go-gentle/gentle/extra/log) for
+extra/log(https://godoc.org/github.com/cfchou/go-gentle/extra/log) for
 adapters already available at hand.
 
 There's a root logger gentle.Log. Moreover, every gentle-ment has its own
@@ -154,15 +154,15 @@ for examples.
 
 Metrics
 
-Currently there're three metric interfaces of metric collectors for gentle-ments:
+Currently there're three metric interfaces of metrics collectors for gentle-ments:
 
   Metric for RateLimitedStream/Handler, BulkheadStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Metric)
   RetryMetric for RetryStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryMetric)
   CbMetric for CircuitStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CbMetric)
 
-In the sibling package extra/metric(https://godoc.org/github.com/cfchou/go-gentle/gentle/extra/metric),
-we have provided statsd and prometheus implementations and examples. Generally,
-it's similar to Logger in that one can change an option's metric collector and
+In the sibling package extra/metric(https://godoc.org/github.com/cfchou/go-gentle/extra/metric),
+we have provided implementations for prometheus and statsd and examples. Generally,
+it's similar to Logger in that one can change an option's metrics collector and
 use the option to create a gentle-ment.
 
 */

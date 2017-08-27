@@ -39,6 +39,10 @@ import:
   version: ^3.0.3
   subpackages:
   - gentle
+- package: github.com/uber/jaeger-client-go
+  version: ^2.8.0
+- package: github.com/uber/jaeger-lib
+  version: ^1.0.0
 testImport:
 - package: github.com/stretchr/testify
 - package: github.com/rs/xid
