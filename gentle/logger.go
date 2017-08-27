@@ -11,8 +11,11 @@ type Logger interface {
 	Crit(msg string, fields ...interface{})
 
 	// Logger may support structured/contextual logging. Our Streams/Handlers
-	// will call package global logger.New("namespace", "namespace_specified",
-	// "name", "name_specified", "gentle", "stream/handler_type")
+	// by default will acquire an logger by calling package root logger
+	// gentle.Log.New(
+	//   "namespace", "namespace of this Stream/Handler",
+	//   "name", "name of this Stream/Handler",
+	//   "gentle", "type of this stream/handler")
 	New(fields ...interface{}) Logger
 }
 

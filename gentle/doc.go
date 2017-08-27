@@ -55,13 +55,13 @@ Example(error handling is omitted for brevity):
 
   // example continues in the next section
 
-Our Resilience Streams and Handlers
+Gentle-ments -- our resilience Streams and Handlers
 
 Resiliency patterns are indispensable in distributed systems because external
 services are not always reliable. Some useful patterns in the forms of
-Streams/Handlers are provided in this package. They include rate-limiting,
-retry(also known as back-off), bulkhead and circuit-breaker. Each of them can be
-freely composed with other Streams/Handlers as one sees fit.
+Streams/Handlers are provided in this package(pun to call them gentle-ments).
+They include rate-limiting, retry(a.k.a back-off), bulkhead and circuit-breaker.
+Each of them can be freely composed with other Streams/Handlers as one sees fit.
 
   NewRateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
   NewRetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
@@ -72,6 +72,11 @@ freely composed with other Streams/Handlers as one sees fit.
   NewRetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
   NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
   NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
+
+Generally, users call one of the option constructors like
+NewRetryHandlerOpts(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandlerOpts),
+to get an default option object which can be mutated for changing, for example
+its logger. Then, pass it it to one of the gentle-ment constructors above.
 
 Example(cont.):
 
@@ -97,8 +102,8 @@ Example(cont.):
 
 Composability
 
-Users may define Streams/Handlers to compose other ones the way they want(like
-how resilience Streams/Handlers are defined). For simple cases, there are helpers
+Like gentle-ments, users may define Streams/Handlers to compose other ones the
+way they want. For simple cases, there are helpers
 for chaining Streams/Handlers. Their semantic is that any failing element in the
 chain would skip the rest of all. Also note that any element can also be a
 nested chain itself.
@@ -106,7 +111,7 @@ nested chain itself.
   AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
   AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
 
-There are also helpers for chaining fallbacks.
+There are also helpers for chaining fallbacks with different semantics.
 
   AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
   AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)
@@ -114,48 +119,51 @@ There are also helpers for chaining fallbacks.
 Context Support
 
 Stream.Get() and Handler.Handle() both take context.Context. Context's common
-usage is to achieve request-scoped timeout. Our resilience Streams/Handlers
-respect timeout as much as possible and loyally pass the context to the
-user-defined upstreams or up-handlers which should also respect context's
-timeout.
+usage is to collaborate request-scoped timeout. Our gentle-ments respect timeout
+as much as possible and loyally pass the context to the user-defined upstreams
+or up-handlers which should also respect context's timeout.
 
 Thread Safety
 
-User-defined Stream.Get() and Handler.Handle() should be thread-safe. A good
+Stream.Get() and Handler.Handle() should be thread-safe. A good
 practice is to make Stream/Handler state-less. A Message needs not to be
-immutable but it's good to be so. That said, our resilience Streams/Handlers are
+immutable but it's good to be so. That said, gentle-ments' Get()/Handle() are
 all thread-safe and don't mutate Messages.
 
 Logging
 
-A logger must support the Logger interface.
+Users may plug in whatever logging library they like as long as it supports
+interface Logger(https://godoc.org/github.com/cfchou/go-gentle/gentle#Logger).
+Fans of log15 and logurs may check out the sibling package
+extra/log(https://godoc.org/github.com/cfchou/go-gentle/gentle/extra/log) for
+adapters already available at hand.
 
-There's a root logger gentle.Log. Moreover, every Stream/Handler has its own
-logger. It can be get/set via its options. Conceptually, each of these loggers
-is a child returned by gentle.Log.New(fields) where fields are key-value pairs:
+There's a root logger gentle.Log. Moreover, every gentle-ment has its own
+logger. Users can get/set the logger in an option object which is then be
+used to initialize a gentle-ment. By default, each of these loggers is a child
+returned by gentle.Log.New(fields) where fields are key-value pairs of:
  "namespace": "namespace of this Stream/Handler"
  "name": "name of this Stream/Handler"
  "gentle": "type of this Stream/Handler"
 
-By default we use log15(https://godoc.org/gopkg.in/inconshreveable/log15.v2).
-However, users may replace it with whatever library that supports Logger interface.
-Check out examples(https://github.com/cfchou/go-gentle/blob/master/gentle/example_logger_test.go)
-of how to use logrus logger.
-
 Logger interface doesn't have methods like SetHandler or SetLevel, because
-they are often implementation-dependent. Instead, you set up the logger and then
-assign it to gentle.Log or XxxxxOpts.Log. That way, we have fine-grained control
-over every Logger. Check out examples(https://github.com/cfchou/go-gentle/blob/master/gentle/example_logger_test.go)
-of how to setup logging level of the default log15 loggers.
+such functions are often implementation-dependent. Instead, you set up the
+logger and then assign it to gentle.Log or a gentle-ment's option. That way, we
+have fine-grained controls over logging. Check out the sibling package extra/log
+for examples.
 
+Metrics
 
-External References
+Currently there're three metric interfaces of metric collectors for gentle-ments:
 
-Some of our implementations make heavy use of third-party packages. It helps to
-checkout their documents.
+  Metric for RateLimitedStream/Handler, BulkheadStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#Metric)
+  RetryMetric for RetryStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryMetric)
+  CbMetric for CircuitStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CbMetric)
 
-  Circuit-breaker is based on hystrix-go(https://godoc.org/github.com/afex/hystrix-go/hystrix).
-  Rate-limiting is based on juju/ratelimit(https://godoc.org/github.com/juju/ratelimit).
+In the sibling package extra/metric(https://godoc.org/github.com/cfchou/go-gentle/gentle/extra/metric),
+we have provided statsd and prometheus implementations and examples. Generally,
+it's similar to Logger in that one can change an option's metric collector and
+use the option to create a gentle-ment.
 
 */
 package gentle

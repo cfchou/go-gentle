@@ -28,9 +28,6 @@ format:
 .PHONY: lint
 lint: format
 	golint $(PACKAGE)
-	@# Run again with magic to exit non-zero if golint outputs anything.
-	@! (golint ./gentle/... | read dummy)
-	go vet $(PACKAGE)
 
 .PHONY: cover
 cover: test

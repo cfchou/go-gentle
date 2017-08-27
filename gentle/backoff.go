@@ -25,7 +25,9 @@ const (
 	DefaultRandomizationFactor = 0.5
 )
 
-// BackOff provides a series of back-offs.
+// BackOff provides a series of back-offs. It should be treated one-off. That
+// is, when seeing the end(BackOffStop), it must no longer be used. If
+// necessary, ask BackOffFactory to get a new one.
 type BackOff interface {
 	// Next() returns duration-to-wait.
 	Next() time.Duration

@@ -8,10 +8,8 @@ import (
 )
 
 const (
-	// Types of resilience, are most often used with namespace & name to form a
-	// key.
-	// Since there's only one method for Stream/Handler, they are also used as
-	// operation names for opentracing spans.
+	// Types of resilience, are most often used with namespace & name to form an
+	// identifier in logging/metric/tracing.
 	StreamRateLimited  = "sRate"
 	StreamRetry        = "sRetry"
 	StreamBulkhead     = "sBulk"
