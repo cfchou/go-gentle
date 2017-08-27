@@ -104,8 +104,8 @@ func ExampleNewPromMetric() {
 }
 
 func ExampleNewPromRetryMetric() {
-	factory := gentle.NewConstantBackOffFactory(
-		gentle.NewConstantBackOffFactoryOpts(100*time.Millisecond, time.Second))
+	factory := gentle.NewConstBackOffFactory(
+		gentle.NewConstBackOffFactoryOpts(100*time.Millisecond, time.Second))
 	opts := gentle.NewRetryStreamOpts("", "test2", factory)
 	opts.RetryMetric, _ = NewPromRetryMetric(prom.HistogramOpts{
 		Help:      "duration of RetryStream.Get()",

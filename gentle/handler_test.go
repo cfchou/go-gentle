@@ -153,14 +153,14 @@ func TestRetryHandler_Handle_MockBackOff(t *testing.T) {
 	}
 }
 
-func TestRetryHandler_Handle_ConstantBackOff(t *testing.T) {
-	// Handle() retries with ConstantBackOff
+func TestRetryHandler_Handle_ConstBackOff(t *testing.T) {
+	// Handle() retries with ConstBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
-		backOffOpts := NewConstantBackOffFactoryOpts(time.Second, maxElapsedTime)
+		backOffOpts := NewConstBackOffFactoryOpts(time.Second, maxElapsedTime)
 		backOffOpts.Clock = mclock
-		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		backOffFactory := NewConstBackOffFactory(backOffOpts)
 		opts := NewRetryHandlerOpts("", "test", backOffFactory)
 		opts.Clock = mclock
 		mhandler := &MockHandler{}
@@ -202,18 +202,18 @@ func TestRetryHandler_Handle_ConstantBackOff(t *testing.T) {
 	}
 }
 
-func TestRetryHandler_Handle_ExponentialBackOff(t *testing.T) {
-	// Handle() retries with ExponentialBackOff
+func TestRetryHandler_Handle_ExpBackOff(t *testing.T) {
+	// Handle() retries with ExpBackOff
 	run := func(maxElapsedSec int) bool {
 		mclock := clock.NewMock()
 		maxElapsedTime := time.Duration(maxElapsedSec) * time.Second
-		backOffOpts := NewExponentialBackOffFactoryOpts(time.Second, 2,
+		backOffOpts := NewExpBackOffFactoryOpts(time.Second, 2,
 			128*time.Second, maxElapsedTime)
 		// No randomization to make the backoff time really exponential. Easier
 		// to examine log.
 		backOffOpts.RandomizationFactor = 0
 		backOffOpts.Clock = mclock
-		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		backOffFactory := NewExpBackOffFactory(backOffOpts)
 		opts := NewRetryHandlerOpts("", "test", backOffFactory)
 		opts.Clock = mclock
 		mhandler := &MockHandler{}
@@ -315,12 +315,12 @@ func TestRetryHandler_Handle_MockBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestRetryHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
-	// Context timeout interrupts Handle() with ConstantBackOff
+func TestRetryHandler_Handle_ConstBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Handle() with ConstBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
-		backOffOpts := NewConstantBackOffFactoryOpts(suspend, 0)
-		backOffFactory := NewConstantBackOffFactory(backOffOpts)
+		backOffOpts := NewConstBackOffFactoryOpts(suspend, 0)
+		backOffFactory := NewConstBackOffFactory(backOffOpts)
 		timeout := time.Duration(timeoutMs) * time.Millisecond
 		opts := NewRetryHandlerOpts("", "test", backOffFactory)
 		mhandler := &MockHandler{}
@@ -359,16 +359,16 @@ func TestRetryHandler_Handle_ConstantBackOff_Timeout(t *testing.T) {
 	}
 }
 
-func TestRetryHandler_Handle_ExponentialBackOff_Timeout(t *testing.T) {
-	// Context timeout interrupts Handle() with ExponentialBackOff
+func TestRetryHandler_Handle_ExpBackOff_Timeout(t *testing.T) {
+	// Context timeout interrupts Handle() with ExpBackOff
 	suspend := 10 * time.Millisecond
 	run := func(timeoutMs int) bool {
-		backOffOpts := NewExponentialBackOffFactoryOpts(suspend, 2,
+		backOffOpts := NewExpBackOffFactoryOpts(suspend, 2,
 			128*time.Second, 0)
 		// No randomization to make the backoff time really exponential. Easier
 		// to examine log.
 		backOffOpts.RandomizationFactor = 0
-		backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+		backOffFactory := NewExpBackOffFactory(backOffOpts)
 		timeout := time.Duration(timeoutMs) * time.Millisecond
 		opts := NewRetryHandlerOpts("", "test", backOffFactory)
 		mhandler := &MockHandler{}
@@ -595,16 +595,16 @@ func TestHandle_MsgDifferent(t *testing.T) {
 				mhandler)
 		}(),
 		func() Handler {
-			backOffOpts := NewConstantBackOffFactoryOpts(200*time.Millisecond,
+			backOffOpts := NewConstBackOffFactoryOpts(200*time.Millisecond,
 				time.Second)
-			backOffFactory := NewConstantBackOffFactory(backOffOpts)
+			backOffFactory := NewConstBackOffFactory(backOffOpts)
 			opts := NewRetryHandlerOpts("", "test", backOffFactory)
 			return NewRetryHandler(opts, mhandler)
 		}(),
 		func() Handler {
-			backOffOpts := NewExponentialBackOffFactoryOpts(
+			backOffOpts := NewExpBackOffFactoryOpts(
 				200*time.Millisecond, 2, time.Second, time.Second)
-			backOffFactory := NewExponentialBackOffFactory(backOffOpts)
+			backOffFactory := NewExpBackOffFactory(backOffOpts)
 			opts := NewRetryHandlerOpts("", "test", backOffFactory)
 			return NewRetryHandler(opts, mhandler)
 		}(),

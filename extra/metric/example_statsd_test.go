@@ -62,8 +62,8 @@ func ExampleNewStatsdRetryMetric() {
 	subPath := "example.test2.result"
 	retrySubPath := "example.test2.retry"
 	client, _ := statsd.NewClient("127.0.0.1:8125", "extra")
-	factory := gentle.NewConstantBackOffFactory(
-		gentle.NewConstantBackOffFactoryOpts(10*time.Millisecond, time.Second))
+	factory := gentle.NewConstBackOffFactory(
+		gentle.NewConstBackOffFactoryOpts(10*time.Millisecond, time.Second))
 	opts := gentle.NewRetryStreamOpts("", "test2", factory)
 	opts.RetryMetric = NewStatsdRetryMetric(subPath, retrySubPath, client)
 	opts.Log = log2.NewLog15Adapter(log15.New())
