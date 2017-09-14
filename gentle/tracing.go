@@ -13,14 +13,18 @@ import (
 type TracingRef int
 
 const (
+	// TracingDisabled indicates that tracing is not enabled regardless whether
+	// a span exists in the given context.
+	TracingDisabled TracingRef = iota
 	// TracingChildOf represents tracing causal reference ChildOf.
-	TracingChildOf TracingRef = iota
+	TracingChildOf
 	// TracingFollowsFrom represents tracing causal reference FromFrom.
 	TracingFollowsFrom
 )
 
 var (
 	errNoSpan           = errors.New("No parent span")
+	errTracingDisabled  = errors.New("Tracing disabled")
 	errTracingReference = errors.New("Unsupported tracing reference")
 	errNotEvenFields    = errors.New("Number of log fields is not even")
 	errFieldType        = errors.New("Not valid log field type")
@@ -161,6 +165,9 @@ func (l *spanLogger) New(fields ...interface{}) Logger { return l }
 func contextWithNewSpan(ctx context.Context, tracer opentracing.Tracer,
 	ref TracingRef) (context.Context, error) {
 
+	if ref == TracingDisabled {
+		return ctx, errTracingDisabled
+	}
 	prevSpan := opentracing.SpanFromContext(ctx)
 	if prevSpan == nil {
 		return ctx, errNoSpan

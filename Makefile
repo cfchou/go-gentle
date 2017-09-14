@@ -7,12 +7,10 @@ format-and-test: format test
 
 .PHONY: clean
 clean:
-	@rm -rf cover_*.out
+	@rm -rf cover_*.out *.log
 
 .PHONY: test
 test: clean
-	#go test -v -race -cover ./extra/...
-	#go test -v -race -cover ./gentle/... -quickchecks 50 -level crit
 	@rm -rf cover_*.out
 	go test -v -race -covermode=atomic -coverprofile=cover_all.out ./extra/log
 	go test -v -race -covermode=atomic -coverprofile=cover_extra_metric.out ./extra/metric

@@ -21,39 +21,42 @@ use a function as a Stream/Handler.
 
 Example(error handling is omitted for brevity):
 
-  // GameScore implements gentle.Message interface
-  type GameScore struct {
-    id string // better to be unique for tracing the log
-    score int
-  }
+	// GameScore implements gentle.Message interface
+	type GameScore struct {
+		id string // better to be unique for tracing its log
+		score int
+	}
 
-  func (s GameScore) ID() string {
-    return s.id
-  }
+	// ID is the only method that a gentle.Message must have
+	func (s GameScore) ID() string {
+		return s.id
+	}
 
-  func parseGameScore(bs []byte) *GameScore {
-    // ...
-  }
+	func parseGameScore(body io.Reader) *GameScore {
+		// ...
+	}
 
-  // query is a Stream that calls a restful api to get game score
-  var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
-    resp, _ := http.Get("https://get_game_score_api")
-    defer resp.Body.Close()
-    score := parseGameScore(resp.Body)
-    return score, nil
-  }
+	// Implement a gentle.Stream which queries a restful api to get a game score.
+	// For simple case like this, we can define the logic to be a gentle.SimpleStream.
+	var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
+		resp, _ := http.Get("https://get_game_score_api")
+		defer resp.Body.Close()
+		score := parseGameScore(resp.Body)
+		return score, nil
+	}
 
-  // writeDB is a Handler that saves game score to the database
-  var writeDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
-    score := strconv.Itoa(msg.(*GameScore).score)
-    db, _ := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
-    defer db.Close()
-    stmt, _ := db.Prepare("UPDATE games SET score = $1 WHERE name = mygame")
-    stmt.Exec(score)
-    return msg, nil
-  }
+	// Implement a gentle.Handler which saves game scores to a database. For simple
+	// case like this, we can define the logic to be a gentle.SimpleHandler.
+	var writeDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
+		score := strconv.Itoa(msg.(*GameScore).score)
+		db, _ := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
+		defer db.Close()
+		stmt, _ := db.Prepare("UPDATE games SET score = $1 WHERE name = mygame")
+		stmt.Exec(score)
+		return msg, nil
+	}
 
-  // example continues in the next section
+	// example continues in the next section
 
 Gentle-ments -- our resilience Streams and Handlers
 
@@ -80,24 +83,37 @@ its logger. Then, pass it it to one of the gentle-ment constructors above.
 
 Example(cont.):
 
-  // rate-limit the queries while allowing burst
-  gentleQuery := gentle.NewRateLimitedStream(
-    gentle.NewRateLimitedStreamOpts("", "myApp",
-      gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
-    query)
+	func main() {
+		// Rate-limit the queries while allowing burst
+		gentleQuery := gentle.NewRateLimitedStream(
+			gentle.NewRateLimitedStreamOpts("myApp", "rlQuery",
+				gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
+				query)
 
-  // limit concurrent writeDb
-  gentleWriteDb := gentle.NewBulkheadHandler(
-    gentle.NewBulkheadHandlerOpts("", "myApp", 16),
-    writeDb)
+		// Limit concurrent writeDb
+		limitedWriteDb := gentle.NewBulkheadHandler(
+			gentle.NewBulkheadHandlerOpts("myApp", "bkWrite", 16),
+			writeDb)
 
-  stream := gentle.AppendHandlersStream(gentleQuery, gentleWriteDb)
+		// Constantly backing off when limitedWriteDb returns ErrMaxConcurrency
+		backoffFactory := gentle.NewConstBackOffFactory(
+			gentle.NewConstBackOffFactoryOpts(500*time.Millisecond, 5*time.Minute))
+		gentleWriteDb := gentle.NewRetryHandler(
+			gentle.NewRetryHandlerOpts("myApp", "rtWrite", backoffFactory),
+			limitedWriteDb)
 
-  http.Handle("/refresh", func(w http.ResponseWriter, r *http.Request) {
-    msg, err := stream.Get(r.context)
-    ...
-  })
-  http.ListenAndServe(":12345", nil)
+		// Compose the final Stream
+		stream := gentle.AppendHandlersStream(gentleQuery, gentleWriteDb)
+
+		// Keep fetching scores from the remote service to our database.
+		// The amount of simultaneous go-routines are capped by the size of ticketPool.
+		ticketPool := make(chan struct{}, 1000)
+		for {
+			ticketPool <- struct{}{}
+			go stream.Get(context.Background())
+			<-ticketPool
+		}
+	}
 
 
 Composability
@@ -138,10 +154,11 @@ Fans of log15 and logurs may check out the sibling package
 extra/log(https://godoc.org/github.com/cfchou/go-gentle/extra/log) for
 adapters already available at hand.
 
-There's a root logger gentle.Log. Moreover, every gentle-ment has its own
-logger. Users can get/set the logger in an option object which is then be
-used to initialize a gentle-ment. By default, each of these loggers is a child
-returned by gentle.Log.New(fields) where fields are key-value pairs of:
+There's a root logger gentle.Log which if not specified is a no-op logger.
+Every gentle-ment has its own logger. Users can get/set the logger in the option
+object which is then be used to initialize a gentle-ment. By default, each of
+these loggers is a child returned by gentle.Log.New(fields) where fields are
+key-value pairs of:
  "namespace": "namespace of this Stream/Handler"
  "name": "name of this Stream/Handler"
  "gentle": "type of this Stream/Handler"
@@ -161,9 +178,19 @@ Currently there're three metric interfaces of metrics collectors for gentle-ment
   CbMetric for CircuitStream/Handler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CbMetric)
 
 In the sibling package extra/metric(https://godoc.org/github.com/cfchou/go-gentle/extra/metric),
-we have provided implementations for prometheus and statsd and examples. Generally,
-it's similar to Logger in that one can change an option's metrics collector and
-use the option to create a gentle-ment.
+we have provided implementations for prometheus and statsd and examples.
+Generally, it's similar to Logger in that one can change an option's metrics
+collector before creating a gentle-ment. By default, metrics collectors are all
+no-op.
+
+OpenTracing
+
+Gentle-ments integrate OpenTracing(https://github.com/opentracing/opentracing-go).
+Users may create a span in the root context which is then passed around by
+Streams/Handlers. Gentle-ments' options come with a opentracing.Tracer which is
+by default a global tracer. There's an example of using Uber's jaeger as the
+backend(https://github.com/cfchou/go-gentle/blob/master/extra/tracing/jaeger.go).
+
 
 */
 package gentle
