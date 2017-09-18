@@ -34,7 +34,7 @@
 
 ## Done
 * Opts passed by addr
-* Make XXXStream/Handler xXXStgream/Handler
+* Make Xxxxtream/Handler xXXXStgream/Handler
 * NewMockHandler/Stream(*mock.Mock)
 * Remove Semaphore because it blocks so it's not resilient. Or move it to package extra
 * Improve Observe(value, labels, optional data). remove Unused MX_XXXX.

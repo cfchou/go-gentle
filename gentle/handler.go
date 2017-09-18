@@ -12,12 +12,15 @@ import (
 // SimpleHandler turns a function into a Handler
 type SimpleHandler func(context.Context, Message) (Message, error)
 
+// Handle() handles the incoming message.
 func (r SimpleHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	return r(ctx, msg)
 }
 
-// Common options for XXXHandlerOpts
-type handlerOpts struct {
+// HandlerOpts is options that every XxxxHandlerOpts must have.
+type HandlerOpts struct {
+	// Namespace and Name are for logically organizing Streams/Handlers. They
+	// appear along with the type of resilience in log or tracing
 	Namespace  string
 	Name       string
 	Log        Logger
@@ -25,7 +28,7 @@ type handlerOpts struct {
 	TracingRef TracingRef
 }
 
-// Common fields for XXXHandler
+// Common fields for XxxxHandler
 type handlerFields struct {
 	namespace  string
 	name       string
@@ -34,7 +37,7 @@ type handlerFields struct {
 	tracingRef TracingRef
 }
 
-func newHandlerFields(opts *handlerOpts) *handlerFields {
+func newHandlerFields(opts *HandlerOpts) *handlerFields {
 	return &handlerFields{
 		namespace:  opts.Namespace,
 		name:       opts.Name,
@@ -44,15 +47,17 @@ func newHandlerFields(opts *handlerOpts) *handlerFields {
 	}
 }
 
+// RateLimitedHandlerOpts contains options that'll be used by NewRateLimitedHandler().
 type RateLimitedHandlerOpts struct {
-	handlerOpts
+	HandlerOpts
 	Metric  Metric
 	Limiter RateLimit
 }
 
+// NewRateLimitedHandlerOpts() returns RateLimitedHandlerOpts with default values.
 func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateLimitedHandlerOpts {
 	return &RateLimitedHandlerOpts{
-		handlerOpts: handlerOpts{
+		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -73,9 +78,11 @@ type rateLimitedHandler struct {
 	handler Handler
 }
 
+// NewRateLimitedHandler() creates a Handler that runs the up-handler in a
+// rate-limited manner.
 func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) Handler {
 	return &rateLimitedHandler{
-		handlerFields: newHandlerFields(&opts.handlerOpts),
+		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		metric:        opts.Metric,
 		limiter:       opts.Limiter,
 		handler:       handler,
@@ -126,8 +133,9 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	return msgOut, nil
 }
 
+// RetryHandlerOpts contains options that'll be used by NewRetryHandler().
 type RetryHandlerOpts struct {
-	handlerOpts
+	HandlerOpts
 	RetryMetric RetryMetric
 	// TODO
 	// remove the dependency to package clock for this exported symbol
@@ -135,9 +143,10 @@ type RetryHandlerOpts struct {
 	BackOffFactory BackOffFactory
 }
 
+// NewRetryHandlerOpts() returns RetryHandlerOpts with default values.
 func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) *RetryHandlerOpts {
 	return &RetryHandlerOpts{
-		handlerOpts: handlerOpts{
+		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
@@ -163,7 +172,7 @@ type retryHandler struct {
 
 func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) Handler {
 	return &retryHandler{
-		handlerFields:  newHandlerFields(&opts.handlerOpts),
+		handlerFields:  newHandlerFields(&opts.HandlerOpts),
 		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -262,18 +271,21 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	}
 }
 
+// BulkheadHandlerOpts contains options that'll be used by NewBulkheadHandler().
 type BulkheadHandlerOpts struct {
-	handlerOpts
-	Metric         Metric
+	HandlerOpts
+	Metric Metric
+	// MaxConcurrency limits the amount of concurrent Handle()
 	MaxConcurrency int
 }
 
+// NewBulkheadHandlerOpts() returns BulkHandlerOpts with default values.
 func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *BulkheadHandlerOpts {
 	if maxConcurrency <= 0 {
 		panic(errors.New("maxConcurrent must be greater than 0"))
 	}
 	return &BulkheadHandlerOpts{
-		handlerOpts: handlerOpts{
+		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -298,7 +310,7 @@ type bulkheadHandler struct {
 func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 
 	return &bulkheadHandler{
-		handlerFields: newHandlerFields(&opts.handlerOpts),
+		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		metric:        opts.Metric,
 		handler:       handler,
 		semaphore:     make(chan struct{}, opts.MaxConcurrency),
@@ -344,23 +356,20 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 	}
 }
 
-func (r *bulkheadHandler) GetMaxConcurrency() int {
-	return cap(r.semaphore)
-}
-
-func (r *bulkheadHandler) GetCurrentConcurrency() int {
-	return len(r.semaphore)
-}
-
+// CircuitHandlerOpts contains options that'll be used by NewCircuitHandler().
 type CircuitHandlerOpts struct {
-	handlerOpts
+	HandlerOpts
+	// CbMetric is the circuit's metric collector. Default is no-op.
 	CbMetric CbMetric
-	Circuit  string
+	// Circuit is the name of the circuit-breaker to create. Each circuit-breaker
+	// must have an unique name associated to its CircuitConf and internal hystrix metrics.
+	Circuit string
 }
 
+// NewCircuitHandlerOpts() returns CircuitHandlerOpts with default values.
 func NewCircuitHandlerOpts(namespace, name, circuit string) *CircuitHandlerOpts {
 	return &CircuitHandlerOpts{
-		handlerOpts: handlerOpts{
+		HandlerOpts: HandlerOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -382,11 +391,11 @@ type circuitHandler struct {
 }
 
 // In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitStream() creates a circuitStream with a
+// NewCircuitHandler() creates a circuitHandler with a
 // circuit-breaker named $circuit.
 func NewCircuitHandler(opts *CircuitHandlerOpts, handler Handler) Handler {
 	return &circuitHandler{
-		handlerFields: newHandlerFields(&opts.handlerOpts),
+		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		cbMetric:      opts.CbMetric,
 		circuit:       opts.Circuit,
 		handler:       handler,

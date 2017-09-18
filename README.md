@@ -1,5 +1,3 @@
-# Document is a work-in-progress
-
 ## Go-gentle
 [![GoDoc](https://godoc.org/github.com/cfchou/go-gentle/gentle?status.svg)](https://godoc.org/github.com/cfchou/go-gentle/gentle) [![Build Status](https://travis-ci.org/cfchou/go-gentle.png?branch=master)](https://travis-ci.org/cfchou/go-gentle) [![Go Report](https://goreportcard.com/badge/gopkg.in/cfchou/go-gentle.v3)](https://goreportcard.com/report/gopkg.in/cfchou/go-gentle.v3) [![Coverage Status](https://coveralls.io/repos/github/cfchou/go-gentle/badge.svg?branch=master)](https://coveralls.io/github/cfchou/go-gentle?branch=master)
 
@@ -8,6 +6,7 @@ Talk to external services like a gentleman.
 ## Intro
 Package __gentle__ defines __Stream__ and __Handler__ interfaces and provides
 composable resilient implementations(conveniently called __gentle-ments__).
+Please refer to this [comprehensive overview](https://godoc.org/github.com/cfchou/go-gentle/gentle/#pkg-overview). 
 
 Package __extra__  provides supplement components for __gentle__.
 
@@ -19,8 +18,8 @@ Error handling is omitted for brevity.
 ```
 // GameScore implements gentle.Message interface
 type GameScore struct {
-	id string // better to be unique for tracing its log
-	score int
+	id string // better to be unique for tracing it in log
+	Score int
 }
 
 // ID is the only method that a gentle.Message must have
@@ -28,27 +27,33 @@ func (s GameScore) ID() string {
 	return s.id
 }
 
-func parseGameScore(body io.Reader) *GameScore {
-	// ...
+// scoreStream is a gentle.Stream that wraps an API call to an external service for
+// getting game scores.
+// For simple cases that the logic can be defined entirely in a function, we can
+// to just define it to be a gentle.SimpleStream.
+var scoreStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
+	// simulate a result from an external service
+	return &GameScore{
+		id: "",
+		Score: rand.Intn(100),
+	}, nil
 }
 
-// Implement a gentle.Stream which queries a restful api to get a game score.
-// For simple case like this, we can define the logic to be a gentle.SimpleStream.
-var query gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
-	resp, _ := http.Get("https://get_game_score_api")
-	defer resp.Body.Close()
-	score := parseGameScore(resp.Body)
-	return score, nil
+// DbWriter is a gentle.Handler which writes scores to the database.
+// Instead of using gentle.SimpleHandler, we define a struct explicitly
+// implementing gentle.Handler interface.
+type DbWriter struct {
+	db *sql.DB
+	table string
 }
 
-// Implement a gentle.Handler which saves game scores to a database. For simple
-// case like this, we can define the logic to be a gentle.SimpleHandler.
-var writeDb gentle.SimpleHandler = func(_ context.Context, msg gentle.Message) (gentle.Message, error) {
-	score := strconv.Itoa(msg.(*GameScore).score)
-	db, _ := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/hello")
-	defer db.Close()
-	stmt, _ := db.Prepare("UPDATE games SET score = $1 WHERE name = mygame")
-	stmt.Exec(score)
+func (h *DbWriter) Handle(_ context.Context, msg gentle.Message) (gentle.Message, error) {
+	gameScore := msg.(*GameScore)
+	statement := fmt.Sprintf("INSERT INTO %s (score, date) VALUES (?, DATETIME());", h.table)
+	_, err := h.db.Exec(statement, gameScore.Score)
+	if err != nil {
+		return nil, err
+	}
 	return msg, nil
 }
 ```
@@ -58,26 +63,36 @@ __gentle-ments__(resilience Streams/Handlers defined in package gentle).
 
 ```
 func main() {
-	// Rate-limit the queries while allowing burst
-	gentleQuery := gentle.NewRateLimitedStream(
+	db, _ := sql.Open("sqlite3", "scores.sqlite")
+	defer db.Close()
+	db.Exec("DROP TABLE IF EXISTS game;")
+	db.Exec("CREATE TABLE game (score INTEGER, date DATETIME);")
+
+	dbWriter := &DbWriter{
+		db: db,
+		table: "game",
+	}
+
+	// Rate-limit the queries while allowing burst of some
+	gentleScoreStream := gentle.NewRateLimitedStream(
 		gentle.NewRateLimitedStreamOpts("myApp", "rlQuery",
-			gentle.NewTokenBucketRateLimit(300*time.Millisecond, 5)),
-			query)
+			gentle.NewTokenBucketRateLimit(500*time.Millisecond, 5)),
+		scoreStream)
 
-	// Limit concurrent writeDb
-	limitedWriteDb := gentle.NewBulkheadHandler(
+	// Limit concurrent writes to Db
+	limitedDbWriter := gentle.NewBulkheadHandler(
 		gentle.NewBulkheadHandlerOpts("myApp", "bkWrite", 16),
-		writeDb)
+		dbWriter)
 
-	// Constantly backing off when limitedWriteDb returns ErrMaxConcurrency
+	// Constantly backing off when limitedDbWriter returns an error
 	backoffFactory := gentle.NewConstBackOffFactory(
 		gentle.NewConstBackOffFactoryOpts(500*time.Millisecond, 5*time.Minute))
-	gentleWriteDb := gentle.NewRetryHandler(
+	gentleDbWriter := gentle.NewRetryHandler(
 		gentle.NewRetryHandlerOpts("myApp", "rtWrite", backoffFactory),
-		limitedWriteDb)
+		limitedDbWriter)
 
 	// Compose the final Stream
-	stream := gentle.AppendHandlersStream(gentleQuery, gentleWriteDb)
+	stream := gentle.AppendHandlersStream(gentleScoreStream, gentleDbWriter)
 
 	// Keep fetching scores from the remote service to our database.
 	// The amount of simultaneous go-routines are capped by the size of ticketPool.
@@ -86,9 +101,11 @@ func main() {
 		ticketPool <- struct{}{}
 		go stream.Get(context.Background())
 		<-ticketPool
-	}	
+	}
 }
 ```
+
+[Full example](https://gist.github.com/c2ac4060aaf0fcada38a3d85b3c07a71)
 
 ## Install
 

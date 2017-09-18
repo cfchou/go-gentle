@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	// Types of resilience, are most often used with namespace & name to form an
-	// identifier in logging/metric/tracing.
+	// StreamRateLimited and other constants are types of resilience.
+	// They are most often used with namespace & name to form an identifier in
+	// logging/metric/tracing.
 	StreamRateLimited  = "sRate"
 	StreamRetry        = "sRetry"
 	StreamBulkhead     = "sBulk"
@@ -52,6 +53,7 @@ type Message interface {
 // SimpleMessage essentially wraps a string to be a Message.
 type SimpleMessage string
 
+// ID() return's the identifier of the SimpleMessage.
 func (m SimpleMessage) ID() string {
 	return string(m)
 }
@@ -76,6 +78,7 @@ func CircuitReset() {
 	hystrix.Flush()
 }
 
+// CircuitConf is the configuration of a circuit-breaker.
 type CircuitConf struct {
 	// Timeout is how long to wait for command to complete
 	Timeout time.Duration
@@ -94,7 +97,7 @@ type CircuitConf struct {
 }
 
 const (
-	// Default configuration for a circuitbreaker
+	// Default values of a CircuitConf
 	DefaultCbTimeout             = 10 * time.Second
 	DefaultCbMaxConcurrent       = 1024
 	DefaultCbVolumeThreshold     = 20
@@ -102,6 +105,7 @@ const (
 	DefaultCbSleepWindow         = 5 * time.Second
 )
 
+// NewDefaultCircuitConf() returns a CircuitConf with default values.
 func NewDefaultCircuitConf() *CircuitConf {
 	return &CircuitConf{
 		Timeout:               DefaultCbTimeout,
@@ -112,6 +116,7 @@ func NewDefaultCircuitConf() *CircuitConf {
 	}
 }
 
+// RegisterFor() applies the CircuitConf to a circuit-breaker identified by its name.
 func (c *CircuitConf) RegisterFor(circuit string) {
 	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{
 		Timeout:                int(c.Timeout / time.Millisecond),

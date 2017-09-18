@@ -16,7 +16,7 @@ func (r SimpleStream) Get(ctx context.Context) (Message, error) {
 	return r(ctx)
 }
 
-// Common options for XXXStreamOpts
+// Common options for XxxxStreamOpts
 type streamOpts struct {
 	Namespace  string
 	Name       string
@@ -25,7 +25,7 @@ type streamOpts struct {
 	TracingRef TracingRef
 }
 
-// Common fields for XXXStream
+// Common fields for XxxxStream
 type streamFields struct {
 	namespace  string
 	name       string
