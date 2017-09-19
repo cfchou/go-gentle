@@ -12,7 +12,7 @@ import (
 // SimpleHandler turns a function into a Handler
 type SimpleHandler func(context.Context, Message) (Message, error)
 
-// Handle() handles the incoming message.
+// Handle handles the incoming message.
 func (r SimpleHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	return r(ctx, msg)
 }
@@ -47,14 +47,14 @@ func newHandlerFields(opts *HandlerOpts) *handlerFields {
 	}
 }
 
-// RateLimitedHandlerOpts contains options that'll be used by NewRateLimitedHandler().
+// RateLimitedHandlerOpts contains options that'll be used by NewRateLimitedHandler.
 type RateLimitedHandlerOpts struct {
 	HandlerOpts
 	Metric  Metric
 	Limiter RateLimit
 }
 
-// NewRateLimitedHandlerOpts() returns RateLimitedHandlerOpts with default values.
+// NewRateLimitedHandlerOpts returns RateLimitedHandlerOpts with default values.
 func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateLimitedHandlerOpts {
 	return &RateLimitedHandlerOpts{
 		HandlerOpts: HandlerOpts{
@@ -70,27 +70,26 @@ func NewRateLimitedHandlerOpts(namespace, name string, limiter RateLimit) *RateL
 	}
 }
 
-// Rate limiting pattern is used to limit the speed of a series of Handle().
-type rateLimitedHandler struct {
+// RateLimitedHandler is a Handler that runs the up-handler in a rate-limited manner.
+type RateLimitedHandler struct {
 	*handlerFields
 	metric  Metric
 	limiter RateLimit
 	handler Handler
 }
 
-// NewRateLimitedHandler() creates a Handler that runs the up-handler in a
-// rate-limited manner.
-func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, handler Handler) Handler {
-	return &rateLimitedHandler{
+// NewRateLimitedHandler creates a RateLimitedHandler.
+func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, upHandler Handler) Handler {
+	return &RateLimitedHandler{
 		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		metric:        opts.Metric,
 		limiter:       opts.Limiter,
-		handler:       handler,
+		handler:       upHandler,
 	}
 }
 
-// Handle() is blocked when the limit is reached.
-func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+// Handle blocks when requests coming too fast.
+func (r *RateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
@@ -133,17 +132,18 @@ func (r *rateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	return msgOut, nil
 }
 
-// RetryHandlerOpts contains options that'll be used by NewRetryHandler().
+// RetryHandlerOpts contains options that'll be used by NewRetryHandler.
 type RetryHandlerOpts struct {
 	HandlerOpts
 	RetryMetric RetryMetric
 	// TODO
 	// remove the dependency to package clock for this exported symbol
-	Clock          clock.Clock
+	Clock clock.Clock
+	// BackOffFactory for instantiating BackOff objects
 	BackOffFactory BackOffFactory
 }
 
-// NewRetryHandlerOpts() returns RetryHandlerOpts with default values.
+// NewRetryHandlerOpts returns RetryHandlerOpts with default values.
 func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) *RetryHandlerOpts {
 	return &RetryHandlerOpts{
 		HandlerOpts: HandlerOpts{
@@ -160,9 +160,8 @@ func NewRetryHandlerOpts(namespace, name string, backOffFactory BackOffFactory) 
 	}
 }
 
-// retryHandler takes an Handler. When Handler.Handle() encounters an error,
-// retryHandler back off for some time and then retries.
-type retryHandler struct {
+// RetryHandler is a Handler that retries the up-handler with back-offs.
+type RetryHandler struct {
 	*handlerFields
 	retryMetric    RetryMetric
 	clock          clock.Clock
@@ -170,17 +169,19 @@ type retryHandler struct {
 	handler        Handler
 }
 
-func NewRetryHandler(opts *RetryHandlerOpts, handler Handler) Handler {
-	return &retryHandler{
+// NewRetryHandler creates a RetryHandler.
+func NewRetryHandler(opts *RetryHandlerOpts, upHandler Handler) Handler {
+	return &RetryHandler{
 		handlerFields:  newHandlerFields(&opts.HandlerOpts),
 		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
-		handler:        handler,
+		handler:        upHandler,
 	}
 }
 
-func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+// Handle retries with back-offs when up-handler returns an error.
+func (r *RetryHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
@@ -271,7 +272,7 @@ func (r *retryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	}
 }
 
-// BulkheadHandlerOpts contains options that'll be used by NewBulkheadHandler().
+// BulkheadHandlerOpts contains options that'll be used by NewBulkheadHandler.
 type BulkheadHandlerOpts struct {
 	HandlerOpts
 	Metric Metric
@@ -279,7 +280,7 @@ type BulkheadHandlerOpts struct {
 	MaxConcurrency int
 }
 
-// NewBulkheadHandlerOpts() returns BulkHandlerOpts with default values.
+// NewBulkheadHandlerOpts returns BulkheadHandlerOpts with default values.
 func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *BulkheadHandlerOpts {
 	if maxConcurrency <= 0 {
 		panic(errors.New("maxConcurrent must be greater than 0"))
@@ -298,18 +299,18 @@ func NewBulkheadHandlerOpts(namespace, name string, maxConcurrency int) *Bulkhea
 	}
 }
 
-type bulkheadHandler struct {
+// BulkheadHandler is a Handler that limits concurrent access to the up-handler.
+type BulkheadHandler struct {
 	*handlerFields
 	metric    Metric
 	handler   Handler
 	semaphore chan struct{}
 }
 
-// Create a bulkheadHandler that allows at maximum $max_concurrency Handle() to
-// run concurrently.
+// NewBulkheadHandler creates a BulkheadHandler.
 func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 
-	return &bulkheadHandler{
+	return &BulkheadHandler{
 		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		metric:        opts.Metric,
 		handler:       handler,
@@ -317,8 +318,8 @@ func NewBulkheadHandler(opts *BulkheadHandlerOpts, handler Handler) Handler {
 	}
 }
 
-// Handle() returns ErrMaxConcurrency when passing the threshold.
-func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+// Handle returns ErrMaxConcurrency when running over the threshold.
+func (r *BulkheadHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
@@ -356,7 +357,7 @@ func (r *bulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 	}
 }
 
-// CircuitHandlerOpts contains options that'll be used by NewCircuitHandler().
+// CircuitHandlerOpts contains options that'll be used by NewCircuitHandler.
 type CircuitHandlerOpts struct {
 	HandlerOpts
 	// CbMetric is the circuit's metric collector. Default is no-op.
@@ -366,7 +367,9 @@ type CircuitHandlerOpts struct {
 	Circuit string
 }
 
-// NewCircuitHandlerOpts() returns CircuitHandlerOpts with default values.
+// NewCircuitHandlerOpts returns CircuitHandlerOpts with default values.
+// Note that circuit is the name of the circuit. Every circuit must have a unique
+// name that maps to its CircuitConf.
 func NewCircuitHandlerOpts(namespace, name, circuit string) *CircuitHandlerOpts {
 	return &CircuitHandlerOpts{
 		HandlerOpts: HandlerOpts{
@@ -383,18 +386,17 @@ func NewCircuitHandlerOpts(namespace, name, circuit string) *CircuitHandlerOpts 
 	}
 }
 
-type circuitHandler struct {
+// CircuitHandler is a Handler that guards the up-handler with a circuit-breaker.
+type CircuitHandler struct {
 	*handlerFields
 	cbMetric CbMetric
 	circuit  string
 	handler  Handler
 }
 
-// In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitHandler() creates a circuitHandler with a
-// circuit-breaker named $circuit.
+// NewCircuitHandler creates a CircuitHandler.
 func NewCircuitHandler(opts *CircuitHandlerOpts, handler Handler) Handler {
-	return &circuitHandler{
+	return &CircuitHandler{
 		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		cbMetric:      opts.CbMetric,
 		circuit:       opts.Circuit,
@@ -402,7 +404,10 @@ func NewCircuitHandler(opts *CircuitHandlerOpts, handler Handler) Handler {
 	}
 }
 
-func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, error) {
+// Handle may return errors that generated by the up-handler. Moreover, it could
+// return errors from CircuitHandler itself including ErrCircuitOpen,
+// ErrCbMaxConcurrency and ErrCbTimeout.
+func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
@@ -467,6 +472,7 @@ func (r *circuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 	return msgOut, nil
 }
 
-func (r *circuitHandler) GetCircuitName() string {
+// GetCircuitName returns the name of the circuit-breaker.
+func (r *CircuitHandler) GetCircuitName() string {
 	return r.circuit
 }
