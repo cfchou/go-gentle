@@ -53,7 +53,7 @@ type Message interface {
 // SimpleMessage essentially wraps a string to be a Message.
 type SimpleMessage string
 
-// ID() return's the identifier of the SimpleMessage.
+// ID return's the identifier of the SimpleMessage.
 func (m SimpleMessage) ID() string {
 	return string(m)
 }
@@ -105,7 +105,7 @@ const (
 	DefaultCbSleepWindow         = 5 * time.Second
 )
 
-// NewDefaultCircuitConf() returns a CircuitConf with default values.
+// NewDefaultCircuitConf returns a CircuitConf with default values.
 func NewDefaultCircuitConf() *CircuitConf {
 	return &CircuitConf{
 		Timeout:               DefaultCbTimeout,
@@ -116,7 +116,7 @@ func NewDefaultCircuitConf() *CircuitConf {
 	}
 }
 
-// RegisterFor() applies the CircuitConf to a circuit-breaker identified by its name.
+// RegisterFor applies the CircuitConf to a circuit-breaker identified by its name.
 func (c *CircuitConf) RegisterFor(circuit string) {
 	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{
 		Timeout:                int(c.Timeout / time.Millisecond),

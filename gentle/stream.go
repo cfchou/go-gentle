@@ -16,8 +16,8 @@ func (r SimpleStream) Get(ctx context.Context) (Message, error) {
 	return r(ctx)
 }
 
-// Common options for XxxxStreamOpts
-type streamOpts struct {
+// StreamOpts is options that every XxxxStreamOpts must have.
+type StreamOpts struct {
 	Namespace  string
 	Name       string
 	Log        Logger
@@ -34,7 +34,7 @@ type streamFields struct {
 	tracingRef TracingRef
 }
 
-func newStreamFields(opts *streamOpts) *streamFields {
+func newStreamFields(opts *StreamOpts) *streamFields {
 	return &streamFields{
 		namespace:  opts.Namespace,
 		name:       opts.Name,
@@ -45,14 +45,14 @@ func newStreamFields(opts *streamOpts) *streamFields {
 }
 
 type RateLimitedStreamOpts struct {
-	streamOpts
+	StreamOpts
 	Metric  Metric
 	Limiter RateLimit
 }
 
 func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLimitedStreamOpts {
 	return &RateLimitedStreamOpts{
-		streamOpts: streamOpts{
+		StreamOpts: StreamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -75,7 +75,7 @@ type rateLimitedStream struct {
 
 func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
 	return &rateLimitedStream{
-		streamFields: newStreamFields(&opts.streamOpts),
+		streamFields: newStreamFields(&opts.StreamOpts),
 		metric:       opts.Metric,
 		limiter:      opts.Limiter,
 		stream:       upstream,
@@ -132,7 +132,7 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 }
 
 type RetryStreamOpts struct {
-	streamOpts
+	StreamOpts
 	RetryMetric RetryMetric
 	// TODO
 	// remove the dependency to package clock for this exported symbol
@@ -142,7 +142,7 @@ type RetryStreamOpts struct {
 
 func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *RetryStreamOpts {
 	return &RetryStreamOpts{
-		streamOpts: streamOpts{
+		StreamOpts: StreamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
@@ -168,7 +168,7 @@ type retryStream struct {
 
 func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
 	return &retryStream{
-		streamFields:   newStreamFields(&opts.streamOpts),
+		streamFields:   newStreamFields(&opts.StreamOpts),
 		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
 		backOffFactory: opts.BackOffFactory,
@@ -267,7 +267,7 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 }
 
 type BulkheadStreamOpts struct {
-	streamOpts
+	StreamOpts
 	Metric         Metric
 	MaxConcurrency int
 }
@@ -278,7 +278,7 @@ func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *Bulkhead
 	}
 
 	return &BulkheadStreamOpts{
-		streamOpts: streamOpts{
+		StreamOpts: StreamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace, "gentle",
@@ -305,7 +305,7 @@ type bulkheadStream struct {
 // run concurrently.
 func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
 	return &bulkheadStream{
-		streamFields: newStreamFields(&opts.streamOpts),
+		streamFields: newStreamFields(&opts.StreamOpts),
 		metric:       opts.Metric,
 		stream:       upstream,
 		semaphore:    make(chan struct{}, opts.MaxConcurrency),
@@ -359,14 +359,14 @@ func (r *bulkheadStream) GetCurrentConcurrency() int {
 }
 
 type CircuitStreamOpts struct {
-	streamOpts
+	StreamOpts
 	CbMetric CbMetric
 	Circuit  string
 }
 
 func NewCircuitStreamOpts(namespace, name, circuit string) *CircuitStreamOpts {
 	return &CircuitStreamOpts{
-		streamOpts: streamOpts{
+		StreamOpts: StreamOpts{
 			Namespace: namespace,
 			Name:      name,
 			Log: Log.New("namespace", namespace,
@@ -401,7 +401,7 @@ func NewCircuitStream(opts *CircuitStreamOpts, stream Stream) Stream {
 	}
 
 	return &circuitStream{
-		streamFields: newStreamFields(&opts.streamOpts),
+		streamFields: newStreamFields(&opts.StreamOpts),
 		cbMetric:     opts.CbMetric,
 		circuit:      opts.Circuit,
 		stream:       stream,

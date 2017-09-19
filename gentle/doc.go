@@ -28,7 +28,7 @@ Example:
 		Score int
 	}
 
-	// ID is the only method that a gentle.Message must have
+	// a gentle.Message must support ID
 	func (s GameScore) ID() string {
 		return s.id
 	}
@@ -36,7 +36,7 @@ Example:
 	// scoreStream is a gentle.Stream that wraps an API call to an external service for
 	// getting game scores.
 	// For simple cases that the logic can be defined entirely in a function, we can
-	// to just define it to be a gentle.SimpleStream.
+	// simply define it to be a gentle.SimpleStream.
 	var scoreStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
 		// simulate a result from an external service
 		return &GameScore{
@@ -45,7 +45,7 @@ Example:
 		}, nil
 	}
 
-	// DbWriter is a gentle.Handler which writes scores to the database.
+	// DbWriter is a gentle.Handler that writes scores to the database.
 	// Instead of using gentle.SimpleHandler, we define a struct explicitly
 	// implementing gentle.Handler interface.
 	type DbWriter struct {
@@ -70,7 +70,7 @@ Gentle-ments -- our resilience Streams and Handlers
 Resiliency patterns are indispensable in distributed systems because external
 services are not always reliable. Some useful patterns in the forms of
 Streams/Handlers are provided in this package(pun to call them gentle-ments).
-They include rate-limiting, retry(a.k.a back-off), bulkhead and circuit-breaker.
+They include rate-limiting, retry(back-off), bulkhead and circuit-breaker.
 Each of them can be freely composed with other Streams/Handlers as one sees fit.
 
   NewRateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
@@ -85,8 +85,8 @@ Each of them can be freely composed with other Streams/Handlers as one sees fit.
 
 Generally, users call one of the option constructors like
 NewRetryHandlerOpts(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandlerOpts),
-to get an default option object which can be mutated for changing, for instance,
-its logger. Then, pass it it to one of the gentle-ment constructors above.
+to get an option object filled with default values which can be mutated if necessary.
+Then, pass it to one of the gentle-ment constructors above.
 
 Example cont.(error handling is omitted for brevity):
 
@@ -136,8 +136,7 @@ Full example(https://gist.github.com/c2ac4060aaf0fcada38a3d85b3c07a71)
 
 Note that generally an option object(XxxxOpts) is one-off. That is, it should not be
 used to create more than one gentle-ments. It is there for users to mutate the
-default values.
-
+default options.
 
 Composability
 
@@ -150,7 +149,8 @@ nested chain itself.
   AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
   AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
 
-There are also helpers for chaining fallbacks with different semantics.
+There are also helpers for chaining fallbacks with different semantics. Any successful
+fallback in the chain would skip the rest of all.
 
   AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
   AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)

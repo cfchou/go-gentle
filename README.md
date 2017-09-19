@@ -6,9 +6,9 @@ Talk to external services like a gentleman.
 ## Intro
 Package __gentle__ defines __Stream__ and __Handler__ interfaces and provides
 composable resilient implementations(conveniently called __gentle-ments__).
-Please refer to this [comprehensive overview](https://godoc.org/github.com/cfchou/go-gentle/gentle/#pkg-overview). 
+Please refer to this [overview](https://godoc.org/github.com/cfchou/go-gentle/gentle/#pkg-overview). 
 
-Package __extra__  provides supplement components for __gentle__.
+Package __extra__  provides supplement components(logger adaptors, metric collectors, etc.) for __gentle__.
 
 
 ## Example
@@ -22,7 +22,7 @@ type GameScore struct {
 	Score int
 }
 
-// ID is the only method that a gentle.Message must have
+// a gentle.Message must support ID
 func (s GameScore) ID() string {
 	return s.id
 }
@@ -30,7 +30,7 @@ func (s GameScore) ID() string {
 // scoreStream is a gentle.Stream that wraps an API call to an external service for
 // getting game scores.
 // For simple cases that the logic can be defined entirely in a function, we can
-// to just define it to be a gentle.SimpleStream.
+// simply define it to be a gentle.SimpleStream.
 var scoreStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, error) {
 	// simulate a result from an external service
 	return &GameScore{
@@ -39,7 +39,7 @@ var scoreStream gentle.SimpleStream = func(_ context.Context) (gentle.Message, e
 	}, nil
 }
 
-// DbWriter is a gentle.Handler which writes scores to the database.
+// DbWriter is a gentle.Handler that writes scores to the database.
 // Instead of using gentle.SimpleHandler, we define a struct explicitly
 // implementing gentle.Handler interface.
 type DbWriter struct {
