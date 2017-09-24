@@ -38,7 +38,7 @@ func TestRateLimitedHandler_Handle(t *testing.T) {
 	}
 	wg.Wait()
 	dura := time.Since(begin)
-	log.Info("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
+	t.Log("[Test] spent >= minmum?", "spent", dura, "minimum", minimum)
 	assert.True(t, dura >= minimum)
 }
 

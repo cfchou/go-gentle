@@ -73,18 +73,17 @@ Streams/Handlers are provided in this package(pun to call them gentle-ments).
 They include rate-limiting, retry(back-off), bulkhead and circuit-breaker.
 Each of them can be freely composed with other Streams/Handlers as one sees fit.
 
-  NewRateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedStream)
-  NewRetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryStream)
-  NewBulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadStream)
-  NewCircuitStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitStream)
+  RateLimitedStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedStream)
+  RetryStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryStream)
+  BulkheadStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadStream)
+  CircuitStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitStream)
 
-  NewRateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRateLimitedHandler)
-  NewRetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandler)
-  NewBulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewBulkheadHandler)
-  NewCircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewCircuitHandler)
+  RateLimitedHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RateLimitedHandler)
+  RetryHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#RetryHandler)
+  BulkheadHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#BulkheadHandler)
+  CircuitHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#CircuitHandler)
 
-Generally, users call one of the option constructors like
-NewRetryHandlerOpts(https://godoc.org/github.com/cfchou/go-gentle/gentle#NewRetryHandlerOpts),
+Generally, users call one of the option constructors like NewRetryHandlerOpts,
 to get an option object filled with default values which can be mutated if necessary.
 Then, pass it to one of the gentle-ment constructors above.
 
@@ -134,25 +133,34 @@ Example cont.(error handling is omitted for brevity):
 
 Full example(https://gist.github.com/c2ac4060aaf0fcada38a3d85b3c07a71)
 
-Note that generally an option object(XxxxOpts) is one-off. That is, it should not be
-used to create more than one gentle-ments. It is there for users to mutate the
-default options.
+Convention
+
+Throughout the package, we follow a convention to create Streams/Handlers or
+other constructs. Firstly, we calling NewXxxOpts() to obtain an option object
+initialized with default values. An option object is open for mutation. Once its
+values are settled, we'll pass it to the corresponding constructor of gentle-ments.
+
+Note that generally an option object is one-off. That is, it should not be reused
+to construct more than one gentle-ment instance.
 
 Composability
 
 Like gentle-ments, users may define Streams/Handlers to compose other ones the
-way they want. For simple cases, there are helpers
-for chaining Streams/Handlers. Their semantic is that any failing element in the
-chain would skip the rest of all. Also note that any element can also be a
-nested chain itself.
+way they want. For simple cases, there are helpers for chaining Streams/Handlers.
+Their semantic is that any failing element in the chain would skip the rest of all.
+Also note that any element can also be a nested chain itself.
 
   AppendHandlersStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersStream)
   AppendHandlersHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendHandlersHandler)
 
-There are also helpers for chaining fallbacks with different semantics. Any successful
-fallback in the chain would skip the rest of all.
+We also define types of fallback and related helpers for appending a chain of
+fallbacks to Stream/Handler. Any successful fallback in the chain would skip the
+rest of all.
 
+  StreamFallback(https://godoc.org/github.com/cfchou/go-gentle/gentle#StreamFallback)
   AppendFallbacksStream(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksStream)
+
+  HandlerFallback(https://godoc.org/github.com/cfchou/go-gentle/gentle#HandlerFallback)
   AppendFallbacksHandler(https://godoc.org/github.com/cfchou/go-gentle/gentle#AppendFallbacksHandler)
 
 Context Support
@@ -164,10 +172,10 @@ or up-handlers which may also respect context's timeout.
 
 Thread Safety
 
-Stream.Get() and Handler.Handle() should be thread-safe. A good
-practice is to make Stream/Handler state-less. A Message needs not to be
-immutable but it's good to be so. That said, gentle-ments' Get()/Handle() are
-all thread-safe and don't mutate Messages.
+Stream.Get() and Handler.Handle() should be thread-safe. A good practice is to
+make Stream/Handler state-less. A Message needs not to be immutable but it's
+good to be so. That said, gentle-ments' Get()/Handle() are all thread-safe and
+don't mutate Messages.
 
 Logging
 

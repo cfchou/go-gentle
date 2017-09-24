@@ -105,7 +105,7 @@ const (
 	DefaultCbSleepWindow         = 5 * time.Second
 )
 
-// NewDefaultCircuitConf returns a CircuitConf with default values.
+// NewDefaultCircuitConf returns a CircuitConf with default values(https://godoc.org/github.com/cfchou/go-gentle/gentle/#pkg-constants).
 func NewDefaultCircuitConf() *CircuitConf {
 	return &CircuitConf{
 		Timeout:               DefaultCbTimeout,

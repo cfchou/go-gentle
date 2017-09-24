@@ -12,11 +12,12 @@ import (
 // SimpleStream turns a function into a Stream
 type SimpleStream func(context.Context) (Message, error)
 
+// Get emits a message.
 func (r SimpleStream) Get(ctx context.Context) (Message, error) {
 	return r(ctx)
 }
 
-// StreamOpts is options that every XxxxStreamOpts must have.
+// StreamOpts is options that every XxxStreamOpts must have.
 type StreamOpts struct {
 	Namespace  string
 	Name       string
@@ -25,7 +26,7 @@ type StreamOpts struct {
 	TracingRef TracingRef
 }
 
-// Common fields for XxxxStream
+// Common fields for XxxStream
 type streamFields struct {
 	namespace  string
 	name       string
@@ -44,12 +45,14 @@ func newStreamFields(opts *StreamOpts) *streamFields {
 	}
 }
 
+// RateLimitedStreamOpts contains options that'll be used by NewRateLimitedStream.
 type RateLimitedStreamOpts struct {
 	StreamOpts
 	Metric  Metric
 	Limiter RateLimit
 }
 
+// NewRateLimitedStreamOpts returns RateLimitedStreamOpts with default values.
 func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLimitedStreamOpts {
 	return &RateLimitedStreamOpts{
 		StreamOpts: StreamOpts{
@@ -65,16 +68,17 @@ func NewRateLimitedStreamOpts(namespace, name string, limiter RateLimit) *RateLi
 	}
 }
 
-// Rate limiting pattern is used to limit the speed of a series of Get().
-type rateLimitedStream struct {
+// RateLimitedStream is a Stream that runs the upstream in a rate-limited manner.
+type RateLimitedStream struct {
 	*streamFields
 	metric  Metric
 	limiter RateLimit
 	stream  Stream
 }
 
-func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
-	return &rateLimitedStream{
+// NewRateLimitedStream creates a RateLimitedStream to guard the upstream.
+func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) *RateLimitedStream {
+	return &RateLimitedStream{
 		streamFields: newStreamFields(&opts.StreamOpts),
 		metric:       opts.Metric,
 		limiter:      opts.Limiter,
@@ -82,8 +86,8 @@ func NewRateLimitedStream(opts *RateLimitedStreamOpts, upstream Stream) Stream {
 	}
 }
 
-// Get() is blocked when the limit is reached.
-func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
+// Get blocks when requests coming too fast.
+func (r *RateLimitedStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Stream] Get() ...")
@@ -131,6 +135,7 @@ func (r *rateLimitedStream) Get(ctx context.Context) (Message, error) {
 	return msg, nil
 }
 
+// RetryStreamOpts contains options that'll be used by NewRetryStream.
 type RetryStreamOpts struct {
 	StreamOpts
 	RetryMetric RetryMetric
@@ -140,6 +145,7 @@ type RetryStreamOpts struct {
 	BackOffFactory BackOffFactory
 }
 
+// NewRetryStreamOpts returns RetryStreamOpts with default values.
 func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *RetryStreamOpts {
 	return &RetryStreamOpts{
 		StreamOpts: StreamOpts{
@@ -156,9 +162,9 @@ func NewRetryStreamOpts(namespace, name string, backOffFactory BackOffFactory) *
 	}
 }
 
-// retryStream will, when Get() encounters error, back off for some time
+// RetryStream will, when Get() encounters error, back off for some time
 // and then retries.
-type retryStream struct {
+type RetryStream struct {
 	*streamFields
 	retryMetric    RetryMetric
 	clock          clock.Clock
@@ -166,8 +172,9 @@ type retryStream struct {
 	stream         Stream
 }
 
-func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
-	return &retryStream{
+// NewRetryStream creates a RetryStream to guard the upstream.
+func NewRetryStream(opts *RetryStreamOpts, upstream Stream) *RetryStream {
+	return &RetryStream{
 		streamFields:   newStreamFields(&opts.StreamOpts),
 		retryMetric:    opts.RetryMetric,
 		clock:          opts.Clock,
@@ -176,7 +183,8 @@ func NewRetryStream(opts *RetryStreamOpts, upstream Stream) Stream {
 	}
 }
 
-func (r *retryStream) Get(ctx context.Context) (Message, error) {
+// Get retries with back-offs when upstream returns an error.
+func (r *RetryStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Stream] Get() ...")
@@ -266,12 +274,14 @@ func (r *retryStream) Get(ctx context.Context) (Message, error) {
 	}
 }
 
+// BulkheadStreamOpts contains options that'll be used by NewBulkheadStream.
 type BulkheadStreamOpts struct {
 	StreamOpts
 	Metric         Metric
 	MaxConcurrency int
 }
 
+// NewBulkheadStreamOpts returns BulkheadStreamOpts with default values.
 func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *BulkheadStreamOpts {
 	if maxConcurrency <= 0 {
 		panic(errors.New("max_concurrent must be greater than 0"))
@@ -291,20 +301,17 @@ func NewBulkheadStreamOpts(namespace, name string, maxConcurrency int) *Bulkhead
 	}
 }
 
-// Bulkhead pattern is used to limit the number of concurrently hanging Get().
-// It uses semaphore isolation, similar to the approach used in hystrix.
-// http://stackoverflow.com/questions/30391809/what-is-bulkhead-pattern-used-by-hystrix
-type bulkheadStream struct {
+// BulkheadStream is a Stream that limits concurrent access to the upstream.
+type BulkheadStream struct {
 	*streamFields
 	metric    Metric
 	stream    Stream
 	semaphore chan struct{}
 }
 
-// Create a bulkheadStream that allows at maximum $max_concurrency Get() to
-// run concurrently.
-func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
-	return &bulkheadStream{
+// NewBulkheadStream creates a BulkheadStream to guard the upstream.
+func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) *BulkheadStream {
+	return &BulkheadStream{
 		streamFields: newStreamFields(&opts.StreamOpts),
 		metric:       opts.Metric,
 		stream:       upstream,
@@ -312,8 +319,8 @@ func NewBulkheadStream(opts *BulkheadStreamOpts, upstream Stream) Stream {
 	}
 }
 
-// Get() returns ErrMaxConcurrency when passing the threshold.
-func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
+// Get returns ErrMaxConcurrency when running over the threshold.
+func (r *BulkheadStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Stream] Get() ...")
@@ -350,20 +357,18 @@ func (r *bulkheadStream) Get(ctx context.Context) (Message, error) {
 	}
 }
 
-func (r *bulkheadStream) GetMaxConcurrency() int {
-	return cap(r.semaphore)
-}
-
-func (r *bulkheadStream) GetCurrentConcurrency() int {
-	return len(r.semaphore)
-}
-
+// CircuitStreamOpts contains options that'll be used by NewCircuitStream.
 type CircuitStreamOpts struct {
 	StreamOpts
 	CbMetric CbMetric
-	Circuit  string
+	// Circuit is the name of the circuit-breaker to create. Each circuit-breaker
+	// must have an unique name associated to its CircuitConf and internal hystrix metrics.
+	Circuit string
 }
 
+// NewCircuitStreamOpts returns CircuitStreamOpts with default values.
+// Note that circuit is the name of the circuit. Every circuit must have a unique
+// name that maps to its CircuitConf.
 func NewCircuitStreamOpts(namespace, name, circuit string) *CircuitStreamOpts {
 	return &CircuitStreamOpts{
 		StreamOpts: StreamOpts{
@@ -380,18 +385,16 @@ func NewCircuitStreamOpts(namespace, name, circuit string) *CircuitStreamOpts {
 	}
 }
 
-// circuitStream is a Stream equipped with a circuit-breaker.
-type circuitStream struct {
+// CircuitStream is a Stream that guards the upstream with a circuit-breaker.
+type CircuitStream struct {
 	*streamFields
 	cbMetric CbMetric
 	circuit  string
 	stream   Stream
 }
 
-// In hystrix-go, a circuit-breaker must be given a unique name.
-// NewCircuitStream() creates a circuitStream with a
-// circuit-breaker named $circuit.
-func NewCircuitStream(opts *CircuitStreamOpts, stream Stream) Stream {
+// NewCircuitStream creates a CircuitStream to guard the upstream.
+func NewCircuitStream(opts *CircuitStreamOpts, upstream Stream) *CircuitStream {
 
 	// Note that if it might overwrite or be overwritten by concurrently
 	// registering the same circuit.
@@ -400,15 +403,17 @@ func NewCircuitStream(opts *CircuitStreamOpts, stream Stream) Stream {
 		NewDefaultCircuitConf().RegisterFor(opts.Circuit)
 	}
 
-	return &circuitStream{
+	return &CircuitStream{
 		streamFields: newStreamFields(&opts.StreamOpts),
 		cbMetric:     opts.CbMetric,
 		circuit:      opts.Circuit,
-		stream:       stream,
+		stream:       upstream,
 	}
 }
 
-func (r *circuitStream) Get(ctx context.Context) (Message, error) {
+// Get may return errors that generated by the upstream and errors from circuit
+// itself including ErrCircuitOpen, ErrCbMaxConcurrency and ErrCbTimeout.
+func (r *CircuitStream) Get(ctx context.Context) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
 	if err == nil {
 		r.log.For(ctx).Info("[Stream] Get() ...")
@@ -441,7 +446,7 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 	// Capturing error from stream.Get() or from hystrix if criteria met.
 	if err != nil {
 		timespan := time.Since(begin)
-		// To prevent misinterpreting when wrapping one circuitStream
+		// To prevent misinterpreting when wrapping one CircuitStream
 		// over another. Hystrix errors are replaced so that Get() won't return
 		// any hystrix errors.
 		switch err {
@@ -471,6 +476,7 @@ func (r *circuitStream) Get(ctx context.Context) (Message, error) {
 	return msgOut, nil
 }
 
-func (r *circuitStream) GetCircuitName() string {
+// GetCircuitName returns the name of the internal circuit.
+func (r *CircuitStream) GetCircuitName() string {
 	return r.circuit
 }
