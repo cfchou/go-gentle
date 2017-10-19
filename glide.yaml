@@ -27,7 +27,7 @@ import:
   subpackages:
   - gmail/v1
 - package: gopkg.in/inconshreveable/log15.v2
-  version: ^2.11.0
+  version: ~2.11.0
 - package: github.com/cenkalti/backoff
   version: ^1.0.0
 - package: github.com/benbjohnson/clock
