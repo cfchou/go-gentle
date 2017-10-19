@@ -361,9 +361,11 @@ func (r *BulkheadStream) Get(ctx context.Context) (Message, error) {
 type CircuitStreamOpts struct {
 	StreamOpts
 	CbMetric CbMetric
+
 	// Circuit is the name of the circuit-breaker to create. Each circuit-breaker
 	// must have an unique name associated to its CircuitConf and internal hystrix metrics.
-	Circuit string
+	Circuit     string
+	CircuitConf CircuitConf
 }
 
 // NewCircuitStreamOpts returns CircuitStreamOpts with default values.
@@ -382,6 +384,13 @@ func NewCircuitStreamOpts(namespace, name, circuit string) *CircuitStreamOpts {
 		},
 		CbMetric: noopCbMetric,
 		Circuit:  circuit,
+		CircuitConf: CircuitConf{
+			Timeout:               DefaultCbTimeout,
+			MaxConcurrent:         DefaultCbMaxConcurrent,
+			VolumeThreshold:       DefaultCbVolumeThreshold,
+			ErrorPercentThreshold: DefaultCbErrPercentThreshold,
+			SleepWindow:           DefaultCbSleepWindow,
+		},
 	}
 }
 
@@ -395,14 +404,14 @@ type CircuitStream struct {
 
 // NewCircuitStream creates a CircuitStream to guard the upstream.
 func NewCircuitStream(opts *CircuitStreamOpts, upstream Stream) *CircuitStream {
-
-	// Note that if it might overwrite or be overwritten by concurrently
-	// registering the same circuit.
-	allCircuits := hystrix.GetCircuitSettings()
-	if _, ok := allCircuits[opts.Circuit]; !ok {
-		NewDefaultCircuitConf().RegisterFor(opts.Circuit)
-	}
-
+	// Note that if it might overwrite or be overwritten existing setting
+	hystrix.ConfigureCommand(opts.Circuit, hystrix.CommandConfig{
+		Timeout:                int(opts.CircuitConf.Timeout / time.Millisecond),
+		MaxConcurrentRequests:  opts.CircuitConf.MaxConcurrent,
+		RequestVolumeThreshold: opts.CircuitConf.VolumeThreshold,
+		SleepWindow:            int(opts.CircuitConf.SleepWindow / time.Millisecond),
+		ErrorPercentThreshold:  opts.CircuitConf.ErrorPercentThreshold,
+	})
 	return &CircuitStream{
 		streamFields: newStreamFields(&opts.StreamOpts),
 		cbMetric:     opts.CbMetric,

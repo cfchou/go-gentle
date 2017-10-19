@@ -135,3 +135,8 @@ Users can choose a variety of backends that support OpenTracing. Package
 _extra/tracing_ provides an example of using Uber's [jaeger](https://github.com/uber/jaeger)
 as the backend.
 
+
+## Reference
+
+* [Release it](https://pragprog.com/book/mnee/release-it)
+* [Hystrix](https://github.com/Netflix/Hystrix/wiki)

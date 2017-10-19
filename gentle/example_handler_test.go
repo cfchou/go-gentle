@@ -194,15 +194,12 @@ func ExampleNewCircuitHandler_customCircuit() {
 
 	// customize circuit's setting
 	circuit := xid.New().String()
-	conf := NewDefaultCircuitConf()
-	conf.MaxConcurrent = 20
-	conf.RegisterFor(circuit)
+	opts := NewCircuitHandlerOpts("", "test", circuit)
+	opts.CircuitConf.MaxConcurrent = 20
 	// resets all states(incl. metrics) of all circuits.
 	CircuitReset()
 	// create CircuitHandler to protect fakeHandler
-	handler := NewCircuitHandler(
-		NewCircuitHandlerOpts("", "test", circuit),
-		fakeHandler)
+	handler := NewCircuitHandler(opts, fakeHandler)
 
 	count := 100
 	wg := &sync.WaitGroup{}

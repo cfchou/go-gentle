@@ -456,21 +456,18 @@ func TestCircuitHandler_Handle_MaxConcurrency(t *testing.T) {
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitConf()
-	conf.MaxConcurrent = 4
+	opts := NewCircuitHandlerOpts("", "test", circuit)
+	opts.CircuitConf.MaxConcurrent = 4
 	// Set properly to not affect this test:
-	conf.Timeout = time.Minute
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.Timeout = time.Minute
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	handler := NewCircuitHandler(
-		NewCircuitHandlerOpts("", "test", circuit),
-		mhandler)
+	handler := NewCircuitHandler(opts, mhandler)
 	var wg sync.WaitGroup
-	wg.Add(conf.MaxConcurrent)
+	wg.Add(opts.CircuitConf.MaxConcurrent)
 	block := make(chan struct{}, 1)
 	defer close(block)
 	mhandler.On("Handle", mock.Anything, mock.Anything).Return(
@@ -484,7 +481,7 @@ func TestCircuitHandler_Handle_MaxConcurrency(t *testing.T) {
 	ctx := context.Background()
 	mm := SimpleMessage("123")
 
-	for i := 0; i < conf.MaxConcurrent; i++ {
+	for i := 0; i < opts.CircuitConf.MaxConcurrent; i++ {
 		go func() {
 			handler.Handle(ctx, mm)
 		}()
@@ -510,19 +507,16 @@ func TestCircuitHandler_Handle_Timeout(t *testing.T) {
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitConf()
-	conf.Timeout = time.Millisecond
+	opts := NewCircuitHandlerOpts("", "test", circuit)
+	opts.CircuitConf.Timeout = time.Millisecond
 	// Set properly to not affect this test:
-	conf.MaxConcurrent = 4096
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.MaxConcurrent = 4096
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	handler := NewCircuitHandler(
-		NewCircuitHandlerOpts("", "test", circuit),
-		mhandler)
+	handler := NewCircuitHandler(opts, mhandler)
 
 	// Suspend longer than Timeout
 	block := make(chan struct{}, 1)
@@ -552,19 +546,16 @@ func TestCircuitHandler_Handle_Error(t *testing.T) {
 	circuit := xid.New().String()
 	mhandler := &MockHandler{}
 
-	conf := NewDefaultCircuitConf()
+	opts := NewCircuitHandlerOpts("", "test", circuit)
 	// Set properly to not affect this test:
-	conf.MaxConcurrent = 4096
-	conf.Timeout = time.Minute
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.MaxConcurrent = 4096
+	opts.CircuitConf.Timeout = time.Minute
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	handler := NewCircuitHandler(
-		NewCircuitHandlerOpts("", "test", circuit),
-		mhandler)
+	handler := NewCircuitHandler(opts, mhandler)
 	fakeErr := errors.New("fake error")
 
 	mhandler.On("Handle", mock.Anything, mock.Anything).Return((*SimpleMessage)(nil), fakeErr)

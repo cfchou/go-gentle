@@ -451,23 +451,20 @@ func TestCircuitStream_Get_MaxConcurrency(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitConf()
-	conf.MaxConcurrent = 4
+	opts := NewCircuitStreamOpts("", "test", circuit)
+	opts.CircuitConf.MaxConcurrent = 4
 	// Set properly to not affect this test:
-	conf.Timeout = time.Minute
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.Timeout = time.Minute
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", circuit),
-		mstream)
+	stream := NewCircuitStream(opts, mstream)
 	mm := SimpleMessage("123")
 
 	var wg sync.WaitGroup
-	wg.Add(conf.MaxConcurrent)
+	wg.Add(opts.CircuitConf.MaxConcurrent)
 	block := make(chan struct{}, 1)
 	defer close(block)
 	mstream.On("Get", mock.Anything).Return(
@@ -479,7 +476,7 @@ func TestCircuitStream_Get_MaxConcurrency(t *testing.T) {
 		}, nil)
 
 	ctx := context.Background()
-	for i := 0; i < conf.MaxConcurrent; i++ {
+	for i := 0; i < opts.CircuitConf.MaxConcurrent; i++ {
 		go func() {
 			stream.Get(ctx)
 		}()
@@ -505,19 +502,16 @@ func TestCircuitStream_Get_Timeout(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitConf()
-	conf.Timeout = time.Millisecond
+	opts := NewCircuitStreamOpts("", "test", circuit)
+	opts.CircuitConf.Timeout = time.Millisecond
 	// Set properly to not affect this test:
-	conf.MaxConcurrent = 4096
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.MaxConcurrent = 4096
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", circuit),
-		mstream)
+	stream := NewCircuitStream(opts, mstream)
 	mm := SimpleMessage("123")
 
 	// Suspend longer than Timeout
@@ -547,19 +541,16 @@ func TestCircuitStream_Get_Error(t *testing.T) {
 	circuit := xid.New().String()
 	mstream := &MockStream{}
 
-	conf := NewDefaultCircuitConf()
+	opts := NewCircuitStreamOpts("", "test", circuit)
 	// Set properly to not affect this test:
-	conf.MaxConcurrent = 4096
-	conf.Timeout = time.Minute
-	conf.SleepWindow = time.Minute
+	opts.CircuitConf.MaxConcurrent = 4096
+	opts.CircuitConf.Timeout = time.Minute
+	opts.CircuitConf.SleepWindow = time.Minute
 	// Set to quickly open the circuit
-	conf.VolumeThreshold = 3
-	conf.ErrorPercentThreshold = 20
-	conf.RegisterFor(circuit)
+	opts.CircuitConf.VolumeThreshold = 3
+	opts.CircuitConf.ErrorPercentThreshold = 20
 
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", circuit),
-		mstream)
+	stream := NewCircuitStream(opts, mstream)
 	fakeErr := errors.New("fake error")
 
 	mstream.On("Get", mock.Anything).Return((*SimpleMessage)(nil), fakeErr)

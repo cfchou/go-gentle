@@ -5,9 +5,8 @@ resilient implementations of them.
 
 Stream and Handler
 
-Stream and Handler are our fundamental abstractions to achieve back-pressure.
-Stream has Get() that emits Messages. Handler has Handle() that transforms
-given Messages.
+Stream and Handler are our fundamental abstractions. Stream has Get() that emits
+Messages. Handler has Handle() that transforms given Messages.
 
   Message(https://godoc.org/github.com/cfchou/go-gentle/gentle#Message)
   Stream(https://godoc.org/github.com/cfchou/go-gentle/gentle#Stream)

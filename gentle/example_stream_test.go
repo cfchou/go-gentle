@@ -204,15 +204,12 @@ func ExampleNewCircuitStream_customCircuit() {
 
 	// customize circuit's setting
 	circuit := xid.New().String()
-	conf := NewDefaultCircuitConf()
-	conf.MaxConcurrent = 20
-	conf.RegisterFor(circuit)
+	opts := NewCircuitStreamOpts("", "test", circuit)
+	opts.CircuitConf.MaxConcurrent = 20
 	// resets all states(incl. metrics) of all circuits.
 	CircuitReset()
 	// create CircuitStream to protect fakeStream
-	stream := NewCircuitStream(
-		NewCircuitStreamOpts("", "test", circuit),
-		fakeStream)
+	stream := NewCircuitStream(opts, fakeStream)
 
 	count := 100
 	wg := &sync.WaitGroup{}

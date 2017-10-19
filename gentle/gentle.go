@@ -105,17 +105,6 @@ const (
 	DefaultCbSleepWindow         = 5 * time.Second
 )
 
-// NewDefaultCircuitConf returns a CircuitConf with default values(https://godoc.org/github.com/cfchou/go-gentle/gentle/#pkg-constants).
-func NewDefaultCircuitConf() *CircuitConf {
-	return &CircuitConf{
-		Timeout:               DefaultCbTimeout,
-		MaxConcurrent:         DefaultCbMaxConcurrent,
-		VolumeThreshold:       DefaultCbVolumeThreshold,
-		ErrorPercentThreshold: DefaultCbErrPercentThreshold,
-		SleepWindow:           DefaultCbSleepWindow,
-	}
-}
-
 // RegisterFor applies the CircuitConf to a circuit-breaker identified by its name.
 func (c *CircuitConf) RegisterFor(circuit string) {
 	hystrix.ConfigureCommand(circuit, hystrix.CommandConfig{

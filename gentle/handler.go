@@ -364,7 +364,8 @@ type CircuitHandlerOpts struct {
 	CbMetric CbMetric
 	// Circuit is the name of the circuit-breaker to create. Each circuit-breaker
 	// must have an unique name associated to its CircuitConf and internal hystrix metrics.
-	Circuit string
+	Circuit     string
+	CircuitConf CircuitConf
 }
 
 // NewCircuitHandlerOpts returns CircuitHandlerOpts with default values.
@@ -383,6 +384,13 @@ func NewCircuitHandlerOpts(namespace, name, circuit string) *CircuitHandlerOpts 
 		},
 		CbMetric: noopCbMetric,
 		Circuit:  circuit,
+		CircuitConf: CircuitConf{
+			Timeout:               DefaultCbTimeout,
+			MaxConcurrent:         DefaultCbMaxConcurrent,
+			VolumeThreshold:       DefaultCbVolumeThreshold,
+			ErrorPercentThreshold: DefaultCbErrPercentThreshold,
+			SleepWindow:           DefaultCbSleepWindow,
+		},
 	}
 }
 
@@ -396,6 +404,14 @@ type CircuitHandler struct {
 
 // NewCircuitHandler creates a CircuitHandler to guard the up-handler.
 func NewCircuitHandler(opts *CircuitHandlerOpts, upHandler Handler) *CircuitHandler {
+	// Note that if it might overwrite or be overwritten existing setting
+	hystrix.ConfigureCommand(opts.Circuit, hystrix.CommandConfig{
+		Timeout:                int(opts.CircuitConf.Timeout / time.Millisecond),
+		MaxConcurrentRequests:  opts.CircuitConf.MaxConcurrent,
+		RequestVolumeThreshold: opts.CircuitConf.VolumeThreshold,
+		SleepWindow:            int(opts.CircuitConf.SleepWindow / time.Millisecond),
+		ErrorPercentThreshold:  opts.CircuitConf.ErrorPercentThreshold,
+	})
 	return &CircuitHandler{
 		handlerFields: newHandlerFields(&opts.HandlerOpts),
 		cbMetric:      opts.CbMetric,
