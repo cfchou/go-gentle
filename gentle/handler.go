@@ -91,13 +91,15 @@ func NewRateLimitedHandler(opts *RateLimitedHandlerOpts, upHandler Handler) *Rat
 // Handle blocks when requests coming too fast.
 func (r *RateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	var log Logger
 	if err == nil {
-		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
+		log = r.log.For(ctx)
+		log.Info("Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
-			"err", err)
+		log = r.log.Bg()
+		log.Info("Handle() no span ...", "msgIn", msg.ID())
 	}
 	begin := time.Now()
 
@@ -112,7 +114,7 @@ func (r *RateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	case <-ctx.Done():
 		timespan := time.Since(begin)
 		err := ctx.Err()
-		r.log.For(ctx).Warn("[Handler] Handle() err", "msgIn", msg.ID(),
+		log.Warn("Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
@@ -121,12 +123,12 @@ func (r *RateLimitedHandler) Handle(ctx context.Context, msg Message) (Message, 
 	msgOut, err := r.handler.Handle(ctx, msg)
 	timespan := time.Since(begin)
 	if err != nil {
-		r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
+		log.Error("Handle() err", "msgIn", msg.ID(),
 			"err", err, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, err
 	}
-	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+	log.Debug("Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 	r.metric.ObserveOk(timespan)
 	return msgOut, nil
@@ -183,19 +185,21 @@ func NewRetryHandler(opts *RetryHandlerOpts, upHandler Handler) *RetryHandler {
 // Handle retries with back-offs when up-handler returns an error.
 func (r *RetryHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	var log Logger
 	if err == nil {
-		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
+		log = r.log.For(ctx)
+		log.Info("Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
-			"err", err)
+		log = r.log.Bg()
+		log.Info("Handle() no span ...", "msgIn", msg.ID())
 	}
 	begin := r.clock.Now()
 
 	returnOk := func(info string, msgIn, msgOut Message, retry int) (Message, error) {
 		timespan := r.clock.Now().Sub(begin)
-		r.log.For(ctx).Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
+		log.Debug(info, "msgIn", msgIn.ID(), "msgOut", msgOut.ID(),
 			"timespan", timespan.Seconds(), "retry", retry)
 		r.retryMetric.ObserveOk(timespan, retry)
 		return msgOut, nil
@@ -203,10 +207,10 @@ func (r *RetryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	returnNotOk := func(lvl, info string, msgIn Message, err error, retry int) (Message, error) {
 		timespan := r.clock.Now().Sub(begin)
 		if lvl == "warn" {
-			r.log.For(ctx).Warn(info, "msgIn", msgIn.ID(), "err", err,
+			log.Warn(info, "msgIn", msgIn.ID(), "err", err,
 				"timespan", timespan.Seconds(), "retry", retry)
 		} else {
-			r.log.For(ctx).Error(info, "msgIn", msgIn.ID(), "err", err,
+			log.Error(info, "msgIn", msgIn.ID(), "err", err,
 				"timespan", timespan.Seconds(), "retry", retry)
 		}
 		r.retryMetric.ObserveErr(timespan, retry)
@@ -228,21 +232,21 @@ func (r *RetryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 	var backOff BackOff
 	select {
 	case <-ctx.Done():
-		return returnWarn("[Handler] NewBackOff() interrupted", msg, ctx.Err(), retry)
+		return returnWarn("NewBackOff() interrupted", msg, ctx.Err(), retry)
 	case backOff = <-c:
 	}
 	for {
 		msgOut, err := r.handler.Handle(ctx, msg)
 		if err == nil {
 			// If it's interrupt at this point, we choose to return successfully.
-			return returnOk("[Handler] Handle() ok", msg, msgOut, retry)
+			return returnOk("Handle() ok", msg, msgOut, retry)
 		}
 		if ctx.Err() != nil {
 			// This check is an optimization in that it still could be captured
 			// in the latter select.
 			// Cancellation happens likely during handler.Handle(). We choose to
 			// report ctx.Err() instead of err
-			return returnWarn("[Handler] Handle() interrupted", msg, ctx.Err(), retry)
+			return returnWarn("Handle() interrupted", msg, ctx.Err(), retry)
 		}
 		// In case BackOff.Next() takes too much time
 		c := make(chan time.Duration, 1)
@@ -252,20 +256,20 @@ func (r *RetryHandler) Handle(ctx context.Context, msg Message) (Message, error)
 		var toWait time.Duration
 		select {
 		case <-ctx.Done():
-			return returnWarn("[Handler] Next() interrupted", msg, ctx.Err(), retry)
+			return returnWarn("Next() interrupted", msg, ctx.Err(), retry)
 		case toWait = <-c:
 			if toWait == BackOffStop {
-				return returnErr("[Handler] Handle() err and BackOffStop", msg, err, retry)
+				return returnErr("Handle() err and BackOffStop", msg, err, retry)
 			}
 		}
-		r.log.For(ctx).Debug("[Handler] Handle() err, backing off ...",
+		log.Debug("Handle() err, backing off ...",
 			"err", err, "elapsed", r.clock.Now().Sub(begin).Seconds(), "retry", retry,
 			"backoff", toWait.Seconds())
 		tm := r.clock.Timer(toWait)
 		select {
 		case <-ctx.Done():
 			tm.Stop()
-			return returnWarn("[Handler] wait interrupted", msg, ctx.Err(), retry)
+			return returnWarn("wait interrupted", msg, ctx.Err(), retry)
 		case <-tm.C:
 		}
 		retry++
@@ -321,13 +325,15 @@ func NewBulkheadHandler(opts *BulkheadHandlerOpts, upHandler Handler) *BulkheadH
 // Handle returns ErrMaxConcurrency when running over the threshold.
 func (r *BulkheadHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	var log Logger
 	if err == nil {
-		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
+		log = r.log.For(ctx)
+		log.Info("Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
-			"err", err)
+		log = r.log.Bg()
+		log.Info("Handle() no span ...", "msgIn", msg.ID())
 	}
 	begin := time.Now()
 
@@ -339,18 +345,18 @@ func (r *BulkheadHandler) Handle(ctx context.Context, msg Message) (Message, err
 		msgOut, err := r.handler.Handle(ctx, msg)
 		timespan := time.Since(begin)
 		if err != nil {
-			r.log.For(ctx).Error("[Handler] Handle() err", "msgIn", msg.ID(),
+			log.Error("Handle() err", "msgIn", msg.ID(),
 				"err", err, "timespan", timespan.Seconds())
 			r.metric.ObserveErr(timespan)
 			return nil, err
 		}
-		r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+		log.Debug("Handle() ok", "msgIn", msg.ID(),
 			"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 		r.metric.ObserveOk(timespan)
 		return msgOut, nil
 	default:
 		timespan := time.Since(begin)
-		r.log.For(ctx).Error("[Hander] Handle() err", "msgIn", msg.ID(),
+		log.Error("[Hander] Handle() err", "msgIn", msg.ID(),
 			"err", ErrMaxConcurrency, "timespan", timespan.Seconds())
 		r.metric.ObserveErr(timespan)
 		return nil, ErrMaxConcurrency
@@ -424,13 +430,15 @@ func NewCircuitHandler(opts *CircuitHandlerOpts, upHandler Handler) *CircuitHand
 // itself including ErrCircuitOpen, ErrCbMaxConcurrency and ErrCbTimeout.
 func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, error) {
 	ctx, err := contextWithNewSpan(ctx, r.tracer, r.tracingRef)
+	var log Logger
 	if err == nil {
-		r.log.For(ctx).Info("[Handler] Handle() ...", "msgIn", msg.ID())
+		log = r.log.For(ctx)
+		log.Info("Handle() ...", "msgIn", msg.ID())
 		span := opentracing.SpanFromContext(ctx)
 		defer span.Finish()
 	} else {
-		r.log.Bg().Info("[Handler] Handle(), no span", "msgIn", msg.ID(),
-			"err", err)
+		log = r.log.Bg()
+		log.Info("Handle() no span ...", "msgIn", msg.ID())
 	}
 	begin := time.Now()
 
@@ -439,7 +447,7 @@ func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		msgOut, err := r.handler.Handle(ctx, msg)
 		timespan := time.Since(begin).Seconds()
 		if err != nil {
-			r.log.For(ctx).Error("[Handler] handler.Handle() err",
+			log.Error("handler.Handle() err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan)
 			// NOTE:
 			// 1. This err could be captured outside if a hystrix's error
@@ -447,7 +455,7 @@ func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 			// 2. Being captured or not, it contributes to hystrix metrics.
 			return err
 		}
-		r.log.For(ctx).Debug("[Handler] handller.Handle() ok",
+		log.Debug("handler.Handle() ok",
 			"msgIn", msg.ID(), "msgOut", msgOut.ID(),
 			"timespan", timespan)
 		result <- msgOut
@@ -463,15 +471,15 @@ func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 		switch err {
 		case hystrix.ErrCircuitOpen:
 			err = ErrCbOpen
-			r.log.For(ctx).Error("[Handler] Circuit err",
+			log.Error("Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		case hystrix.ErrMaxConcurrency:
 			err = ErrCbMaxConcurrency
-			r.log.For(ctx).Error("[Handler] Circuit err",
+			log.Error("Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		case hystrix.ErrTimeout:
 			err = ErrCbTimeout
-			r.log.For(ctx).Error("[Handler] Circuit err",
+			log.Error("Circuit err",
 				"msgIn", msg.ID(), "err", err, "timespan", timespan.Seconds())
 		default:
 			// Captured error from handler.Get()
@@ -481,7 +489,7 @@ func (r *CircuitHandler) Handle(ctx context.Context, msg Message) (Message, erro
 	}
 	msgOut := (<-result).(Message)
 	timespan := time.Since(begin)
-	r.log.For(ctx).Debug("[Handler] Handle() ok", "msgIn", msg.ID(),
+	log.Debug("Handle() ok", "msgIn", msg.ID(),
 		"msgOut", msgOut.ID(), "timespan", timespan.Seconds())
 	r.cbMetric.ObserveOk(timespan)
 	return msgOut, nil
