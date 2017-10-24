@@ -125,8 +125,10 @@ Example cont.(error handling is omitted for brevity):
 		ticketPool := make(chan struct{}, 1000)
 		for {
 			ticketPool <- struct{}{}
-			go stream.Get(context.Background())
-			<-ticketPool
+			go func() {
+				defer func(){ <-ticketPool }()
+				stream.Get(context.Background())
+			}()
 		}
 	}
 
